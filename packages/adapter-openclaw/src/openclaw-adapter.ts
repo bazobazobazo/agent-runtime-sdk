@@ -2,7 +2,9 @@ import {
   RuntimeError,
   assertStartRunInput,
   connectionFingerprint,
+  isTerminalEvent,
   normalizeEndpoint,
+  runtimeEventBase,
   validateInputCapabilities,
   withDeadline,
   type AgentRuntimeAdapter,
@@ -33,7 +35,7 @@ import { OpenClawRequestManager } from './transport/request-manager.js';
 import { OpenClawProtocolRegistry } from './protocol/registry.js';
 import { openClawV3Codec } from './protocol/v3/codec.js';
 import { openClawV4Codec } from './protocol/v4/codec.js';
-import type { OpenClawHello, OpenClawProtocolCodec } from './protocol/types.js';
+import type { OpenClawFrame, OpenClawHello, OpenClawProtocolCodec } from './protocol/types.js';
 import { normalizeOpenClawHistory } from './mapping/transcript.js';
 
 export type OpenClawAdapterOptions = {
@@ -52,6 +54,7 @@ export type OpenClawAdapterOptions = {
   devicePairing?: 'disabled' | 'stored' | 'request';
   maxFrameBytes?: number;
   subscriberQueueSize?: number;
+  includeRawProviderPayload?: boolean;
 };
 
 type ConnectedState = {
@@ -222,10 +225,24 @@ export class OpenClawAdapter implements AgentRuntimeAdapter {
     const capabilities = await this.capabilities();
     validateInputCapabilities(capabilities, input.input);
     const state = this.requireConnected();
-    const response = await state.dispatcher.request<Record<string, unknown>>(state.codec.buildRunStart(input), {
-      signal: options?.signal,
-    });
-    const externalRunId = stringValue(response.runId) ?? stringValue(response.id) ?? input.applicationRunId;
+    let response: Record<string, unknown>;
+    try {
+      response = await state.dispatcher.request<Record<string, unknown>>(state.codec.buildRunStart(input), {
+        signal: options?.signal,
+      });
+    } catch (error) {
+      throw this.mapRunStartTransportError(error);
+    }
+    const externalRunId = stringValue(response.runId) ?? stringValue(response.id);
+    if (!externalRunId) {
+      throw new RuntimeError({
+        code: 'PROVIDER_ERROR',
+        retryable: false,
+        adapterId: this.adapterId,
+        message: 'OpenClaw accepted run start without returning a provider run id',
+        details: { method: 'chat.send' },
+      });
+    }
     return {
       applicationRunId: input.applicationRunId,
       externalRunId,
@@ -234,11 +251,9 @@ export class OpenClawAdapter implements AgentRuntimeAdapter {
     };
   }
 
-  async *streamRun(input: StreamRuntimeRunInput): AsyncIterable<RuntimeEvent> {
+  streamRun(input: StreamRuntimeRunInput): AsyncIterable<RuntimeEvent> {
     const state = this.requireConnected();
-    for await (const frame of state.dispatcher.subscribe()) {
-      yield* state.codec.mapProviderEvent(frame, input);
-    }
+    return new OpenClawRunEventStream(state, this.deps, input, this.options.includeRawProviderPayload ?? false);
   }
 
   async getRun(input: GetRuntimeRunInput, options?: OperationOptions): Promise<RuntimeRunSnapshot> {
@@ -384,6 +399,29 @@ export class OpenClawAdapter implements AgentRuntimeAdapter {
     return this.connected;
   }
 
+  private mapRunStartTransportError(error: unknown): RuntimeError {
+    if (error instanceof RuntimeError) {
+      if (error.code === 'NETWORK' || error.code === 'TIMEOUT') {
+        return new RuntimeError({
+          code: 'OUTCOME_UNKNOWN',
+          retryable: true,
+          adapterId: this.adapterId,
+          message: 'OpenClaw run start outcome is unknown',
+          details: { originalCode: error.code },
+          cause: error,
+        });
+      }
+      return error;
+    }
+    return new RuntimeError({
+      code: 'OUTCOME_UNKNOWN',
+      retryable: true,
+      adapterId: this.adapterId,
+      message: 'OpenClaw run start outcome is unknown',
+      cause: error,
+    });
+  }
+
   private async buildSignedDeviceProof(
     identity: StoredOpenClawDeviceIdentity,
     auth: NonNullable<RuntimeConnectionConfig['auth']>,
@@ -490,6 +528,138 @@ export function createOpenClawAdapterFactory(options?: OpenClawAdapterOptions) {
     adapterId: 'openclaw',
     create: (dependencies: RuntimeAdapterDependencies) => new OpenClawAdapter(dependencies, options),
   };
+}
+
+class OpenClawRunEventStream implements AsyncIterableIterator<RuntimeEvent> {
+  private readonly iterator: AsyncIterator<Extract<OpenClawFrame, { type: 'event' }>>;
+  private readonly stream: OpenClawRunStreamState;
+  private readonly buffer: RuntimeEvent[] = [];
+  private done = false;
+
+  constructor(
+    private readonly state: ConnectedState,
+    private readonly deps: RuntimeAdapterDependencies,
+    private readonly input: StreamRuntimeRunInput,
+    private readonly includeRawProviderPayload: boolean,
+  ) {
+    this.iterator = state.dispatcher.subscribe()[Symbol.asyncIterator]();
+    this.stream = new OpenClawRunStreamState(deps, input);
+  }
+
+  [Symbol.asyncIterator](): AsyncIterableIterator<RuntimeEvent> {
+    return this;
+  }
+
+  async next(): Promise<IteratorResult<RuntimeEvent>> {
+    while (this.buffer.length === 0 && !this.done) {
+      const next = await this.iterator.next();
+      if (next.done) {
+        this.done = true;
+        this.stream.close();
+        break;
+      }
+      await this.acceptFrame(next.value);
+    }
+
+    const value = this.buffer.shift();
+    return value ? { value, done: false } : { value: undefined, done: true };
+  }
+
+  async return(): Promise<IteratorResult<RuntimeEvent>> {
+    await this.close();
+    return { value: undefined, done: true };
+  }
+
+  async throw(error?: unknown): Promise<IteratorResult<RuntimeEvent>> {
+    await this.close();
+    throw error;
+  }
+
+  private async acceptFrame(frame: Extract<OpenClawFrame, { type: 'event' }>): Promise<void> {
+    const mapped = this.state.codec.mapProviderEvent(frame, {
+      ...this.input,
+      clock: this.deps.clock,
+      ids: this.deps.ids,
+      includeRawProviderPayload: this.includeRawProviderPayload,
+    });
+    if (mapped.length === 0) return;
+
+    const metadata = this.state.codec.extractProviderEventMetadata(frame);
+    const gap = this.stream.acceptSequence(metadata.sequence);
+    if (gap) this.buffer.push(gap);
+
+    for (const event of mapped) {
+      if (!this.stream.acceptEvent(event)) continue;
+      this.buffer.push(event);
+      if (isTerminalEvent(event)) {
+        await this.close();
+        return;
+      }
+    }
+  }
+
+  private async close(): Promise<void> {
+    if (this.done) return;
+    this.done = true;
+    this.stream.close();
+    await this.iterator.return?.();
+  }
+}
+
+class OpenClawRunStreamState {
+  private readonly seenEventIds: string[] = [];
+  private readonly seenEventIdSet = new Set<string>();
+  private lastSequence?: number;
+  private terminal = false;
+
+  constructor(
+    private readonly deps: RuntimeAdapterDependencies,
+    private readonly input: StreamRuntimeRunInput,
+    private readonly maxSeenEvents = 512,
+  ) {}
+
+  acceptSequence(sequence?: number): RuntimeEvent | undefined {
+    if (sequence == null) return undefined;
+    if (this.lastSequence != null && sequence <= this.lastSequence) return undefined;
+    const expected = this.lastSequence == null ? sequence : this.lastSequence + 1;
+    const hasGap = this.lastSequence != null && sequence !== expected;
+    this.lastSequence = sequence;
+    if (!hasGap) return undefined;
+    return {
+      ...runtimeEventBase({
+        ids: { id: () => `${this.input.externalRunId}:gap:${expected}:${sequence}` },
+        now: this.deps.clock.now(),
+        type: 'transport.gap',
+        applicationRunId: this.input.applicationRunId,
+        externalRunId: this.input.externalRunId,
+        externalSessionId: this.input.externalSessionId,
+        sequence,
+        provider: { adapterId: 'openclaw', eventName: 'sequence.gap' },
+      }),
+      type: 'transport.gap',
+      expected,
+      actual: sequence,
+    };
+  }
+
+  acceptEvent(event: RuntimeEvent): boolean {
+    if (this.terminal && isTerminalEvent(event)) return false;
+    if (this.seenEventIdSet.has(event.eventId)) return false;
+    this.seenEventIdSet.add(event.eventId);
+    this.seenEventIds.push(event.eventId);
+    if (this.seenEventIds.length > this.maxSeenEvents) {
+      const oldest = this.seenEventIds.shift();
+      if (oldest) this.seenEventIdSet.delete(oldest);
+    }
+    if (isTerminalEvent(event)) this.terminal = true;
+    return true;
+  }
+
+  close(): void {
+    this.terminal = true;
+    this.seenEventIds.length = 0;
+    this.seenEventIdSet.clear();
+  }
 }
 
 async function waitForChallenge(

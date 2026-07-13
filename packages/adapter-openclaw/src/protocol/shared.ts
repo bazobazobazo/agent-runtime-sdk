@@ -14,6 +14,7 @@ import type {
   OpenClawConnectInput,
   OpenClawFrame,
   OpenClawHello,
+  OpenClawProviderEventMetadata,
   OpenClawProtocolCodec,
   OpenClawRpcRequest,
   OpenClawRunContext,
@@ -79,6 +80,8 @@ export abstract class BaseOpenClawCodec implements OpenClawProtocolCodec {
         event: parsed.event,
         payload: parsed.payload,
         seq: numberValue(parsed.seq ?? parsed.sequence),
+        eventId: stringValue(parsed.id ?? parsed.eventId),
+        timestamp: stringValue(parsed.timestamp ?? parsed.createdAt),
       };
     }
     throw new RuntimeError({
@@ -93,37 +96,70 @@ export abstract class BaseOpenClawCodec implements OpenClawProtocolCodec {
     return JSON.stringify({ type: 'req', id: input.id, method: input.method, params: input.params ?? {} });
   }
 
+  extractProviderEventMetadata(event: Extract<OpenClawFrame, { type: 'event' }>): OpenClawProviderEventMetadata {
+    const payload = asRecord(event.payload);
+    const run = asRecord(payload.run);
+    const session = asRecord(payload.session);
+    const status = stringValue(payload.status ?? run.status);
+    return {
+      eventType: event.event,
+      providerRunId:
+        stringValue(payload.runId) ??
+        stringValue(payload.run_id) ??
+        stringValue(payload.providerRunId) ??
+        stringValue(payload.externalRunId) ??
+        stringValue(run.id) ??
+        stringValue(run.runId),
+      sessionKey:
+        stringValue(payload.sessionKey) ??
+        stringValue(payload.session_key) ??
+        stringValue(payload.sessionId) ??
+        stringValue(payload.session_id) ??
+        stringValue(session.key) ??
+        stringValue(session.id),
+      providerEventId:
+        event.eventId ??
+        stringValue(payload.eventId) ??
+        stringValue(payload.event_id) ??
+        stringValue(payload.providerEventId) ??
+        stringValue(payload.id),
+      sequence: event.seq ?? numberValue(payload.seq ?? payload.sequence),
+      occurredAt:
+        validTimestamp(event.timestamp) ??
+        validTimestamp(stringValue(payload.timestamp ?? payload.createdAt ?? payload.created_at ?? payload.time)),
+      terminal: terminalOutcome(event.event, status),
+    };
+  }
+
   mapProviderEvent(event: Extract<OpenClawFrame, { type: 'event' }>, context: OpenClawRunContext): RuntimeEvent[] {
-    const now = new Date();
-    const base = runtimeEventBase({
-      ids: { id: () => `${event.event}:${event.seq ?? now.getTime()}` },
-      now,
-      type: 'transport.warning',
-      applicationRunId: context.applicationRunId,
-      externalRunId: context.externalRunId,
-      externalSessionId: context.externalSessionId,
-      sequence: event.seq,
-      provider: { adapterId: 'openclaw', eventName: event.event, raw: event.payload },
-    });
+    const metadata = this.extractProviderEventMetadata(event);
+    if (!eventMatchesRun(metadata, context)) return [];
 
     const payload = asRecord(event.payload);
     const text = stringValue(payload.text ?? payload.delta ?? payload.message ?? payload.content);
     const status = stringValue(payload.status);
+    const occurredAt = eventOccurredAt(metadata, context);
+    const provider = {
+      adapterId: 'openclaw',
+      eventName: event.event,
+      ...(context.includeRawProviderPayload ? { raw: sanitizeProviderPayload(event.payload) } : {}),
+    };
 
-    if (/delta|chunk|message/.test(event.event) && text) {
-      return [{ ...base, type: 'assistant.delta', delta: text }];
+    if (isDeltaEvent(event.event) && text) {
+      return [{ ...eventBase('assistant.delta', context, metadata, occurredAt, provider), type: 'assistant.delta', delta: text }];
     }
-    if (/final|completed/.test(event.event) && text) {
-      return [
-        { ...base, type: 'assistant.completed', text },
-        { ...base, type: 'run.completed' },
-      ];
+    if (isCompletedEvent(event.event) || metadata.terminal === 'completed' || status === 'completed') {
+      const events: RuntimeEvent[] = [];
+      if (text) {
+        events.push({ ...eventBase('assistant.completed', context, metadata, occurredAt, provider), type: 'assistant.completed', text });
+      }
+      events.push({ ...eventBase('run.completed', context, metadata, occurredAt, provider), type: 'run.completed' });
+      return events;
     }
-    if (status === 'completed') return [{ ...base, type: 'run.completed' }];
-    if (status === 'failed') {
+    if (metadata.terminal === 'failed' || status === 'failed') {
       return [
         {
-          ...base,
+          ...eventBase('run.failed', context, metadata, occurredAt, provider),
           type: 'run.failed',
           error: {
             code: 'PROVIDER_ERROR',
@@ -133,7 +169,28 @@ export abstract class BaseOpenClawCodec implements OpenClawProtocolCodec {
         },
       ];
     }
-    return [{ ...base, type: 'transport.warning', warning: `Unmapped OpenClaw event ${event.event}` }];
+    if (metadata.terminal === 'cancelled' || status === 'cancelled' || status === 'canceled') {
+      return [{ ...eventBase('run.cancelled', context, metadata, occurredAt, provider), type: 'run.cancelled' }];
+    }
+    if (metadata.terminal === 'timeout' || status === 'timeout' || status === 'timed_out') {
+      return [
+        {
+          ...eventBase('run.failed', context, metadata, occurredAt, provider),
+          type: 'run.failed',
+          error: { code: 'TIMEOUT', message: 'OpenClaw run timed out', retryable: true },
+        },
+      ];
+    }
+    if (isRunScopedDiagnosticEvent(event.event)) {
+      return [
+        {
+          ...eventBase('transport.warning', context, metadata, occurredAt, provider),
+          type: 'transport.warning',
+          warning: `Unmapped OpenClaw event ${event.event}`,
+        },
+      ];
+    }
+    return [];
   }
 
   mapError(error: unknown): RuntimeError {
@@ -216,7 +273,7 @@ export abstract class BaseOpenClawCodec implements OpenClawProtocolCodec {
         cancel: methods.size === 0 || methods.has('chat.abort') || methods.has('sessions.abort'),
         approvals: (hello?.events ?? []).some((event) => event.includes('approval')),
       },
-      input: { text: true, images: Boolean(hello?.features.images), files: false },
+      input: { text: true, images: false, files: false },
       output: {
         text: true,
         reasoning: Boolean(hello?.features.reasoning),
@@ -315,4 +372,111 @@ function authPayload(auth: OpenClawConnectInput['auth'], deviceToken?: string): 
 
 function compactObject(value: Record<string, unknown>): Record<string, unknown> {
   return Object.fromEntries(Object.entries(value).filter(([, nested]) => nested !== undefined));
+}
+
+function eventMatchesRun(metadata: OpenClawProviderEventMetadata, context: OpenClawRunContext): boolean {
+  if (metadata.providerRunId) {
+    if (metadata.providerRunId !== context.externalRunId) return false;
+    return !metadata.sessionKey || metadata.sessionKey === context.externalSessionId;
+  }
+  if (!metadata.sessionKey || metadata.sessionKey !== context.externalSessionId) return false;
+  return isSessionScopedRunEvent(metadata.eventType);
+}
+
+function eventOccurredAt(metadata: OpenClawProviderEventMetadata, context: OpenClawRunContext): Date {
+  return metadata.occurredAt ? new Date(metadata.occurredAt) : context.clock.now();
+}
+
+function eventBase(
+  type: RuntimeEvent['type'],
+  context: OpenClawRunContext,
+  metadata: OpenClawProviderEventMetadata,
+  now: Date,
+  provider: NonNullable<ReturnType<typeof runtimeEventBase>['provider']>,
+) {
+  return runtimeEventBase({
+    ids: { id: () => providerEventId(metadata, type, context) ?? context.ids.id() },
+    now,
+    type,
+    applicationRunId: context.applicationRunId,
+    externalRunId: context.externalRunId,
+    externalSessionId: context.externalSessionId,
+    sequence: metadata.sequence,
+    provider,
+  });
+}
+
+function providerEventId(
+  metadata: OpenClawProviderEventMetadata,
+  type: RuntimeEvent['type'],
+  context: OpenClawRunContext,
+): string | undefined {
+  if (metadata.providerEventId) return `${metadata.providerEventId}:${type}`;
+  if (metadata.providerRunId && metadata.sequence != null) return `${metadata.providerRunId}:${metadata.sequence}:${type}`;
+  if (!metadata.providerRunId && metadata.sessionKey && metadata.sequence != null) {
+    return `${context.externalRunId}:${metadata.sessionKey}:${metadata.sequence}:${type}`;
+  }
+  return undefined;
+}
+
+function terminalOutcome(eventType: string, status?: string): OpenClawProviderEventMetadata['terminal'] {
+  if (status === 'completed') return 'completed';
+  if (status === 'failed' || status === 'error') return 'failed';
+  if (status === 'cancelled' || status === 'canceled') return 'cancelled';
+  if (status === 'timeout' || status === 'timed_out') return 'timeout';
+  if (isCompletedEvent(eventType)) return 'completed';
+  if (eventType === 'chat.failed' || eventType === 'run.failed' || eventType === 'agent.failed') return 'failed';
+  if (eventType === 'chat.cancelled' || eventType === 'chat.canceled' || eventType === 'run.cancelled') return 'cancelled';
+  if (eventType === 'chat.timeout' || eventType === 'run.timeout') return 'timeout';
+  return undefined;
+}
+
+function isDeltaEvent(eventType: string): boolean {
+  return eventType === 'chat.delta' || eventType === 'assistant.delta' || eventType === 'run.delta';
+}
+
+function isCompletedEvent(eventType: string): boolean {
+  return eventType === 'chat.completed' || eventType === 'assistant.completed' || eventType === 'run.completed';
+}
+
+function isSessionScopedRunEvent(eventType: string): boolean {
+  return (
+    isDeltaEvent(eventType) ||
+    isCompletedEvent(eventType) ||
+    eventType === 'chat.failed' ||
+    eventType === 'run.failed' ||
+    eventType === 'agent.failed' ||
+    eventType === 'chat.cancelled' ||
+    eventType === 'chat.canceled' ||
+    eventType === 'run.cancelled' ||
+    eventType === 'chat.timeout' ||
+    eventType === 'run.timeout'
+  );
+}
+
+function isRunScopedDiagnosticEvent(eventType: string): boolean {
+  return eventType === 'chat.warning' || eventType === 'run.warning' || eventType === 'transport.warning';
+}
+
+function validTimestamp(value?: string): string | undefined {
+  if (!value) return undefined;
+  const timestamp = Date.parse(value);
+  return Number.isFinite(timestamp) ? new Date(timestamp).toISOString() : undefined;
+}
+
+const SENSITIVE_PROVIDER_KEY = /(token|authorization|signature|cookie|password|secret|credential|private.?key|device.?token)/i;
+
+function sanitizeProviderPayload(value: unknown): unknown {
+  if (value == null) return value;
+  if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') return value;
+  if (Array.isArray(value)) return value.slice(0, 50).map(sanitizeProviderPayload);
+  if (typeof value === 'object') {
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>).map(([key, nested]) => [
+        key,
+        SENSITIVE_PROVIDER_KEY.test(key) ? '[redacted]' : sanitizeProviderPayload(nested),
+      ]),
+    );
+  }
+  return String(value);
 }
