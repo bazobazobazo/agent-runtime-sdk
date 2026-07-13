@@ -17,11 +17,13 @@ runs, schedules, files, authorization, and audit records.
 
 ## Status
 
-Initial pre-release implementation. OpenClaw and Hermes adapters include
+Initial scaffold for pre-release review. OpenClaw and Hermes adapters include
 protocol foundations, detection, capability mapping, idempotency enforcement,
-SSE parsing, cancellation, and injectable transport boundaries. Live runtime
-compatibility is fixture-backed for the pinned targets documented in
-`docs/compatibility.md`.
+SSE parsing, cancellation, and injectable transport boundaries. Compatibility
+claims are fixture-backed for the pinned targets documented in
+`docs/compatibility.md`, but this SDK should still be treated as an initial
+scaffold until the live OpenClaw and Hermes integration suites are confirmed in
+the target release environment.
 
 ## Quick Start
 

@@ -1,19 +1,21 @@
 # Compatibility
 
-Protocol support is explicit and fixture-backed.
+Protocol support is explicit and fixture-backed. Fixture coverage protects the
+wire-format mapping, but it is not a substitute for confirming the live
+integration suite in the target release environment.
 
 | Adapter | Protocol | Initial status |
 |---|---:|---|
-| OpenClaw | 3 | fixture-backed against bf1 and bfp1 handshakes |
-| OpenClaw | 4 | fixture-backed against bfp1 handshake and live write flow |
-| Hermes | HTTP/SSE Runs API | fixture-backed against bfp1 capabilities and health |
+| OpenClaw | 3 | fixture-backed; live flow validated during bring-up |
+| OpenClaw | 4 | fixture-backed; live write flow validated during bring-up |
+| Hermes | HTTP/SSE Runs API | fixture-backed; live flow validated during bring-up |
 
 Unknown OpenClaw protocol versions fail closed with `PROTOCOL_MISMATCH`.
 
 Do not advertise support for protocol versions that are not in the codec
 registry and compatibility matrix.
 
-## Fixture-backed live validation
+## Fixture-backed validation
 
 Fixture-backed validation means every claimed runtime/protocol combination has:
 
@@ -23,6 +25,12 @@ Fixture-backed validation means every claimed runtime/protocol combination has:
 3. a replayable fixture committed under `fixtures/`;
 4. SDK tests that parse that fixture and verify the adapter still maps it to the
    expected neutral SDK contract.
+
+Live integration validation is a separate, stronger check. It runs the SDK
+against a real target runtime and exercises state-changing behavior such as
+session creation, run creation, streaming, history reads, and cancellation. Until
+those live commands are confirmed for the target release environment, treat the
+SDK as an initial scaffold even when fixture-backed replay tests pass.
 
 Live captures are intentionally separate from normal unit tests. The live
 commands require explicit environment variables and should run only from a
