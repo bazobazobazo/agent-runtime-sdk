@@ -1,0 +1,8 @@
+{
+  "name": "detect-runtime-example",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@banzae/agent-runtime-node": "workspace:*"
+  }
+}

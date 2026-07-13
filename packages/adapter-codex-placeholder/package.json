@@ -1,0 +1,7 @@
+{
+  "name": "@banzae/agent-runtime-codex-placeholder",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "description": "Private placeholder for a future Codex adapter."
+}

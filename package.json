@@ -1,0 +1,45 @@
+{
+  "name": "agent-runtime-sdk",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Banzae provider-neutral agent runtime SDK monorepo.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "packageManager": "pnpm@11.10.0",
+  "engines": {
+    "node": ">=22.13"
+  },
+  "scripts": {
+    "build": "pnpm -r --filter './packages/*' run build",
+    "clean": "pnpm -r --filter './packages/*' run clean",
+    "typecheck": "tsc -b packages/*/tsconfig.json",
+    "test": "vitest run",
+    "lint": "tsc -b packages/*/tsconfig.json --pretty false",
+    "api:snapshot": "UPDATE_API_SNAPSHOT=1 node ./scripts/check-api-snapshot.mjs",
+    "api:check": "node ./scripts/check-api-snapshot.mjs",
+    "package:check": "node ./scripts/check-package-boundaries.mjs",
+    "package:contents": "node ./scripts/check-package-contents.mjs",
+    "secret:scan": "node ./scripts/secret-scan.mjs",
+    "sbom:generate": "node ./scripts/generate-sbom.mjs",
+    "release:dry-run": "node ./scripts/release-dry-run.mjs",
+    "release:gate": "node ./scripts/release-gate.mjs",
+    "fixtures:capture:openclaw": "node ./scripts/capture-openclaw-fixtures.mjs",
+    "fixtures:capture:hermes": "node ./scripts/capture-hermes-fixtures.mjs",
+    "live:openclaw": "node ./scripts/live-openclaw-validate.mjs",
+    "live:openclaw-flow": "node ./scripts/live-openclaw-flow.mjs",
+    "live:hermes": "node ./scripts/live-hermes-validate.mjs",
+    "live:hermes-flow": "node ./scripts/live-hermes-flow.mjs"
+  },
+  "devDependencies": {
+    "@changesets/cli": "^2.29.7",
+    "@types/node": "^24.7.2",
+    "@types/ws": "^8.18.1",
+    "@vitest/coverage-v8": "^3.2.4",
+    "tsup": "^8.5.0",
+    "typescript": "^5.9.3",
+    "vitest": "^3.2.4"
+  },
+  "dependencies": {
+    "ws": "^8.18.3"
+  }
+}
