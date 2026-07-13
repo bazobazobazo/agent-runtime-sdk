@@ -1,0 +1,31 @@
+{
+  "runtime": "openclaw",
+  "protocol": 4,
+  "capturedAt": "2026-07-13T19:13:12.254Z",
+  "source": "live handshake capture",
+  "frames": [
+    {
+      "direction": "client.open",
+      "at": "2026-07-13T19:13:12.241Z",
+      "payload": {
+        "url": "__REDACTED__",
+        "protocol": 4
+      }
+    },
+    {
+      "direction": "server",
+      "at": "2026-07-13T19:13:12.244Z",
+      "payload": "{\"type\":\"event\",\"event\":\"connect.challenge\",\"payload\":{\"nonce\":\"37bf0d97-d08b-4193-bc07-ae63693ac3f1\",\"ts\":1783969992232}}"
+    },
+    {
+      "direction": "client",
+      "at": "2026-07-13T19:13:12.245Z",
+      "payload": "{\"type\":\"req\",\"id\":\"fixture-connect-1\",\"method\":\"connect\",\"params\":{\"minProtocol\":4,\"maxProtocol\":4,\"client\":{\"id\":\"gateway-client\",\"version\":\"0.1.0\",\"platform\":\"node\",\"mode\":\"backend\"},\"role\":\"operator\",\"scopes\":[\"operator.read\",\"operator.write\"],\"caps\":[\"tool-events\"],\"auth\":{\"token\":\"__REDACTED__\"},\"locale\":\"en-US\",\"userAgent\":\"@banzae/agent-runtime-sdk-fixture-capture/0.1.0\"}}"
+    },
+    {
+      "direction": "server",
+      "at": "2026-07-13T19:13:12.252Z",
+      "payload": "{\"type\":\"res\",\"id\":\"fixture-connect-1\",\"ok\":true,\"payload\":{\"type\":\"hello-ok\",\"protocol\":4,\"server\":{\"version\":\"2026.6.11\",\"connId\":\"9b713b0c-22ee-4d33-9657-156179caa3b3\"},\"features\":{\"methods\":[\"health\",\"diagnostics.stability\",\"doctor.memory.status\",\"doctor.memory.dreamDiary\",\"doctor.memory.backfillDreamDiary\",\"doctor.memory.resetDreamDiary\",\"doctor.memory.resetGroundedShortTerm\",\"doctor.memory.repairDreamingArtifacts\",\"doctor.memory.dedupeDreamDiary\",\"doctor.memory.remHarness\",\"logs.tail\",\"channels.status\",\"channels.start\",\"channels.stop\",\"channels.logout\",\"status\",\"usage.status\",\"usage.cost\",\"tts.status\",\"tts.providers\",\"tts.personas\",\"tts.enable\",\"tts.disable\",\"tts.convert\",\"tts.setProvider\",\"tts.setPersona\",\"config.get\",\"config.set\",\"config.apply\",\"config.patch\",\"config.schema\",\"config.schema.lookup\",\"exec.approvals.get\",\"exec.approvals.set\",\"exec.approvals.node.get\",\"exec.approvals.node.set\",\"exec.approval.get\",\"exec.approval.list\",\"exec.approval.request\",\"exec.approval.waitDecision\",\"exec.approval.resolve\",\"plugin.approval.list\",\"plugin.approval.request\",\"plugin.approval.waitDecision\",\"plugin.approval.resolve\",\"plugins.uiDescriptors\",\"plugins.sessionAction\",\"wizard.start\",\"wizard.next\",\"wizard.cancel\",\"wizard.status\",\"talk.catalog\",\"talk.config\",\"talk.client.create\",\"talk.client.toolCall\",\"talk.client.steer\",\"talk.session.create\",\"talk.session.join\",\"talk.session.appendAudio\",\"talk.session.startTurn\",\"talk.session.endTurn\",\"talk.session.cancelTurn\",\"talk.session.cancelOutput\",\"talk.session.submitToolResult\",\"talk.session.steer\",\"talk.session.close\",\"talk.speak\",\"talk.mode\",\"commands.list\",\"models.list\",\"models.authStatus\",\"models.authLogout\",\"tools.catalog\",\"tools.effective\",\"tools.invoke\",\"tasks.list\",\"tasks.get\",\"tasks.cancel\",\"environments.list\",\"environments.status\",\"agents.list\",\"agents.create\",\"agents.update\",\"agents.delete\",\"agents.files.list\",\"agents.files.get\",\"agents.files.set\",\"sessions.files.list\",\"sessions.files.get\",\"artifacts.list\",\"artifacts.get\",\"artifacts.download\",\"skills.status\",\"skills.search\",\"skills.detail\",\"skills.securityVerdicts\",\"skills.skillCard\",\"skills.bins\",\"skills.upload.begin\",\"skills.upload.chunk\",\"skills.upload.commit\",\"skills.install\",\"skills.update\",\"skills.proposals.list\",\"skills.proposals.inspect\",\"skills.proposals.create\",\"skills.proposals.update\",\"skills.proposals.revise\",\"skills.proposals.requestRevision\",\"skills.proposals.apply\",\"skills.proposals.reject\",\"skills.proposals.quarantine\",\"update.status\",\"update.run\",\"voicewake.get\",\"voicewake.set\",\"secrets.reload\",\"secrets.resolve\",\"voicewake.routing.get\",\"voicewake.routing.set\",\"sessions.list\",\"sessions.subscribe\",\"sessions.unsubscribe\",\"sessions.messages.subscribe\",\"sessions.messages.unsubscribe\",\"sessions.preview\",\"sessions.describe\",\"sessions.compaction.list\",\"sessions.compaction.get\",\"sessions.compaction.branch\",\"sessions.compaction.restore\",\"sessions.create\",\"sessions.send\",\"sessions.abort\",\"sessions.patch\",\"sessions.pluginPatch\",\"sessions.cleanup\",\"sessions.reset\",\"sessions.delete\",\"sessions.compact\",\"last-heartbeat\",\"set-heartbeats\",\"wake\",\"node.pair.request\",\"node.pair.list\",\"node.pair.approve\",\"node.pair.reject\",\"node.pair.remove\",\"node.pair.verify\",\"device.pair.list\",\"device.pair.approve\",\"device.pair.reject\",\"device.pair.remove\",\"device.token.rotate\",\"device.token.revoke\",\"node.rename\",\"node.list\",\"node.describe\",\"node.pluginSurface.refresh\",\"node.pending.drain\",\"node.pending.enqueue\",\"node.invoke\",\"node.pending.pull\",\"node.pending.ack\",\"node.invoke.result\",\"node.event\",\"cron.get\",\"cron.list\",\"cron.status\",\"cron.add\",\"cron.update\",\"cron.remove\",\"cron.run\",\"cron.runs\",\"gateway.identity.get\",\"gateway.restart.preflight\",\"gateway.restart.request\",\"system-presence\",\"system-event\",\"message.action\",\"send\",\"agent\",\"agent.identity.get\",\"agent.wait\",\"chat.history\",\"chat.startup\",\"chat.metadata\",\"chat.message.get\",\"chat.abort\",\"chat.send\",\"browser.request\"],\"events\":[\"connect.challenge\",\"agent\",\"chat\",\"session.message\",\"session.operation\",\"session.tool\",\"sessions.changed\",\"presence\",\"tick\",\"talk.mode\",\"talk.event\",\"shutdown\",\"health\",\"heartbeat\",\"cron\",\"node.pair.requested\",\"node.pair.resolved\",\"node.invoke.request\",\"device.pair.requested\",\"device.pair.resolved\",\"voicewake.changed\",\"voicewake.routing.changed\",\"exec.approval.requested\",\"exec.approval.resolved\",\"plugin.approval.requested\",\"plugin.approval.resolved\",\"update.available\"]},\"snapshot\":\"__REDACTED__\",\"pluginSurfaceUrls\":\"__REDACTED__\",\"auth\":{\"role\":\"operator\",\"scopes\":[]},\"policy\":{\"maxPayload\":26214400,\"maxBufferedBytes\":52428800,\"tickIntervalMs\":30000}}}"
+    }
+  ]
+}

@@ -1,0 +1,23 @@
+#!/usr/bin/env node
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
+
+const exec = promisify(execFile);
+const commands = [
+  ['pnpm', ['typecheck']],
+  ['pnpm', ['test']],
+  ['pnpm', ['package:check']],
+  ['pnpm', ['api:check']],
+  ['pnpm', ['secret:scan']],
+  ['pnpm', ['build']],
+  ['pnpm', ['package:contents']],
+  ['pnpm', ['run', 'sbom:generate']],
+  ['pnpm', ['release:dry-run']],
+];
+
+for (const [cmd, args] of commands) {
+  console.log(`$ ${cmd} ${args.join(' ')}`);
+  await exec(cmd, args, { stdio: 'inherit', maxBuffer: 1024 * 1024 * 10 });
+}
+
+console.log('Release gate passed.');

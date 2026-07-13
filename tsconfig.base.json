@@ -1,0 +1,29 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "strict": true,
+    "exactOptionalPropertyTypes": false,
+    "noUncheckedIndexedAccess": true,
+    "noImplicitOverride": true,
+    "skipLibCheck": true,
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true,
+    "esModuleInterop": true,
+    "forceConsistentCasingInFileNames": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "baseUrl": ".",
+    "paths": {
+      "@banzae/agent-runtime-core": ["packages/core/src/index.ts"],
+      "@banzae/agent-runtime-detection": ["packages/detection/src/index.ts"],
+      "@banzae/agent-runtime-openclaw": ["packages/adapter-openclaw/src/index.ts"],
+      "@banzae/agent-runtime-hermes": ["packages/adapter-hermes/src/index.ts"],
+      "@banzae/agent-runtime-testing": ["packages/testing/src/index.ts"],
+      "@banzae/agent-runtime-node": ["packages/node/src/index.ts"]
+    }
+  }
+}

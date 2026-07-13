@@ -1,0 +1,26 @@
+{
+  "name": "@banzae/agent-runtime-testing",
+  "version": "0.1.0",
+  "description": "Conformance helpers for Banzae agent runtime adapters.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": ["dist", "README.md"],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "clean": "rm -rf dist tsconfig.tsbuildinfo",
+    "test": "vitest run",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@banzae/agent-runtime-core": "workspace:*"
+  },
+  "peerDependencies": {
+    "@banzae/agent-runtime-core": "^0.1.0"
+  }
+}
