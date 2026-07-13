@@ -229,6 +229,8 @@ export type OpenClawAdapterOptions = {
     locale?: string;
     userAgent?: string;
     devicePairing?: 'disabled' | 'stored' | 'request';
+    maxFrameBytes?: number;
+    subscriberQueueSize?: number;
 };
 export declare class OpenClawAdapter implements AgentRuntimeAdapter {
     private readonly deps;
@@ -428,14 +430,47 @@ export declare function openClawV4Codec(): OpenClawV4Codec;
 
 ```ts
 import { type RuntimeWebSocketConnection } from '@banzae/agent-runtime-core';
-import type { OpenClawProtocolCodec, OpenClawRpcRequest } from '../protocol/types.js';
+import type { OpenClawFrame, OpenClawProtocolCodec, OpenClawRpcRequest } from '../protocol/types.js';
+export type OpenClawEventFilter = {
+    event?: string;
+    events?: readonly string[];
+};
+export type OpenClawRequestManagerOptions = {
+    requestTimeoutMs: number;
+    maxFrameBytes?: number;
+    subscriberQueueSize?: number;
+};
 export declare class OpenClawRequestManager {
     private readonly connection;
     private readonly codec;
-    private readonly timeoutMs;
-    constructor(connection: RuntimeWebSocketConnection, codec: OpenClawProtocolCodec, timeoutMs: number);
+    private readonly pending;
+    private readonly subscribers;
+    private readonly maxFrameBytes;
+    private readonly subscriberQueueSize;
+    private readLoop?;
+    private closePromise?;
+    private closedError?;
+    private subscriberSequence;
+    constructor(connection: RuntimeWebSocketConnection, codec: OpenClawProtocolCodec, options: number | OpenClawRequestManagerOptions);
+    private readonly options;
+    private get pendingRequestCount();
+    private get subscriberCount();
+    start(): Promise<void>;
     request<T = unknown>(request: OpenClawRpcRequest, signal?: AbortSignal): Promise<T>;
-    private nextResponse;
+    request<T = unknown>(request: OpenClawRpcRequest, options?: {
+        signal?: AbortSignal;
+        timeoutMs?: number;
+    }): Promise<T>;
+    subscribe(filter?: OpenClawEventFilter): AsyncIterable<Extract<OpenClawFrame, {
+        type: 'event';
+    }>>;
+    close(): Promise<void>;
+    private readEvents;
+    private handleMessage;
+    private publishEvent;
+    private failAll;
+    private cleanupPending;
+    private removeSubscriber;
 }
 ```
 
@@ -1121,6 +1156,7 @@ export declare class WsWebSocketFactory implements RuntimeWebSocketFactory {
         url: string;
         headers?: Readonly<Record<string, string>>;
         signal?: AbortSignal;
+        maxPayloadBytes?: number;
     }): Promise<RuntimeWebSocketConnection>;
 }
 ```
