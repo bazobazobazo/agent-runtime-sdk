@@ -50,13 +50,15 @@ export type OpenClawAdapterOptions = {
   locale?: string;
   userAgent?: string;
   devicePairing?: 'disabled' | 'stored' | 'request';
+  maxFrameBytes?: number;
+  subscriberQueueSize?: number;
 };
 
 type ConnectedState = {
   connection: RuntimeWebSocketConnection;
   codec: OpenClawProtocolCodec;
   hello: OpenClawHello;
-  requestManager: OpenClawRequestManager;
+  dispatcher: OpenClawRequestManager;
   descriptorFingerprint?: string;
 };
 
@@ -200,7 +202,9 @@ export class OpenClawAdapter implements AgentRuntimeAdapter {
         ? input.providerState.externalSessionId
         : input.applicationSessionId;
     if (state.codec.supportsMethod('sessions.create', state.hello)) {
-      await state.requestManager.request(state.codec.buildSessionCreate({ ...input, applicationSessionId: externalSessionId }), options?.signal);
+      await state.dispatcher.request(state.codec.buildSessionCreate({ ...input, applicationSessionId: externalSessionId }), {
+        signal: options?.signal,
+      });
     }
     return {
       applicationSessionId: input.applicationSessionId,
@@ -218,7 +222,9 @@ export class OpenClawAdapter implements AgentRuntimeAdapter {
     const capabilities = await this.capabilities();
     validateInputCapabilities(capabilities, input.input);
     const state = this.requireConnected();
-    const response = await state.requestManager.request<Record<string, unknown>>(state.codec.buildRunStart(input), options?.signal);
+    const response = await state.dispatcher.request<Record<string, unknown>>(state.codec.buildRunStart(input), {
+      signal: options?.signal,
+    });
     const externalRunId = stringValue(response.runId) ?? stringValue(response.id) ?? input.applicationRunId;
     return {
       applicationRunId: input.applicationRunId,
@@ -230,12 +236,8 @@ export class OpenClawAdapter implements AgentRuntimeAdapter {
 
   async *streamRun(input: StreamRuntimeRunInput): AsyncIterable<RuntimeEvent> {
     const state = this.requireConnected();
-    for await (const event of state.connection.events()) {
-      if (event.type !== 'message') continue;
-      const frame = state.codec.parseFrame(event.data);
-      if (frame.type === 'event') {
-        yield* state.codec.mapProviderEvent(frame, input);
-      }
+    for await (const frame of state.dispatcher.subscribe()) {
+      yield* state.codec.mapProviderEvent(frame, input);
     }
   }
 
@@ -244,7 +246,9 @@ export class OpenClawAdapter implements AgentRuntimeAdapter {
     if (!state.codec.supportsMethod('agent.wait', state.hello)) {
       return { applicationRunId: input.applicationRunId, externalRunId: input.externalRunId, status: 'unknown' };
     }
-    const response = await state.requestManager.request<Record<string, unknown>>(state.codec.buildRunWait(input), options?.signal);
+    const response = await state.dispatcher.request<Record<string, unknown>>(state.codec.buildRunWait(input), {
+      signal: options?.signal,
+    });
     return {
       applicationRunId: input.applicationRunId,
       externalRunId: input.externalRunId,
@@ -258,18 +262,20 @@ export class OpenClawAdapter implements AgentRuntimeAdapter {
   async cancelRun(input: CancelRuntimeRunInput, options?: OperationOptions): Promise<void> {
     const state = this.requireConnected();
     if (!state.codec.supportsMethod('chat.abort', state.hello) && !state.codec.supportsMethod('sessions.abort', state.hello)) return;
-    await state.requestManager.request(state.codec.buildCancel(input), options?.signal);
+    await state.dispatcher.request(state.codec.buildCancel(input), { signal: options?.signal });
   }
 
   async getHistory(input: GetRuntimeHistoryInput, options?: OperationOptions): Promise<RuntimeMessage[]> {
     const state = this.requireConnected();
-    const payload = await state.requestManager.request(state.codec.buildHistory(input), options?.signal);
+    const payload = await state.dispatcher.request(state.codec.buildHistory(input), { signal: options?.signal });
     return normalizeOpenClawHistory(payload);
   }
 
   async close(): Promise<void> {
+    const dispatcher = this.connected?.dispatcher;
     const connection = this.connected?.connection;
     this.connected = undefined;
+    await dispatcher?.close().catch(() => undefined);
     await connection?.close().catch(() => undefined);
   }
 
@@ -313,10 +319,14 @@ export class OpenClawAdapter implements AgentRuntimeAdapter {
         deviceToken,
         device,
       });
-      const requestManager = new OpenClawRequestManager(connection, codec, this.options.requestTimeoutMs ?? 30_000);
-      const helloPayload = await requestManager.request<Record<string, unknown>>(
+      const dispatcher = new OpenClawRequestManager(connection, codec, {
+        requestTimeoutMs: this.options.requestTimeoutMs ?? 30_000,
+        maxFrameBytes: this.options.maxFrameBytes,
+        subscriberQueueSize: this.options.subscriberQueueSize,
+      });
+      const helloPayload = await dispatcher.request<Record<string, unknown>>(
         { id: 'connect-1', method: 'connect', params },
-        options?.signal,
+        { signal: options?.signal },
       );
       const hello = codec.parseHello(helloPayload);
       if (identity) await this.saveReturnedDeviceToken(endpoint, identity.deviceId, this.options.role ?? 'operator', hello);
@@ -333,7 +343,7 @@ export class OpenClawAdapter implements AgentRuntimeAdapter {
         connection,
         codec,
         hello,
-        requestManager,
+        dispatcher,
         descriptorFingerprint: await connectionFingerprint(this.deps.crypto, {
           adapterId: this.adapterId,
           endpoint: normalizeEndpoint(endpoint),

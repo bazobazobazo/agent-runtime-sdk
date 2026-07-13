@@ -28,8 +28,13 @@ export class FetchHttpTransport implements RuntimeHttpTransport {
 }
 
 export class WsWebSocketFactory implements RuntimeWebSocketFactory {
-  async connect(input: { url: string; headers?: Readonly<Record<string, string>>; signal?: AbortSignal }): Promise<RuntimeWebSocketConnection> {
-    const ws = new WebSocket(input.url, { headers: input.headers });
+  async connect(input: {
+    url: string;
+    headers?: Readonly<Record<string, string>>;
+    signal?: AbortSignal;
+    maxPayloadBytes?: number;
+  }): Promise<RuntimeWebSocketConnection> {
+    const ws = new WebSocket(input.url, { headers: input.headers, maxPayload: input.maxPayloadBytes });
     if (input.signal) {
       input.signal.addEventListener('abort', () => ws.close(4000, 'aborted'), { once: true });
     }
@@ -58,24 +63,40 @@ class WsConnection implements RuntimeWebSocketConnection {
       notify?.();
       notify = undefined;
     };
-    this.ws.on('message', (data) => push({ type: 'message', data: typeof data === 'string' ? data : new Uint8Array(data as Buffer) }));
-    this.ws.on('error', (error) => push({ type: 'error', error }));
-    this.ws.on('close', (code, reason) => push({ type: 'close', code, reason: reason.toString() }));
-    push({ type: 'open' });
-    while (this.ws.readyState === WebSocket.OPEN || queue.length > 0) {
-      if (queue.length === 0) {
-        await new Promise<void>((resolve) => {
-          notify = resolve;
-        });
+    const onMessage = (data: WebSocket.RawData) =>
+      push({ type: 'message', data: typeof data === 'string' ? data : new Uint8Array(data as Buffer) });
+    const onError = (error: Error) => push({ type: 'error', error });
+    const onClose = (code: number, reason: Buffer) => push({ type: 'close', code, reason: reason.toString() });
+
+    this.ws.on('message', onMessage);
+    this.ws.on('error', onError);
+    this.ws.on('close', onClose);
+    try {
+      push({ type: 'open' });
+      while (this.ws.readyState === WebSocket.OPEN || queue.length > 0) {
+        if (queue.length === 0) {
+          await new Promise<void>((resolve) => {
+            notify = resolve;
+          });
+        }
+        const event = queue.shift();
+        if (event) yield event;
+        if (event?.type === 'close') return;
       }
-      const event = queue.shift();
-      if (event) yield event;
-      if (event?.type === 'close') return;
+    } finally {
+      this.ws.off('message', onMessage);
+      this.ws.off('error', onError);
+      this.ws.off('close', onClose);
+      notify?.();
     }
   }
 
   async close(code?: number, reason?: string): Promise<void> {
     if (this.ws.readyState === WebSocket.CLOSED) return;
+    if (this.ws.readyState === WebSocket.CLOSING) {
+      await new Promise<void>((resolve) => this.ws.once('close', () => resolve()));
+      return;
+    }
     await new Promise<void>((resolve) => {
       this.ws.once('close', () => resolve());
       this.ws.close(code, reason);
