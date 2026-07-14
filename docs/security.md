@@ -84,5 +84,9 @@ generation, package allowlist checks, fuzzing, and release-gate validation. It
 does not contact live runtimes, publish packages, or create releases.
 All third-party workflow actions are pinned to reviewed immutable commit SHAs;
 version comments record the intended upstream release.
+GitHub dependency-diff review enforces the configured high-severity threshold
+when Dependency Graph is enabled. Repositories without that GitHub feature use
+the frozen-lockfile production audit fallback and should enable Dependency Graph
+before a public release.
 
 See `SECURITY.md` for private vulnerability reporting.
