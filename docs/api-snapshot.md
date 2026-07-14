@@ -1145,7 +1145,7 @@ export type TransportGapEvent = RuntimeEventBase & {
     actual?: number;
 };
 export type RuntimeEvent = RuntimeQueuedEvent | RuntimeStartedEvent | AssistantDeltaEvent | AssistantCompletedEvent | ReasoningDeltaEvent | ToolStartedEvent | ToolUpdatedEvent | ToolCompletedEvent | ApprovalRequestedEvent | ApprovalResolvedEvent | UsageUpdatedEvent | RunCompletedEvent | RunFailedEvent | RunCancelledEvent | TransportWarningEvent | TransportGapEvent;
-export type RuntimeErrorCode = 'DETECTION_FAILED' | 'DETECTION_AMBIGUOUS' | 'AUTHENTICATION_FAILED' | 'AUTHORIZATION_FAILED' | 'PAIRING_REQUIRED' | 'PROTOCOL_MISMATCH' | 'UNSUPPORTED_CAPABILITY' | 'INVALID_CONFIGURATION' | 'INVALID_REQUEST' | 'RUNTIME_UNAVAILABLE' | 'RATE_LIMITED' | 'TIMEOUT' | 'NETWORK' | 'CANCELLED' | 'PROVIDER_ERROR' | 'OUTCOME_UNKNOWN' | 'INTERNAL';
+export type RuntimeErrorCode = 'DETECTION_FAILED' | 'DETECTION_AMBIGUOUS' | 'AUTHENTICATION_REQUIRED' | 'AUTHENTICATION_FAILED' | 'AUTHORIZATION_FAILED' | 'PAIRING_REQUIRED' | 'PROTOCOL_MISMATCH' | 'UNSUPPORTED_CAPABILITY' | 'INVALID_CONFIGURATION' | 'INVALID_REQUEST' | 'RUNTIME_UNAVAILABLE' | 'RATE_LIMITED' | 'TIMEOUT' | 'NETWORK' | 'CANCELLED' | 'PROVIDER_ERROR' | 'OUTCOME_UNKNOWN' | 'INTERNAL';
 export type RuntimeHttpRequest = {
     url: string;
     method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE' | 'HEAD';
@@ -1204,6 +1204,7 @@ export declare class RuntimeDetector {
     private detectWithFingerprint;
     private resolveAuth;
     private validCached;
+    private invalidateCache;
     private readManifest;
     private detected;
     private emit;
@@ -1267,6 +1268,7 @@ export declare function detectionFingerprint(deps: RuntimeAdapterDependencies, i
     credentialRef?: string;
 }): Promise<string>;
 export declare function sanitizeDetectionValue(value: unknown): unknown;
+export declare function sanitizeString(value: string): string;
 export declare function authHeaders(auth?: RuntimeAuthInput): Readonly<Record<string, string>> | undefined;
 ```
 
@@ -1303,11 +1305,11 @@ export type RuntimeDetectionOptions = {
     minimumConfidence?: number;
     ambiguityDelta?: number;
     allowManifest?: boolean;
-    allowedRedirects?: number;
     forceRedetect?: boolean;
+    signal?: AbortSignal;
 };
 export type PersistedRuntimeDetection = {
-    schemaVersion?: 1;
+    schemaVersion?: number;
     adapterId: string;
     runtimeProduct: string;
     runtimeVersion?: string;
@@ -1358,6 +1360,7 @@ export type RuntimeProbeContext = {
 export interface RuntimeProbe {
     readonly adapterId: string;
     probe(input: RuntimeDetectionInput, context: RuntimeProbeContext): Promise<RuntimeProbeResult>;
+    supportsDetectionCache?(detection: PersistedRuntimeDetection): boolean;
 }
 export interface RuntimeDetectionStore {
     get(key: string): Promise<PersistedRuntimeDetection | undefined>;

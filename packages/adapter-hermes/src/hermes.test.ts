@@ -38,6 +38,12 @@ describe('Hermes adapter foundations', () => {
     expect(capabilities.extensions['hermes.sessions_rest']).toBe(true);
   });
 
+  it('requires Hermes identity and feature evidence for capabilities', () => {
+    expect(isHermesCapabilities({ capabilities: [], features: { run_submission: true, run_status: true } })).toBe(false);
+    expect(isHermesCapabilities({ object: 'hermes.api_server.capabilities', platform: 'hermes-agent', features: { run_submission: true } })).toBe(false);
+    expect(isHermesCapabilities({ object: 'hermes.api_server.capabilities', platform: 'hermes-agent', features: { run_submission: true, run_status: true } })).toBe(true);
+  });
+
   it('parses split SSE events', async () => {
     const events = [];
     for await (const event of parseSseStream(chunks(['id: 1\nevent: run.delta\ndata: {"te', 'xt":"hi"}\n\n']))) {

@@ -43,7 +43,26 @@ Detection priority is:
 6. confidence-based selection;
 7. ambiguous or failed result.
 
+Explicit adapter configuration selects the configured adapter without probing
+and does not prove endpoint reachability. It is a configuration override, not
+runtime discovery; the adapter's normal `connect()` call validates reachability
+later.
+
 The detector never sends a user prompt, starts a run, creates a schedule, writes
 files, or creates OpenClaw device-pairing requests during ordinary detection.
 Applications can inject stricter network policy, credential resolution, and
 detection storage without changing the SDK boundary.
+
+Detection cancellation is explicit. Each call has an operation-wide abort
+controller linked to caller cancellation and overall timeout, and each probe has
+a child controller linked to per-probe timeout. HTTP requests, response body
+iterators, WebSocket connections, WebSocket event iterators, listeners, and
+timers are closed before detection returns.
+
+OpenClaw authenticated detection uses the codec registry in v4 then v3 order,
+with a fresh socket per protocol attempt. It downgrades only after a confirmed
+v4 protocol mismatch. Hermes detection requires Hermes identity evidence and
+does not treat generic capabilities arrays, feature objects, or HTTP success as
+runtime identity. Cached detections are accepted only when schema, fingerprint,
+expiration, adapter registration, protocol name, and protocol version all still
+match supported values.

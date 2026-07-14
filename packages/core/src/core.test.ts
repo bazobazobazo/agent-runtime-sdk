@@ -15,9 +15,10 @@ describe('core helpers', () => {
     expect(
       sanitizeDetails({
         token: 'secret',
-        nested: { password: 'hidden', status: 'ok' },
+        nested: { password: 'hidden', status: 'ok', url: 'https://example.test?access_token=secret' },
+        headers: ['Authorization: Bearer header-secret'],
       }),
-    ).toEqual({ token: '[redacted]', nested: { password: '[redacted]', status: 'ok' } });
+    ).toEqual({ token: '[redacted]', nested: { password: '[redacted]', status: 'ok', url: 'https://example.test?access_token=[redacted]' }, headers: ['Authorization: Bearer [redacted]'] });
   });
 
   it('keeps canonical json stable across key order', () => {

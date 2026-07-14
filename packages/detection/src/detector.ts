@@ -8,7 +8,7 @@ import {
 } from '@banzae/agent-runtime-core';
 import { RuntimeProbeRegistry } from './probe-registry.js';
 import { createHermesProbe, createOpenClawProbe } from './probes.js';
-import { DefaultRuntimeNetworkPolicy, detectionFingerprint, normalizeDetectionEndpoint, sanitizeDetectionValue } from './security.js';
+import { DefaultRuntimeNetworkPolicy, DETECTION_SCHEMA_VERSION, detectionFingerprint, normalizeDetectionEndpoint, sanitizeDetectionValue } from './security.js';
 import { MemoryRuntimeDetectionStore } from './store.js';
 import type {
   PersistedRuntimeDetection,
@@ -34,13 +34,12 @@ export type RuntimeDetectorOptions = {
   diagnostics?: (event: RuntimeDetectionDiagnostic) => void;
 };
 
-const DEFAULT_OPTIONS: Required<Pick<RuntimeDetectionOptions, 'overallTimeoutMs' | 'probeTimeoutMs' | 'minimumConfidence' | 'ambiguityDelta' | 'allowManifest' | 'allowedRedirects'>> = {
+const DEFAULT_OPTIONS: Required<Pick<RuntimeDetectionOptions, 'overallTimeoutMs' | 'probeTimeoutMs' | 'minimumConfidence' | 'ambiguityDelta' | 'allowManifest'>> = {
   overallTimeoutMs: 15_000,
   probeTimeoutMs: 5_000,
   minimumConfidence: 0.9,
   ambiguityDelta: 0.05,
   allowManifest: true,
-  allowedRedirects: 0,
 };
 
 export class RuntimeDetector {
@@ -57,26 +56,43 @@ export class RuntimeDetector {
   async detect(input: RuntimeDetectionInput): Promise<RuntimeDetectionResult> {
     const startedAt = this.options.dependencies.clock.now();
     const detectionOptions = { ...DEFAULT_OPTIONS, ...input.options };
-    const fingerprint = await detectionFingerprint(this.options.dependencies, {
-      target: input.target,
-      adapterId: input.adapterId ?? input.target.adapterHint ?? 'auto',
-      credentialRef: input.credentialRef,
-    });
-    this.emit({ event: 'detection.started', hostname: safeHostname(input.target.endpoint) });
-    await this.networkPolicy.validateTarget(new URL(normalizeDetectionEndpoint(input.target.endpoint)));
+    const operation = createLinkedController(detectionOptions.signal);
+    const overallTimeout = setTimeout(() => {
+      operation.controller.abort(timeoutError(`Runtime detection timed out after ${detectionOptions.overallTimeoutMs}ms`, 'overall'));
+    }, detectionOptions.overallTimeoutMs);
+    try {
+      const fingerprint = await detectionFingerprint(this.options.dependencies, {
+        target: input.target,
+        adapterId: input.adapterId ?? input.target.adapterHint ?? 'auto',
+        credentialRef: input.credentialRef,
+      });
+      this.emit({ event: 'detection.started', hostname: safeHostname(input.target.endpoint) });
+      throwIfAborted(operation.controller.signal);
+      await this.networkPolicy.validateTarget(new URL(normalizeDetectionEndpoint(input.target.endpoint)));
 
-    return withDeadline(
-      this.detectWithFingerprint(input, detectionOptions, fingerprint, startedAt),
-      detectionOptions.overallTimeoutMs,
-      undefined,
-    );
+      try {
+        return await withDeadline(
+          this.detectWithFingerprint(input, detectionOptions, fingerprint, startedAt, operation.controller.signal),
+          detectionOptions.overallTimeoutMs,
+          operation.controller.signal,
+        );
+      } catch (error) {
+        if (operation.controller.signal.aborted) throw abortReason(operation.controller.signal);
+        throw error;
+      }
+    } finally {
+      clearTimeout(overallTimeout);
+      operation.cleanup();
+      operation.controller.abort(cancelledError('Runtime detection finished'));
+    }
   }
 
   private async detectWithFingerprint(
     input: RuntimeDetectionInput,
-    options: Required<Pick<RuntimeDetectionOptions, 'overallTimeoutMs' | 'probeTimeoutMs' | 'minimumConfidence' | 'ambiguityDelta' | 'allowManifest' | 'allowedRedirects'>>,
+    options: Required<Pick<RuntimeDetectionOptions, 'overallTimeoutMs' | 'probeTimeoutMs' | 'minimumConfidence' | 'ambiguityDelta' | 'allowManifest'>>,
     fingerprint: string,
     startedAt: Date,
+    signal: AbortSignal,
   ): Promise<RuntimeDetectionResult> {
     const explicit = explicitAdapterId(input);
     if (explicit && explicit !== 'auto') {
@@ -98,7 +114,10 @@ export class RuntimeDetector {
     if (hint) candidates.push(hintResult(hint, input.target));
 
     if (options.allowManifest) {
-      const manifest = await this.readManifest(input, options).catch((error) => manifestError(error));
+      const manifest = await this.readManifest(input, options, signal).catch((error) => {
+        if (signal.aborted) throw abortReason(signal);
+        return manifestError(error);
+      });
       if (manifest) candidates.push(manifest);
     }
 
@@ -106,23 +125,32 @@ export class RuntimeDetector {
     const probeResults = await Promise.all(
       this.registry.list().map(async (probe) => {
         this.emit({ event: 'detection.probe_started', adapterId: probe.adapterId, hostname: safeHostname(input.target.endpoint) });
+        const probeController = createLinkedController(signal);
+        const probeTimeout = setTimeout(() => {
+          probeController.controller.abort(timeoutError(`Runtime probe timed out after ${options.probeTimeoutMs}ms`, probe.adapterId));
+        }, options.probeTimeoutMs);
         const context: RuntimeProbeContext = {
           dependencies: this.options.dependencies,
           auth,
           credentialRef: input.credentialRef,
-          signal: undefined,
+          signal: probeController.controller.signal,
           probeTimeoutMs: options.probeTimeoutMs,
           networkPolicy: this.networkPolicy,
           emitDiagnostic: (event) => this.emit(event),
         };
         try {
-          const result = await withDeadline(probe.probe(input, context), options.probeTimeoutMs);
+          const result = await withDeadline(probe.probe(input, context), options.probeTimeoutMs, probeController.controller.signal);
           this.emit({ event: 'detection.probe_completed', adapterId: probe.adapterId, confidence: result.confidence, hostname: safeHostname(input.target.endpoint) });
           return result;
         } catch (error) {
-          const result = probeFailure(probe.adapterId, error);
+          if (signal.aborted) throw abortReason(signal);
+          const result = probeFailure(probe.adapterId, probeController.controller.signal.aborted ? abortReason(probeController.controller.signal) : error);
           this.emit({ event: 'detection.probe_failed', adapterId: probe.adapterId, hostname: safeHostname(input.target.endpoint), status: result.error?.code });
           return result;
+        } finally {
+          clearTimeout(probeTimeout);
+          probeController.cleanup();
+          probeController.controller.abort(cancelledError('Runtime probe finished'));
         }
       }),
     );
@@ -141,7 +169,36 @@ export class RuntimeDetector {
   private async resolveAuth(input: RuntimeDetectionInput): Promise<RuntimeAuthInput | undefined> {
     if (input.auth) return input.auth;
     if (!input.credentialRef) return undefined;
-    return this.options.credentials?.resolve(input.credentialRef);
+    if (!this.options.credentials) {
+      throw new RuntimeError({
+        code: 'INVALID_CONFIGURATION',
+        retryable: false,
+        message: 'Credential reference requires a RuntimeCredentialProvider',
+        adapterId: 'detection',
+        details: { credentialRef: '[redacted]' },
+      });
+    }
+    try {
+      const auth = await this.options.credentials.resolve(input.credentialRef);
+      if (!auth) {
+        throw new RuntimeError({
+          code: 'INVALID_CONFIGURATION',
+          retryable: false,
+          message: 'Credential reference could not be resolved',
+          adapterId: 'detection',
+        });
+      }
+      return auth;
+    } catch (error) {
+      if (error instanceof RuntimeError) return Promise.reject(error);
+      throw new RuntimeError({
+        code: 'INVALID_CONFIGURATION',
+        retryable: false,
+        message: 'Credential reference could not be resolved',
+        adapterId: 'detection',
+        details: safeProviderErrorDetails(error),
+      });
+    }
   }
 
   private async validCached(input: RuntimeDetectionInput, fingerprint: string): Promise<PersistedRuntimeDetection | undefined> {
@@ -149,22 +206,36 @@ export class RuntimeDetector {
     const cached = input.cachedDetection ?? (await this.store.get(fingerprint));
     if (!cached) return undefined;
     const now = this.options.dependencies.clock.now().getTime();
+    if (cached.schemaVersion !== DETECTION_SCHEMA_VERSION) {
+      await this.invalidateCache(fingerprint, cached, 'unsupported_schema_version');
+      return undefined;
+    }
     if (cached.fingerprint !== fingerprint) {
-      this.emit({ event: 'detection.cache_invalid', adapterId: cached.adapterId, status: 'fingerprint_mismatch' });
+      await this.invalidateCache(fingerprint, cached, 'fingerprint_mismatch');
       return undefined;
     }
     if (cached.expiresAt && Date.parse(cached.expiresAt) <= now) {
-      this.emit({ event: 'detection.cache_invalid', adapterId: cached.adapterId, status: 'expired' });
+      await this.invalidateCache(fingerprint, cached, 'expired');
       return undefined;
     }
-    if (!this.registry.get(cached.adapterId)) {
-      this.emit({ event: 'detection.cache_invalid', adapterId: cached.adapterId, status: 'unsupported_adapter' });
+    const probe = this.registry.get(cached.adapterId);
+    if (!probe) {
+      await this.invalidateCache(fingerprint, cached, 'unsupported_adapter');
+      return undefined;
+    }
+    if (!probe.supportsDetectionCache?.(cached)) {
+      await this.invalidateCache(fingerprint, cached, 'unsupported_protocol');
       return undefined;
     }
     return cached;
   }
 
-  private async readManifest(input: RuntimeDetectionInput, options: RuntimeDetectionOptions): Promise<RuntimeProbeResult | undefined> {
+  private async invalidateCache(fingerprint: string, cached: PersistedRuntimeDetection, status: string): Promise<void> {
+    this.emit({ event: 'detection.cache_invalid', adapterId: cached.adapterId, status });
+    await this.store.delete(fingerprint).catch(() => undefined);
+  }
+
+  private async readManifest(input: RuntimeDetectionInput, options: RuntimeDetectionOptions, signal: AbortSignal): Promise<RuntimeProbeResult | undefined> {
     const base = new URL(normalizeDetectionEndpoint(input.target.endpoint));
     if (base.protocol === 'ws:') base.protocol = 'http:';
     if (base.protocol === 'wss:') base.protocol = 'https:';
@@ -173,12 +244,19 @@ export class RuntimeDetector {
     await this.networkPolicy.validateTarget(manifestUrl);
     this.emit({ event: 'detection.manifest_started', hostname: manifestUrl.hostname });
     const response = await withDeadline(
-      this.options.dependencies.http.request({ url: manifestUrl.toString(), method: 'GET' }),
+      this.options.dependencies.http.request({ url: manifestUrl.toString(), method: 'GET', signal }),
       options.probeTimeoutMs ?? DEFAULT_OPTIONS.probeTimeoutMs,
+      signal,
     );
-    if (response.status === 404) return undefined;
-    if (response.status < 200 || response.status >= 300) return undefined;
-    const payload = JSON.parse(await readBody(response.body, 256_000)) as unknown;
+    if (response.status === 404) {
+      await closeBody(response.body);
+      return undefined;
+    }
+    if (response.status < 200 || response.status >= 300) {
+      await closeBody(response.body);
+      return undefined;
+    }
+    const payload = JSON.parse(await readBody(response.body, 256_000, signal)) as unknown;
     const manifest = parseManifest(payload);
     if (!manifest) return undefined;
     this.emit({ event: 'detection.manifest_completed', adapterId: manifest.adapterId, confidence: manifest.confidence, hostname: manifestUrl.hostname });
@@ -279,7 +357,7 @@ function fromPersisted(cached: PersistedRuntimeDetection): RuntimeProbeResult {
 
 function toPersisted(result: RuntimeProbeResult, fingerprint: string, detectedAt: string): PersistedRuntimeDetection {
   return {
-    schemaVersion: 1,
+    schemaVersion: DETECTION_SCHEMA_VERSION,
     adapterId: result.adapterId,
     runtimeProduct: result.runtimeProduct ?? result.adapterId,
     runtimeVersion: result.runtimeVersion,
@@ -325,19 +403,37 @@ function probeFailure(adapterId: string, error: unknown): RuntimeProbeResult {
   const runtimeError =
     error instanceof RuntimeError
       ? error
-      : new RuntimeError({ code: 'DETECTION_FAILED', retryable: false, message: 'Runtime probe failed', adapterId, details: { error: sanitizeDetectionValue(String(error)) } });
+      : new RuntimeError({ code: 'DETECTION_FAILED', retryable: false, message: 'Runtime probe failed', adapterId, details: safeProviderErrorDetails(error) });
   return { adapterId, matched: false, confidence: 0, evidence: [], error: runtimeError };
 }
 
-async function readBody(body: AsyncIterable<Uint8Array>, maxBytes: number): Promise<string> {
+async function readBody(body: AsyncIterable<Uint8Array>, maxBytes: number, signal?: AbortSignal): Promise<string> {
   const chunks: Uint8Array[] = [];
   let size = 0;
-  for await (const chunk of body) {
-    size += chunk.byteLength;
-    if (size > maxBytes) {
-      throw new RuntimeError({ code: 'PROVIDER_ERROR', retryable: false, message: 'Runtime manifest exceeded maximum size', adapterId: 'detection' });
+  const iterator = body[Symbol.asyncIterator]();
+  let done = false;
+  const onAbort = () => {
+    void iterator.return?.();
+  };
+  signal?.addEventListener('abort', onAbort, { once: true });
+  try {
+    while (true) {
+      throwIfAborted(signal);
+      const next = await iterator.next();
+      if (next.done) {
+        done = true;
+        break;
+      }
+      const chunk = next.value;
+      size += chunk.byteLength;
+      if (size > maxBytes) {
+        throw new RuntimeError({ code: 'PROVIDER_ERROR', retryable: false, message: 'Runtime manifest exceeded maximum size', adapterId: 'detection' });
+      }
+      chunks.push(chunk);
     }
-    chunks.push(chunk);
+  } finally {
+    signal?.removeEventListener('abort', onAbort);
+    if (!done) await iterator.return?.().catch(() => undefined);
   }
   const output = new Uint8Array(size);
   let offset = 0;
@@ -346,6 +442,11 @@ async function readBody(body: AsyncIterable<Uint8Array>, maxBytes: number): Prom
     offset += chunk.byteLength;
   }
   return new TextDecoder().decode(output);
+}
+
+async function closeBody(body: AsyncIterable<Uint8Array>): Promise<void> {
+  const iterator = body[Symbol.asyncIterator]();
+  await iterator.return?.().catch(() => undefined);
 }
 
 function safeHostname(endpoint: string): string | undefined {
@@ -362,4 +463,43 @@ function record(value: unknown): Record<string, unknown> {
 
 function stringValue(value: unknown): string | undefined {
   return typeof value === 'string' && value ? value : undefined;
+}
+
+function createLinkedController(parent?: AbortSignal): { controller: AbortController; cleanup: () => void } {
+  const controller = new AbortController();
+  if (!parent) return { controller, cleanup: () => undefined };
+  if (parent.aborted) {
+    controller.abort(abortReason(parent));
+    return { controller, cleanup: () => undefined };
+  }
+  const onAbort = () => controller.abort(abortReason(parent));
+  parent.addEventListener('abort', onAbort, { once: true });
+  return { controller, cleanup: () => parent.removeEventListener('abort', onAbort) };
+}
+
+function throwIfAborted(signal?: AbortSignal): void {
+  if (signal?.aborted) throw abortReason(signal);
+}
+
+function abortReason(signal: AbortSignal): RuntimeError {
+  return signal.reason instanceof RuntimeError ? signal.reason : cancelledError('Runtime detection was cancelled');
+}
+
+function timeoutError(message: string, stage: string): RuntimeError {
+  return new RuntimeError({ code: 'TIMEOUT', retryable: true, message, adapterId: 'detection', details: { stage } });
+}
+
+function cancelledError(message: string): RuntimeError {
+  return new RuntimeError({ code: 'CANCELLED', retryable: false, message, adapterId: 'detection' });
+}
+
+function safeProviderErrorDetails(error: unknown): Record<string, unknown> {
+  const details: Record<string, unknown> = {};
+  if (error && typeof error === 'object') {
+    const record = error as Record<string, unknown>;
+    if (typeof record.code === 'string') details.providerCode = sanitizeDetectionValue(record.code);
+    if (typeof record.status === 'number') details.status = record.status;
+    if (record.name && typeof record.name === 'string') details.providerErrorName = sanitizeDetectionValue(record.name);
+  }
+  return details;
 }

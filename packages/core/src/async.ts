@@ -6,12 +6,20 @@ export async function withDeadline<T>(
   signal?: AbortSignal,
 ): Promise<T> {
   if (signal?.aborted) {
-    throw new RuntimeError({ code: 'CANCELLED', retryable: false, message: 'Operation was aborted' });
+    throw signal.reason instanceof RuntimeError
+      ? signal.reason
+      : new RuntimeError({ code: 'CANCELLED', retryable: false, message: 'Operation was aborted' });
   }
 
   let timeout: ReturnType<typeof setTimeout> | undefined;
   const abortPromise = new Promise<never>((_, reject) => {
-    const onAbort = () => reject(new RuntimeError({ code: 'CANCELLED', retryable: false, message: 'Operation was aborted' }));
+    const abortSignal = signal;
+    const onAbort = () =>
+      reject(
+        abortSignal?.reason instanceof RuntimeError
+          ? abortSignal.reason
+          : new RuntimeError({ code: 'CANCELLED', retryable: false, message: 'Operation was aborted' }),
+      );
     signal?.addEventListener('abort', onAbort, { once: true });
     timeout = setTimeout(() => {
       signal?.removeEventListener('abort', onAbort);

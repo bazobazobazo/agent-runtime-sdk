@@ -34,5 +34,11 @@ export function mapHermesCapabilities(payload: unknown): RuntimeCapabilities {
 
 export function isHermesCapabilities(payload: unknown): boolean {
   const value = payload && typeof payload === 'object' ? (payload as Record<string, unknown>) : {};
-  return value.object === 'hermes.api_server.capabilities' && value.platform === 'hermes-agent';
+  const features = value.features && typeof value.features === 'object' && !Array.isArray(value.features) ? (value.features as Record<string, unknown>) : {};
+  return value.object === 'hermes.api_server.capabilities' && value.platform === 'hermes-agent' && hasHermesFeatureEvidence(features);
+}
+
+function hasHermesFeatureEvidence(features: Record<string, unknown>): boolean {
+  const keys = ['run_submission', 'run_status', 'run_events_sse', 'session_resources', 'tool_progress_events', 'approval_events'];
+  return keys.filter((key) => typeof features[key] === 'boolean').length >= 2;
 }

@@ -24,12 +24,12 @@ export type RuntimeDetectionOptions = {
   minimumConfidence?: number;
   ambiguityDelta?: number;
   allowManifest?: boolean;
-  allowedRedirects?: number;
   forceRedetect?: boolean;
+  signal?: AbortSignal;
 };
 
 export type PersistedRuntimeDetection = {
-  schemaVersion?: 1;
+  schemaVersion?: number;
   adapterId: string;
   runtimeProduct: string;
   runtimeVersion?: string;
@@ -85,6 +85,7 @@ export type RuntimeProbeContext = {
 export interface RuntimeProbe {
   readonly adapterId: string;
   probe(input: RuntimeDetectionInput, context: RuntimeProbeContext): Promise<RuntimeProbeResult>;
+  supportsDetectionCache?(detection: PersistedRuntimeDetection): boolean;
 }
 
 export interface RuntimeDetectionStore {

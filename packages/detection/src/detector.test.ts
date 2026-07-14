@@ -13,6 +13,7 @@ import {
   sanitizeDetectionValue,
   schemeHint,
   selectDetectionCandidate,
+  type RuntimeDetectionOptions,
   type RuntimeProbe,
 } from './index.js';
 
@@ -41,11 +42,12 @@ describe('runtime auto-detection', () => {
       adapterId: 'hermes',
       runtimeProduct: 'hermes',
       protocolName: 'hermes-runs-http',
+      protocolVersion: '1',
       fingerprint,
       detectedAt: '2026-01-01T00:00:00.000Z',
     });
 
-    const detector = createRuntimeDetector({ dependencies, store, probes: [failingProbe('hermes')] });
+    const detector = createRuntimeDetector({ dependencies, store, probes: [createHermesProbe()] });
     expect((await detector.detect({ target })).selected?.adapterId).toBe('hermes');
 
     await store.set(fingerprint, {
@@ -53,6 +55,7 @@ describe('runtime auto-detection', () => {
       adapterId: 'hermes',
       runtimeProduct: 'hermes',
       protocolName: 'hermes-runs-http',
+      protocolVersion: '1',
       fingerprint: 'other',
       detectedAt: '2026-01-01T00:00:00.000Z',
     });
@@ -89,6 +92,53 @@ describe('runtime auto-detection', () => {
     expect(result).toMatchObject({ matched: true, confidence: 0.99, protocolVersion: '4', runtimeVersion: '2026.6.11' });
   });
 
+  it('retries authenticated OpenClaw v3 on confirmed v4 protocol mismatch using a fresh socket', async () => {
+    const v4 = new FakeWebSocket([{ type: 'open' }, message({ event: 'connect.challenge', payload: { nonce: 'n4' } })]);
+    const v3 = new FakeWebSocket([{ type: 'open' }, message({ event: 'connect.challenge', payload: { nonce: 'n3' } })]);
+    v4.onSend = () => v4.push(message({ type: 'res', id: 'detect-connect', payload: { protocol: 3 } }));
+    v3.onSend = () => v3.push(message({ type: 'res', id: 'detect-connect', payload: { protocol: 3, serverVersion: '2026.5.6', methods: ['chat.send'], events: ['chat.delta'], features: {} } }));
+    const connections = [v4, v3];
+
+    const result = await createOpenClawProbe().probe(
+      { target: { endpoint: 'wss://runtime.example.test' }, auth: { kind: 'token', token: 'secret' } },
+      probeContext({ webSockets: { connect: async () => connections.shift() ?? new FakeWebSocket([]) }, auth: { kind: 'token', token: 'secret' } }),
+    );
+
+    expect(result).toMatchObject({ matched: true, confidence: 0.99, protocolName: 'openclaw-gateway-v3', protocolVersion: '3' });
+    expect(v4.closed).toBe(true);
+    expect(v3.closed).toBe(true);
+    expect(v4).not.toBe(v3);
+    expect(JSON.parse(String(v4.sent[0])).params.maxProtocol).toBe(4);
+    expect(JSON.parse(String(v3.sent[0])).params.maxProtocol).toBe(3);
+  });
+
+  it('does not retry OpenClaw v3 after v4 auth, pairing, or malformed hello failures', async () => {
+    for (const response of [
+      { error: { message: 'auth token invalid token=secret' }, code: 'AUTHENTICATION_FAILED' },
+      { error: { message: 'pairing required' }, code: 'PAIRING_REQUIRED' },
+      { payload: 'not-an-object', code: 'PROVIDER_ERROR' },
+    ]) {
+      let connects = 0;
+      const connection = new FakeWebSocket([{ type: 'open' }, message({ event: 'connect.challenge', payload: { nonce: 'n' } })]);
+      connection.onSend = () => connection.push(message({ type: 'res', id: 'detect-connect', ...response }));
+      const result = await createOpenClawProbe().probe(
+        { target: { endpoint: 'wss://runtime.example.test' }, auth: { kind: 'token', token: 'secret' } },
+        probeContext({
+          webSockets: {
+            connect: async () => {
+              connects += 1;
+              return connection;
+            },
+          },
+          auth: { kind: 'token', token: 'secret' },
+        }),
+      );
+      expect(result.error?.code).toBe(response.code);
+      expect(connects).toBe(1);
+      expect(JSON.stringify(result.error)).not.toContain('secret');
+    }
+  });
+
   it('does not identify generic WebSocket or malformed OpenClaw challenge', async () => {
     const result = await createOpenClawProbe().probe(
       { target: { endpoint: 'wss://runtime.example.test' } },
@@ -116,7 +166,7 @@ describe('runtime auto-detection', () => {
     expect(result).toMatchObject({ matched: true, confidence: 0.99, adapterId: 'hermes', runtimeVersion: '0.18.2' });
   });
 
-  it('does not detect generic HTTP 200 or models response as Hermes', async () => {
+  it('does not detect generic HTTP 200, capabilities arrays, or feature objects as Hermes', async () => {
     const generic = await createHermesProbe().probe(
       { target: { endpoint: 'https://runtime.example.test' } },
       probeContext({ http: { request: async () => jsonResponse(200, { ok: true }) } }),
@@ -125,8 +175,23 @@ describe('runtime auto-detection', () => {
       { target: { endpoint: 'https://runtime.example.test' } },
       probeContext({ http: { request: async () => jsonResponse(200, { object: 'list', data: [] }) } }),
     );
+    const capabilities = await createHermesProbe().probe(
+      { target: { endpoint: 'https://runtime.example.test' } },
+      probeContext({ http: { request: async () => jsonResponse(200, { capabilities: ['runs'], features: { run_submission: true, run_status: true } }) } }),
+    );
+    const features = await createHermesProbe().probe(
+      { target: { endpoint: 'https://runtime.example.test' } },
+      probeContext({ http: { request: async () => jsonResponse(200, { features: { run_submission: true, run_status: true } }) } }),
+    );
+    const malformedHermes = await createHermesProbe().probe(
+      { target: { endpoint: 'https://runtime.example.test' } },
+      probeContext({ http: { request: async () => jsonResponse(200, { runtime: 'hermes', features: 'yes' }) } }),
+    );
     expect(generic.matched).toBe(false);
     expect(models.matched).toBe(false);
+    expect(capabilities.matched).toBe(false);
+    expect(features.matched).toBe(false);
+    expect(malformedHermes.matched).toBe(false);
   });
 
   it('maps Hermes HTTP failures safely', async () => {
@@ -138,10 +203,16 @@ describe('runtime auto-detection', () => {
     ] as const) {
       const result = await createHermesProbe().probe(
         { target: { endpoint: 'https://runtime.example.test' } },
-        probeContext({ http: { request: async () => jsonResponse(status, {}) } }),
+        probeContext({ http: { request: async () => jsonResponse(status, {}) }, auth: status === 401 ? { kind: 'token', token: 'secret' } : undefined }),
       );
       expect(result.error?.code).toBe(code);
     }
+    const unauthenticated = await createHermesProbe().probe(
+      { target: { endpoint: 'https://runtime.example.test' } },
+      probeContext({ http: { request: async () => jsonResponse(401, { token: 'secret' }) } }),
+    );
+    expect(unauthenticated.error?.code).toBe('AUTHENTICATION_REQUIRED');
+    expect(JSON.stringify(unauthenticated.error)).not.toContain('secret');
   });
 
   it('uses well-known manifests as evidence but safely ignores unsupported schemas', async () => {
@@ -170,7 +241,7 @@ describe('runtime auto-detection', () => {
 
   it('validated probe beats scheme hint independent of registration order', async () => {
     const detector = createRuntimeDetector({
-      dependencies: deps({ http: { request: async () => jsonResponse(200, { runtime: 'hermes', features: { session_resources: true } }) } }),
+      dependencies: deps({ http: { request: async () => jsonResponse(200, { runtime: 'hermes', features: { session_resources: true, tool_progress_events: true } }) } }),
       probes: [createHermesProbe(), noMatchProbe('openclaw')],
     });
     const result = await detector.detect({ target: { endpoint: 'openclaw+wss://runtime.example.test' } });
@@ -183,10 +254,58 @@ describe('runtime auto-detection', () => {
     const withOne = await detectionFingerprint(dependencies, { target, credentialRef: 'prod-token' });
     const withTwo = await detectionFingerprint(dependencies, { target, credentialRef: 'prod-token' });
     expect(withOne).toBe(withTwo);
-    expect(JSON.stringify(sanitizeDetectionValue({ nested: { token: 'secret', authorization: 'Bearer secret', ok: true } }))).not.toContain('secret');
+    const sanitized = JSON.stringify(
+      sanitizeDetectionValue({
+        nested: { token: 'secret', ok: true },
+        errors: ['Authorization: Bearer header-secret', new Error('token=query-secret').message],
+        url: 'https://runtime.example.test/path?access_token=url-secret&ok=true',
+      }),
+    );
+    expect(sanitized).not.toContain('secret');
     await expect(new DefaultRuntimeNetworkPolicy().validateTarget(new URL('https://user:pass@runtime.example.test'))).rejects.toMatchObject({
       code: 'INVALID_CONFIGURATION',
     });
+    await expect(new DefaultRuntimeNetworkPolicy().validateTarget(new URL('https://runtime.example.test?token=secret'))).rejects.toMatchObject({
+      code: 'INVALID_CONFIGURATION',
+    });
+  });
+
+  it('requires credential providers for credential references and keeps provider messages safe', async () => {
+    const detector = createRuntimeDetector({ dependencies: deps(), probes: [] });
+    await expect(detector.detect({ target: { endpoint: 'https://runtime.example.test' }, credentialRef: 'prod' })).rejects.toMatchObject({
+      code: 'INVALID_CONFIGURATION',
+    });
+
+    const unresolved = createRuntimeDetector({
+      dependencies: deps(),
+      probes: [],
+      credentials: {
+        async resolve() {
+          throw Object.assign(new Error('provider token=secret'), { code: 'MISSING_SECRET' });
+        },
+      },
+    });
+    await expect(unresolved.detect({ target: { endpoint: 'https://runtime.example.test' }, credentialRef: 'prod' })).rejects.toMatchObject({
+      code: 'INVALID_CONFIGURATION',
+      message: 'Credential reference could not be resolved',
+    });
+
+    const inlineWins = createRuntimeDetector({
+      dependencies: deps(),
+      probes: [createHermesProbe()],
+      credentials: {
+        async resolve() {
+          throw new Error('should not resolve credentialRef when inline auth is present');
+        },
+      },
+    });
+    const result = await inlineWins.detect({
+      target: { endpoint: 'https://runtime.example.test' },
+      credentialRef: 'prod',
+      auth: { kind: 'token', token: 'inline-secret' },
+      options: { allowManifest: false },
+    });
+    expect(result.status).toBe('failed');
   });
 
   it('rejects cross-host redirects and unsupported schemes', async () => {
@@ -200,6 +319,106 @@ describe('runtime auto-detection', () => {
   it('rejects duplicate probe registration and leaves Codex/Pi unregistered', () => {
     expect(() => new RuntimeProbeRegistry([noMatchProbe('hermes'), noMatchProbe('hermes')])).toThrow(RuntimeError);
     expect(new RuntimeProbeRegistry([createHermesProbe(), createOpenClawProbe()]).adapterIds()).toEqual(['hermes', 'openclaw']);
+  });
+
+  it('invalidates unsupported, stale, and unregistered cached detections', async () => {
+    const dependencies = deps();
+    const target = { endpoint: 'https://runtime.example.test' };
+    const fingerprint = await detectionFingerprint(dependencies, { target, adapterId: 'auto' });
+    const base = {
+      schemaVersion: 1,
+      adapterId: 'hermes',
+      runtimeProduct: 'hermes',
+      protocolName: 'hermes-runs-http',
+      protocolVersion: '1',
+      fingerprint,
+      detectedAt: '2026-01-01T00:00:00.000Z',
+    };
+    for (const cached of [
+      { ...base, schemaVersion: 999 },
+      { ...base, protocolVersion: '999' },
+      { ...base, adapterId: 'missing' },
+      { ...base, expiresAt: '2020-01-01T00:00:00.000Z' },
+    ]) {
+      const store = new MemoryRuntimeDetectionStore();
+      const events: string[] = [];
+      await store.set(fingerprint, cached);
+      const detector = createRuntimeDetector({
+        dependencies,
+        store,
+        probes: [noMatchProbe('hermes')],
+        diagnostics: (event) => {
+          if (event.event === 'detection.cache_invalid') events.push(String(event.status));
+        },
+      });
+      expect((await detector.detect({ target, options: { allowManifest: false } })).status).toBe('failed');
+      expect(await store.get(fingerprint)).toBeUndefined();
+      expect(events).toHaveLength(1);
+    }
+  });
+
+  it('aborts and cleans up underlying probes on overall timeout', async () => {
+    const http = new PendingHttpTransport();
+    const ws = new FakeWebSocket([{ type: 'open' }]);
+    const detector = createRuntimeDetector({
+      dependencies: deps({ http, webSockets: { connect: async () => ws } }),
+      probes: [createHermesProbe(), createOpenClawProbe()],
+    });
+    await expect(detector.detect({ target: { endpoint: 'https://runtime.example.test' }, options: { allowManifest: false, overallTimeoutMs: 10, probeTimeoutMs: 1_000 } })).rejects.toMatchObject({
+      code: 'TIMEOUT',
+    });
+    expect(http.aborted).toBe(true);
+    expect(ws.closed).toBe(true);
+  });
+
+  it('aborts per-probe HTTP requests and closes response iterators on timeout', async () => {
+    const body = new BlockingBody();
+    const detector = createRuntimeDetector({
+      dependencies: deps({ http: { request: async () => ({ status: 200, headers: {}, body }) } }),
+      probes: [createHermesProbe()],
+    });
+    const result = await detector.detect({ target: { endpoint: 'https://runtime.example.test' }, options: { allowManifest: false, probeTimeoutMs: 10 } });
+    expect(result.status).toBe('failed');
+    expect(result.candidates[0]?.error?.code).toBe('TIMEOUT');
+    expect(body.returned).toBe(true);
+  });
+
+  it('closes WebSockets after per-probe timeout', async () => {
+    const ws = new FakeWebSocket([{ type: 'open' }]);
+    const detector = createRuntimeDetector({
+      dependencies: deps({ webSockets: { connect: async () => ws } }),
+      probes: [createOpenClawProbe()],
+    });
+    const result = await detector.detect({ target: { endpoint: 'wss://runtime.example.test' }, options: { allowManifest: false, probeTimeoutMs: 10 } });
+    expect(result.status).toBe('failed');
+    expect(result.candidates[0]?.error?.code).toBe('TIMEOUT');
+    expect(ws.closed).toBe(true);
+  });
+
+  it('cancels detection from a caller AbortSignal and removes repeated listeners', async () => {
+    const controller = new AbortController();
+    const listenerCounts = trackAbortListeners(controller.signal);
+    const http = new PendingHttpTransport();
+    const detector = createRuntimeDetector({ dependencies: deps({ http }), probes: [createHermesProbe()] });
+    const detection = detector.detect({ target: { endpoint: 'https://runtime.example.test' }, options: { allowManifest: false, signal: controller.signal } });
+    await http.started;
+    controller.abort(new RuntimeError({ code: 'CANCELLED', retryable: false, message: 'caller cancelled' }));
+    await expect(detection).rejects.toMatchObject({ code: 'CANCELLED' });
+    expect(http.aborted).toBe(true);
+    expect(listenerCounts.active()).toBe(0);
+
+    for (let index = 0; index < 3; index += 1) {
+      const perRun = new AbortController();
+      const counts = trackAbortListeners(perRun.signal);
+      const fast = createRuntimeDetector({ dependencies: deps(), probes: [] });
+      await fast.detect({ target: { endpoint: 'https://runtime.example.test' }, options: { allowManifest: false, signal: perRun.signal } });
+      expect(counts.active()).toBe(0);
+    }
+  });
+
+  it('has no public allowedRedirects detection option', () => {
+    const options: RuntimeDetectionOptions = { allowManifest: false };
+    expect(options.allowManifest).toBe(false);
   });
 });
 
@@ -247,6 +466,70 @@ function jsonResponse(status: number, body: unknown): RuntimeHttpResponse {
       yield new TextEncoder().encode(JSON.stringify(body));
     })(),
   };
+}
+
+class PendingHttpTransport {
+  aborted = false;
+  started: Promise<void>;
+  private markStarted!: () => void;
+
+  constructor() {
+    this.started = new Promise((resolve) => {
+      this.markStarted = resolve;
+    });
+  }
+
+  async request(input: { signal?: AbortSignal }): Promise<RuntimeHttpResponse> {
+    this.markStarted();
+    if (input.signal?.aborted) this.aborted = true;
+    return new Promise((_resolve, reject) => {
+      input.signal?.addEventListener(
+        'abort',
+        () => {
+          this.aborted = true;
+          reject(input.signal?.reason ?? new RuntimeError({ code: 'CANCELLED', retryable: false, message: 'aborted' }));
+        },
+        { once: true },
+      );
+    });
+  }
+}
+
+class BlockingBody implements AsyncIterable<Uint8Array>, AsyncIterator<Uint8Array> {
+  returned = false;
+  private notify?: () => void;
+
+  [Symbol.asyncIterator](): AsyncIterator<Uint8Array> {
+    return this;
+  }
+
+  async next(): Promise<IteratorResult<Uint8Array>> {
+    await new Promise<void>((resolve) => {
+      this.notify = resolve;
+    });
+    return { done: true, value: undefined };
+  }
+
+  async return(): Promise<IteratorResult<Uint8Array>> {
+    this.returned = true;
+    this.notify?.();
+    return { done: true, value: undefined };
+  }
+}
+
+function trackAbortListeners(signal: AbortSignal) {
+  const originalAdd = signal.addEventListener.bind(signal);
+  const originalRemove = signal.removeEventListener.bind(signal);
+  const listeners = new Set<EventListenerOrEventListenerObject>();
+  signal.addEventListener = ((type: string, listener: EventListenerOrEventListenerObject | null, options?: boolean | AddEventListenerOptions) => {
+    if (type === 'abort' && listener) listeners.add(listener);
+    return originalAdd(type, listener, options);
+  }) as AbortSignal['addEventListener'];
+  signal.removeEventListener = ((type: string, listener: EventListenerOrEventListenerObject | null, options?: boolean | EventListenerOptions) => {
+    if (type === 'abort' && listener) listeners.delete(listener);
+    return originalRemove(type, listener, options);
+  }) as AbortSignal['removeEventListener'];
+  return { active: () => listeners.size };
 }
 
 class FakeWebSocket {

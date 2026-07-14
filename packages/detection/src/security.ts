@@ -5,6 +5,13 @@ export const DETECTION_SCHEMA_VERSION = 1;
 
 const ALLOWED_SCHEMES = new Set(['http:', 'https:', 'ws:', 'wss:', 'openclaw+ws:', 'openclaw+wss:', 'hermes+http:', 'hermes+https:']);
 const SECRET_KEY_RE = /(token|authorization|cookie|password|secret|credential|private.?key|device.?token|signature|api.?key)/i;
+const SECRET_QUERY_KEYS = new Set(['token', 'access_token', 'api_key', 'password', 'secret', 'authorization', 'device_token']);
+const SECRET_VALUE_PATTERNS = [
+  /\bAuthorization\s*:\s*Bearer\s+[A-Za-z0-9._~+/=-]+/gi,
+  /\bBearer\s+[A-Za-z0-9._~+/=-]+/gi,
+  /\b(token|access_token|api_key|password|cookie|secret|authorization|device_token)=([^&\s]+)/gi,
+  /\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\b/g,
+];
 
 export class DefaultRuntimeNetworkPolicy implements RuntimeNetworkPolicy {
   async validateTarget(url: URL): Promise<void> {
@@ -13,6 +20,11 @@ export class DefaultRuntimeNetworkPolicy implements RuntimeNetworkPolicy {
     }
     if (url.username || url.password) {
       throw policyError('Runtime endpoint URLs must not embed credentials', { hostname: url.hostname });
+    }
+    for (const key of url.searchParams.keys()) {
+      if (SECRET_QUERY_KEYS.has(key.toLowerCase())) {
+        throw policyError('Runtime endpoint URLs must not include credential query parameters', { hostname: url.hostname, parameter: key });
+      }
     }
     if (!url.hostname) {
       throw policyError('Runtime endpoint host is required');
@@ -54,7 +66,7 @@ export async function detectionFingerprint(
 
 export function sanitizeDetectionValue(value: unknown): unknown {
   if (value == null) return value;
-  if (typeof value === 'string') return value.length > 500 ? `${value.slice(0, 500)}...` : value;
+  if (typeof value === 'string') return sanitizeString(value);
   if (typeof value === 'number' || typeof value === 'boolean') return value;
   if (Array.isArray(value)) return value.slice(0, 50).map(sanitizeDetectionValue);
   if (typeof value === 'object') {
@@ -66,6 +78,15 @@ export function sanitizeDetectionValue(value: unknown): unknown {
     );
   }
   return String(value);
+}
+
+export function sanitizeString(value: string): string {
+  const redacted = SECRET_VALUE_PATTERNS.reduce((current, pattern) => current.replace(pattern, (match, key) => {
+    if (typeof key === 'string' && key) return `${key}=[redacted]`;
+    if (/^authorization\s*:/i.test(match)) return 'Authorization: Bearer [redacted]';
+    return 'Bearer [redacted]';
+  }), value);
+  return redacted.length > 500 ? `${redacted.slice(0, 500)}...` : redacted;
 }
 
 export function authHeaders(auth?: RuntimeAuthInput): Readonly<Record<string, string>> | undefined {

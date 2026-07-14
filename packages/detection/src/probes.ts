@@ -3,59 +3,62 @@ import {
   TEXT_RUN_CAPABILITIES,
   withDeadline,
   type RuntimeCapabilities,
+  type RuntimeWebSocketConnection,
+  type RuntimeWebSocketEvent,
 } from '@banzae/agent-runtime-core';
+import {
+  OpenClawProtocolRegistry,
+  openClawV3Codec,
+  openClawV4Codec,
+  type OpenClawChallenge,
+  type OpenClawFrame,
+  type OpenClawHello,
+  type OpenClawProtocolCodec,
+} from '@banzae/agent-runtime-openclaw';
 import { authHeaders, normalizeDetectionEndpoint, sanitizeDetectionValue } from './security.js';
-import type { RuntimeDetectionInput, RuntimeProbe, RuntimeProbeContext, RuntimeProbeResult } from './types.js';
+import type { PersistedRuntimeDetection, RuntimeDetectionInput, RuntimeProbe, RuntimeProbeContext, RuntimeProbeResult } from './types.js';
 
 const MAX_RESPONSE_BYTES = 1_000_000;
+const OPENCLAW_CODECS = new OpenClawProtocolRegistry();
+OPENCLAW_CODECS.register(openClawV4Codec());
+OPENCLAW_CODECS.register(openClawV3Codec());
+const OPENCLAW_DETECTION_ORDER = [4, 3] as const;
 
 export function createOpenClawProbe(): RuntimeProbe {
   return {
     adapterId: 'openclaw',
+    supportsDetectionCache: supportsOpenClawDetectionCache,
     async probe(input, context) {
       const started = context.dependencies.clock.now().getTime();
       const endpoint = toWebSocketEndpoint(input.target.endpoint);
-      let connection;
       try {
         const url = new URL(endpoint);
         await context.networkPolicy.validateTarget(url);
-        connection = await withDeadline(
-          context.dependencies.webSockets.connect({
-            url: endpoint,
-            headers: authHeaders(context.auth),
-            signal: context.signal,
-            maxPayloadBytes: MAX_RESPONSE_BYTES,
-          }),
-          context.probeTimeoutMs,
-          context.signal,
-        );
-        const challenge = await withDeadline(waitForOpenClawChallenge(connection), context.probeTimeoutMs, context.signal);
-        if (!challenge.valid) {
-          return noMatch('openclaw', 0, started, context, 'malformed OpenClaw challenge');
-        }
-
         if (!context.auth) {
+          const result = await challengeOnlyOpenClawDetection(endpoint, context);
+          if (!result.challenge) return noMatch('openclaw', 0, started, context, 'malformed OpenClaw challenge');
           return {
             adapterId: 'openclaw',
             matched: true,
             confidence: 0.95,
             runtimeProduct: 'openclaw',
-            protocolName: 'openclaw-gateway',
+            protocolName: result.codec.protocolName,
+            protocolVersion: String(result.codec.protocolVersion),
             evidence: [{ kind: 'openclaw.challenge', message: 'validated OpenClaw connect.challenge', confidence: 0.95 }],
             durationMs: elapsed(started, context),
           };
         }
 
-        const hello = await authenticatedOpenClawHello(connection, context, challenge.nonce);
+        const { hello, codec } = await authenticatedOpenClawDetection(endpoint, context);
         return {
           adapterId: 'openclaw',
           matched: true,
           confidence: 0.99,
           runtimeProduct: 'openclaw',
           runtimeVersion: hello.runtimeVersion,
-          protocolName: `openclaw-gateway-v${hello.protocolVersion}`,
+          protocolName: codec.protocolName,
           protocolVersion: String(hello.protocolVersion),
-          capabilities: openClawCapabilities(hello),
+          capabilities: codec.capabilities(hello),
           evidence: [
             { kind: 'openclaw.challenge', message: 'validated OpenClaw connect.challenge', confidence: 0.95 },
             { kind: 'openclaw.hello', message: 'validated OpenClaw hello response', confidence: 0.99, protocolVersion: String(hello.protocolVersion) },
@@ -64,8 +67,6 @@ export function createOpenClawProbe(): RuntimeProbe {
         };
       } catch (error) {
         return probeError('openclaw', started, context, mapOpenClawDetectionError(error));
-      } finally {
-        await connection?.close().catch(() => undefined);
       }
     },
   };
@@ -74,6 +75,7 @@ export function createOpenClawProbe(): RuntimeProbe {
 export function createHermesProbe(): RuntimeProbe {
   return {
     adapterId: 'hermes',
+    supportsDetectionCache: supportsHermesDetectionCache,
     async probe(input, context) {
       const started = context.dependencies.clock.now().getTime();
       try {
@@ -90,14 +92,41 @@ export function createHermesProbe(): RuntimeProbe {
           context.probeTimeoutMs,
           context.signal,
         );
-        if (response.status === 401) return probeError('hermes', started, context, runtimeError('AUTHENTICATION_FAILED', 'Hermes authentication failed', false, { status: 401 }));
-        if (response.status === 403) return probeError('hermes', started, context, runtimeError('AUTHORIZATION_FAILED', 'Hermes permission denied', false, { status: 403 }));
-        if (response.status === 404) return noMatch('hermes', 0, started, context, 'Hermes capabilities endpoint was not found');
-        if (response.status === 429) return probeError('hermes', started, context, runtimeError('RATE_LIMITED', 'Hermes detection was rate limited', true, { status: 429 }));
-        if (response.status >= 500) return probeError('hermes', started, context, runtimeError('RUNTIME_UNAVAILABLE', 'Hermes provider unavailable', true, { status: response.status }));
-        if (response.status < 200 || response.status >= 300) return noMatch('hermes', 0, started, context, 'Hermes capabilities endpoint did not return success');
+        if (response.status === 401) {
+          await closeBody(response.body);
+          return probeError(
+            'hermes',
+            started,
+            context,
+            runtimeError(context.auth ? 'AUTHENTICATION_FAILED' : 'AUTHENTICATION_REQUIRED', context.auth ? 'Hermes authentication failed' : 'Hermes authentication is required', false, {
+              status: 401,
+              stage: 'hermes.capabilities',
+              authenticationRequired: !context.auth,
+            }),
+          );
+        }
+        if (response.status === 403) {
+          await closeBody(response.body);
+          return probeError('hermes', started, context, runtimeError('AUTHORIZATION_FAILED', 'Hermes permission denied', false, { status: 403, stage: 'hermes.capabilities' }));
+        }
+        if (response.status === 404) {
+          await closeBody(response.body);
+          return noMatch('hermes', 0, started, context, 'Hermes capabilities endpoint was not found');
+        }
+        if (response.status === 429) {
+          await closeBody(response.body);
+          return probeError('hermes', started, context, runtimeError('RATE_LIMITED', 'Hermes detection was rate limited', true, { status: 429, stage: 'hermes.capabilities' }));
+        }
+        if (response.status >= 500) {
+          await closeBody(response.body);
+          return probeError('hermes', started, context, runtimeError('RUNTIME_UNAVAILABLE', 'Hermes provider unavailable', true, { status: response.status, stage: 'hermes.capabilities' }));
+        }
+        if (response.status < 200 || response.status >= 300) {
+          await closeBody(response.body);
+          return noMatch('hermes', 0, started, context, 'Hermes capabilities endpoint did not return success');
+        }
 
-        const payload = JSON.parse(await readBody(response.body, MAX_RESPONSE_BYTES)) as unknown;
+        const payload = JSON.parse(await readBody(response.body, MAX_RESPONSE_BYTES, context.signal)) as unknown;
         if (!isHermesCapabilities(payload)) return noMatch('hermes', 0, started, context, 'response was not Hermes capabilities');
         const record = payload as Record<string, unknown>;
         return {
@@ -119,57 +148,125 @@ export function createHermesProbe(): RuntimeProbe {
   };
 }
 
-async function waitForOpenClawChallenge(connection: { events(): AsyncIterable<any> }): Promise<{ valid: boolean; nonce?: string }> {
-  for await (const event of connection.events()) {
+async function challengeOnlyOpenClawDetection(endpoint: string, context: RuntimeProbeContext): Promise<{ challenge?: OpenClawChallenge; codec: OpenClawProtocolCodec }> {
+  const codec = OPENCLAW_CODECS.require(4);
+  const connection = await openOpenClawSocket(endpoint, context);
+  try {
+    const challenge = await waitForOpenClawChallenge(connection, codec, context.signal);
+    return { challenge, codec };
+  } finally {
+    await connection.close().catch(() => undefined);
+  }
+}
+
+async function authenticatedOpenClawDetection(endpoint: string, context: RuntimeProbeContext): Promise<{ hello: OpenClawHello; codec: OpenClawProtocolCodec }> {
+  let lastMismatch: RuntimeError | undefined;
+  for (const version of OPENCLAW_DETECTION_ORDER) {
+    const codec = OPENCLAW_CODECS.require(version);
+    try {
+      return await authenticatedOpenClawAttempt(endpoint, context, codec);
+    } catch (error) {
+      const mapped = mapOpenClawDetectionError(error);
+      if (mapped.code === 'PROTOCOL_MISMATCH' && version === 4) {
+        lastMismatch = mapped;
+        continue;
+      }
+      throw mapped;
+    }
+  }
+  throw lastMismatch ?? runtimeError('PROTOCOL_MISMATCH', 'OpenClaw protocol negotiation failed', false, { stage: 'openclaw.hello' });
+}
+
+async function authenticatedOpenClawAttempt(
+  endpoint: string,
+  context: RuntimeProbeContext,
+  codec: OpenClawProtocolCodec,
+): Promise<{ hello: OpenClawHello; codec: OpenClawProtocolCodec }> {
+  const connection = await openOpenClawSocket(endpoint, context);
+  try {
+    const challenge = await waitForOpenClawChallenge(connection, codec, context.signal);
+    await sendAuthenticatedOpenClawHello(connection, context, codec, challenge.nonce);
+    const hello = await waitForOpenClawHello(connection, codec, context.signal);
+    return { hello, codec };
+  } finally {
+    await connection.close().catch(() => undefined);
+  }
+}
+
+async function openOpenClawSocket(endpoint: string, context: RuntimeProbeContext): Promise<RuntimeWebSocketConnection> {
+  throwIfAborted(context.signal);
+  const connection = await withDeadline(
+    context.dependencies.webSockets.connect({
+      url: endpoint,
+      headers: authHeaders(context.auth),
+      signal: context.signal,
+      maxPayloadBytes: MAX_RESPONSE_BYTES,
+    }),
+    context.probeTimeoutMs,
+    context.signal,
+  );
+  const onAbort = () => {
+    void connection.close().catch(() => undefined);
+  };
+  context.signal?.addEventListener('abort', onAbort, { once: true });
+  return new AbortLinkedWebSocketConnection(connection, () => context.signal?.removeEventListener('abort', onAbort));
+}
+
+async function waitForOpenClawChallenge(
+  connection: RuntimeWebSocketConnection,
+  codec: OpenClawProtocolCodec,
+  signal?: AbortSignal,
+): Promise<OpenClawChallenge> {
+  for await (const event of signalAwareEvents(connection, signal)) {
     if (event.type === 'open') continue;
     if (event.type === 'message') {
-      const frame = JSON.parse(typeof event.data === 'string' ? event.data : new TextDecoder().decode(event.data)) as Record<string, unknown>;
-      const payload = record(frame.payload);
-      return { valid: frame.event === 'connect.challenge' && typeof payload.nonce === 'string', nonce: stringValue(payload.nonce) };
+      const frame = codec.parseFrame(event.data);
+      const challenge = codec.parseChallenge(frame);
+      if (!challenge) throw runtimeError('PROVIDER_ERROR', 'OpenClaw challenge was malformed', false, { stage: 'openclaw.challenge', protocolVersion: String(codec.protocolVersion) });
+      return challenge;
     }
     if (event.type === 'close') throw runtimeError('NETWORK', 'OpenClaw socket closed during challenge detection', true);
+    if (event.type === 'error') throw runtimeError('NETWORK', 'OpenClaw socket errored during challenge detection', true, safeErrorDetails(event.error, 'openclaw.challenge'));
   }
   throw runtimeError('TIMEOUT', 'OpenClaw challenge timeout', true, { stage: 'openclaw.challenge' });
 }
 
-async function authenticatedOpenClawHello(
-  connection: { send(data: string): Promise<void>; events(): AsyncIterable<any> },
+async function sendAuthenticatedOpenClawHello(
+  connection: RuntimeWebSocketConnection,
   context: RuntimeProbeContext,
+  codec: OpenClawProtocolCodec,
   nonce?: string,
-): Promise<{ protocolVersion: number; runtimeVersion?: string; methods: string[]; events: string[]; features: Record<string, unknown> }> {
-  const protocolVersion = 4;
+): Promise<void> {
+  throwIfAborted(context.signal);
   await connection.send(
-    JSON.stringify({
-      type: 'req',
+    codec.encodeRequest({
       id: 'detect-connect',
       method: 'connect',
-      params: {
-        minProtocol: protocolVersion,
-        maxProtocol: protocolVersion,
+      params: codec.createConnectParams({
+        requestId: 'detect-connect',
+        nonce,
+        auth: authForOpenClaw(context),
         role: 'operator',
         scopes: ['operator.read'],
-        auth: context.auth && 'token' in context.auth ? { token: context.auth.token } : undefined,
-        nonce,
-      },
+        clientName: '@banzae/agent-runtime-detection',
+        clientVersion: '0.1.0',
+      }),
     }),
   );
-  for await (const event of connection.events()) {
+}
+
+async function waitForOpenClawHello(
+  connection: RuntimeWebSocketConnection,
+  codec: OpenClawProtocolCodec,
+  signal?: AbortSignal,
+): Promise<OpenClawHello> {
+  for await (const event of signalAwareEvents(connection, signal)) {
     if (event.type === 'open') continue;
     if (event.type !== 'message') continue;
-    const frame = JSON.parse(typeof event.data === 'string' ? event.data : new TextDecoder().decode(event.data)) as Record<string, unknown>;
+    const frame = codec.parseFrame(event.data);
     if (frame.type !== 'res' || frame.id !== 'detect-connect') continue;
-    if (frame.error) throw mapOpenClawProviderError(frame.error);
-    const payload = record(frame.payload);
-    const selected = numberValue(payload.protocol ?? payload.protocolVersion ?? payload.selectedProtocol);
-    if (selected !== protocolVersion) throw runtimeError('PROTOCOL_MISMATCH', 'OpenClaw selected unsupported protocol during detection', false, { selectedProtocol: selected });
-    const features = record(payload.features);
-    return {
-      protocolVersion,
-      runtimeVersion: stringValue(payload.serverVersion ?? payload.version ?? record(payload.server).version),
-      methods: stringArray(payload.methods ?? features.methods),
-      events: stringArray(payload.events ?? features.events),
-      features,
-    };
+    if (frame.error) throw mapOpenClawProviderError(frame.error, codec.protocolVersion);
+    return codec.parseHello(frame.payload);
   }
   throw runtimeError('TIMEOUT', 'OpenClaw hello timeout', true, { stage: 'openclaw.hello' });
 }
@@ -177,27 +274,16 @@ async function authenticatedOpenClawHello(
 function isHermesCapabilities(payload: unknown): boolean {
   const value = record(payload);
   const features = record(value.features);
-  return (
-    value.runtime === 'hermes' ||
-    value.product === 'hermes' ||
-    value.runtimeProduct === 'hermes' ||
-    features.session_resources === true ||
-    features.tool_progress_events === true ||
-    features.approval_events === true ||
-    Array.isArray(value.capabilities)
-  );
+  const explicitIdentity = value.runtime === 'hermes' || value.product === 'hermes' || value.runtimeProduct === 'hermes';
+  const documentedSchema = value.object === 'hermes.api_server.capabilities' && value.platform === 'hermes-agent';
+  if (value.features !== undefined && (typeof value.features !== 'object' || Array.isArray(value.features))) return false;
+  if (value.capabilities !== undefined && !Array.isArray(value.capabilities)) return false;
+  return (explicitIdentity || documentedSchema) && hasHermesFeatureEvidence(features);
 }
 
-function openClawCapabilities(hello: { methods: string[]; events: string[]; features: Record<string, unknown> }): RuntimeCapabilities {
-  const methods = new Set(hello.methods);
-  return {
-    ...TEXT_RUN_CAPABILITIES,
-    sessions: { create: methods.has('sessions.create'), resume: true, history: methods.has('chat.history') || methods.has('sessions.get'), fork: false },
-    runs: { start: methods.has('chat.send'), status: methods.has('agent.wait'), streamText: true, streamTools: hello.events.some((event) => event.includes('tool')), cancel: methods.has('chat.abort'), approvals: hello.events.some((event) => event.includes('approval')) },
-    input: { text: true, images: false, files: false },
-    output: { text: true, reasoning: Boolean(hello.features.reasoning), tools: hello.events.some((event) => event.includes('tool')), usage: methods.has('usage.status') || methods.has('sessions.usage') },
-    extensions: { 'openclaw.protocol': 4 },
-  };
+function hasHermesFeatureEvidence(features: Record<string, unknown>): boolean {
+  const keys = ['run_submission', 'run_status', 'run_events_sse', 'session_resources', 'tool_progress_events', 'approval_events'];
+  return keys.filter((key) => typeof features[key] === 'boolean').length >= 2;
 }
 
 function hermesCapabilities(payload: Record<string, unknown>): RuntimeCapabilities {
@@ -222,38 +308,64 @@ function probeError(adapterId: string, started: number, context: RuntimeProbeCon
 
 function mapOpenClawDetectionError(error: unknown): RuntimeError {
   if (error instanceof RuntimeError) return error;
-  return runtimeError('RUNTIME_UNAVAILABLE', 'OpenClaw probe failed', true, { error: sanitizeDetectionValue(String(error)) });
+  return runtimeError('RUNTIME_UNAVAILABLE', 'OpenClaw probe failed', true, safeErrorDetails(error, 'openclaw.probe'));
 }
 
 function mapHermesDetectionError(error: unknown): RuntimeError {
   if (error instanceof RuntimeError) return error;
-  return runtimeError('RUNTIME_UNAVAILABLE', 'Hermes probe failed', true, { error: sanitizeDetectionValue(String(error)) });
+  return runtimeError('RUNTIME_UNAVAILABLE', 'Hermes probe failed', true, safeErrorDetails(error, 'hermes.capabilities'));
 }
 
-function mapOpenClawProviderError(error: unknown): RuntimeError {
+function mapOpenClawProviderError(error: unknown, protocolVersion: number): RuntimeError {
   const value = record(error);
   const message = stringValue(value.message) ?? 'OpenClaw provider error';
   const lower = message.toLowerCase();
-  if (lower.includes('pairing')) return runtimeError('PAIRING_REQUIRED', message, false);
-  if (lower.includes('auth') || lower.includes('token')) return runtimeError('AUTHENTICATION_FAILED', message, false);
-  if (lower.includes('permission') || lower.includes('scope')) return runtimeError('AUTHORIZATION_FAILED', message, false);
-  if (lower.includes('protocol')) return runtimeError('PROTOCOL_MISMATCH', message, false);
-  return runtimeError('PROVIDER_ERROR', message, false);
+  const code = stringValue(value.code)?.toUpperCase();
+  const detailCode = stringValue(record(value.details).code)?.toUpperCase();
+  const details = { ...safeErrorDetails(error, 'openclaw.hello'), protocolVersion: String(protocolVersion) };
+  if (code === 'PAIRING_REQUIRED' || detailCode === 'PAIRING_REQUIRED' || lower.includes('pairing')) return runtimeError('PAIRING_REQUIRED', 'OpenClaw pairing is required', false, details);
+  if (code === 'AUTHENTICATION_FAILED' || detailCode === 'AUTHENTICATION_FAILED' || lower.includes('auth') || lower.includes('token')) return runtimeError('AUTHENTICATION_FAILED', 'OpenClaw authentication failed', false, details);
+  if (code === 'AUTHORIZATION_FAILED' || code === 'PERMISSION_DENIED' || detailCode === 'AUTHORIZATION_FAILED' || detailCode === 'PERMISSION_DENIED' || lower.includes('permission') || lower.includes('scope')) return runtimeError('AUTHORIZATION_FAILED', 'OpenClaw permission denied', false, details);
+  if (code === 'PROTOCOL_MISMATCH' || detailCode === 'PROTOCOL_MISMATCH' || lower.includes('protocol')) return runtimeError('PROTOCOL_MISMATCH', 'OpenClaw protocol mismatch', false, details);
+  return runtimeError('PROVIDER_ERROR', 'OpenClaw provider rejected detection hello', false, details);
 }
 
 function runtimeError(code: ConstructorParameters<typeof RuntimeError>[0]['code'], message: string, retryable: boolean, details?: Record<string, unknown>): RuntimeError {
   return new RuntimeError({ code, message, retryable, adapterId: 'detection', details: sanitizeDetectionValue(details ?? {}) as Record<string, unknown> });
 }
 
-async function readBody(body: AsyncIterable<Uint8Array>, maxBytes: number): Promise<string> {
+async function readBody(body: AsyncIterable<Uint8Array>, maxBytes: number, signal?: AbortSignal): Promise<string> {
   const chunks: Uint8Array[] = [];
   let size = 0;
-  for await (const chunk of body) {
-    size += chunk.byteLength;
-    if (size > maxBytes) throw runtimeError('PROVIDER_ERROR', 'Detection response exceeded maximum size', false, { maxBytes });
-    chunks.push(chunk);
+  const iterator = body[Symbol.asyncIterator]();
+  let done = false;
+  const onAbort = () => {
+    void iterator.return?.();
+  };
+  signal?.addEventListener('abort', onAbort, { once: true });
+  try {
+    while (true) {
+      throwIfAborted(signal);
+      const next = await iterator.next();
+      if (next.done) {
+        done = true;
+        break;
+      }
+      const chunk = next.value;
+      size += chunk.byteLength;
+      if (size > maxBytes) throw runtimeError('PROVIDER_ERROR', 'Detection response exceeded maximum size', false, { maxBytes });
+      chunks.push(chunk);
+    }
+  } finally {
+    signal?.removeEventListener('abort', onAbort);
+    if (!done) await iterator.return?.().catch(() => undefined);
   }
   return new TextDecoder().decode(concat(chunks, size));
+}
+
+async function closeBody(body: AsyncIterable<Uint8Array>): Promise<void> {
+  const iterator = body[Symbol.asyncIterator]();
+  await iterator.return?.().catch(() => undefined);
 }
 
 function concat(chunks: Uint8Array[], size: number): Uint8Array {
@@ -276,6 +388,80 @@ function normalizeHttpEndpoint(endpoint: string): string {
 
 function elapsed(started: number, context: RuntimeProbeContext): number {
   return context.dependencies.clock.now().getTime() - started;
+}
+
+async function* signalAwareEvents(connection: RuntimeWebSocketConnection, signal?: AbortSignal): AsyncIterable<RuntimeWebSocketEvent> {
+  const iterator = connection.events()[Symbol.asyncIterator]();
+  const onAbort = () => {
+    void iterator.return?.();
+  };
+  signal?.addEventListener('abort', onAbort, { once: true });
+  try {
+    while (true) {
+      throwIfAborted(signal);
+      const next = await iterator.next();
+      if (next.done) return;
+      yield next.value;
+    }
+  } finally {
+    signal?.removeEventListener('abort', onAbort);
+    await iterator.return?.().catch(() => undefined);
+  }
+}
+
+function throwIfAborted(signal?: AbortSignal): void {
+  if (signal?.aborted) {
+    throw signal.reason instanceof RuntimeError
+      ? signal.reason
+      : runtimeError('CANCELLED', 'Runtime detection was cancelled', false);
+  }
+}
+
+function authForOpenClaw(context: RuntimeProbeContext) {
+  const auth = context.auth;
+  if (!auth || auth.kind === 'none') return undefined;
+  if (auth.kind === 'token' || auth.kind === 'bearer' || auth.kind === 'device-token') return { kind: auth.kind, token: auth.token };
+  return { kind: auth.kind, username: auth.username, password: auth.password };
+}
+
+function safeErrorDetails(error: unknown, stage: string): Record<string, unknown> {
+  const details: Record<string, unknown> = { stage };
+  if (error && typeof error === 'object') {
+    const value = error as Record<string, unknown>;
+    if (typeof value.code === 'string') details.providerCode = sanitizeDetectionValue(value.code);
+    if (typeof value.status === 'number') details.status = value.status;
+    if (typeof value.name === 'string') details.providerErrorName = sanitizeDetectionValue(value.name);
+  }
+  return details;
+}
+
+function supportsOpenClawDetectionCache(detection: PersistedRuntimeDetection): boolean {
+  const version = Number(detection.protocolVersion);
+  return (detection.protocolName === 'openclaw-gateway-v4' && version === 4) || (detection.protocolName === 'openclaw-gateway-v3' && version === 3);
+}
+
+function supportsHermesDetectionCache(detection: PersistedRuntimeDetection): boolean {
+  return detection.protocolName === 'hermes-runs-http' && detection.protocolVersion === '1';
+}
+
+class AbortLinkedWebSocketConnection implements RuntimeWebSocketConnection {
+  constructor(
+    private readonly connection: RuntimeWebSocketConnection,
+    private readonly cleanup: () => void,
+  ) {}
+
+  send(data: string | Uint8Array): Promise<void> {
+    return this.connection.send(data);
+  }
+
+  events(): AsyncIterable<RuntimeWebSocketEvent> {
+    return this.connection.events();
+  }
+
+  async close(code?: number, reason?: string): Promise<void> {
+    this.cleanup();
+    await this.connection.close(code, reason);
+  }
 }
 
 function record(value: unknown): Record<string, unknown> {
