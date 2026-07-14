@@ -1,7 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import { readFile } from 'node:fs/promises';
-import { RuntimeError, type RuntimeWebSocketConnection, type RuntimeWebSocketEvent } from '@banzae/agent-runtime-core';
-import { OpenClawProtocolRegistry, OpenClawRequestManager, openClawV3Codec, openClawV4Codec } from './index.js';
+import {
+  RuntimeError,
+  createTestDependencies,
+  type RuntimeEvent,
+  type RuntimeWebSocketConnection,
+  type RuntimeWebSocketEvent,
+} from '@banzae/agent-runtime-core';
+import { OpenClawAdapter, OpenClawProtocolRegistry, OpenClawRequestManager, openClawV3Codec, openClawV4Codec } from './index.js';
 import { normalizeOpenClawHistory } from './mapping/transcript.js';
 
 describe('OpenClaw protocol scaffolding', () => {
@@ -270,6 +276,184 @@ describe('OpenClawRequestManager dispatcher behavior', () => {
   });
 });
 
+describe('OpenClaw run event correlation', () => {
+  it('keeps two simultaneous runs in different sessions isolated', async () => {
+    const harness = createAdapterHarness();
+    const first = collectRunEvents(harness.adapter.streamRun(runInput('app-1', 'provider-1', 'session-1')));
+    const second = collectRunEvents(harness.adapter.streamRun(runInput('app-2', 'provider-2', 'session-2')));
+    await nextTick();
+
+    harness.connection.pushMessage(openClawEvent('chat.delta', { runId: 'provider-2', sessionKey: 'session-2', sequence: 1, text: 'two' }));
+    harness.connection.pushMessage(openClawEvent('chat.delta', { runId: 'provider-1', sessionKey: 'session-1', sequence: 1, text: 'one' }));
+    harness.connection.pushMessage(openClawEvent('chat.completed', { runId: 'provider-1', sessionKey: 'session-1', sequence: 2, text: 'done one' }));
+    harness.connection.pushMessage(openClawEvent('chat.completed', { runId: 'provider-2', sessionKey: 'session-2', sequence: 2, text: 'done two' }));
+
+    expect((await first).map((event) => event.applicationRunId)).toEqual(['app-1', 'app-1', 'app-1']);
+    expect((await second).map((event) => event.applicationRunId)).toEqual(['app-2', 'app-2', 'app-2']);
+  });
+
+  it('keeps two interleaved runs on one session isolated by run id', async () => {
+    const harness = createAdapterHarness();
+    const first = collectRunEvents(harness.adapter.streamRun(runInput('app-1', 'provider-1', 'session-1')));
+    const second = collectRunEvents(harness.adapter.streamRun(runInput('app-2', 'provider-2', 'session-1')));
+    await nextTick();
+
+    harness.connection.pushMessage(openClawEvent('chat.delta', { runId: 'provider-1', sessionKey: 'session-1', sequence: 1, text: 'a' }));
+    harness.connection.pushMessage(openClawEvent('chat.delta', { runId: 'provider-2', sessionKey: 'session-1', sequence: 1, text: 'b' }));
+    harness.connection.pushMessage(openClawEvent('chat.completed', { runId: 'provider-2', sessionKey: 'session-1', sequence: 2, text: 'b done' }));
+    harness.connection.pushMessage(openClawEvent('chat.completed', { runId: 'provider-1', sessionKey: 'session-1', sequence: 2, text: 'a done' }));
+
+    expect((await first).filter((event) => event.type === 'assistant.delta')).toMatchObject([{ delta: 'a' }]);
+    expect((await second).filter((event) => event.type === 'assistant.delta')).toMatchObject([{ delta: 'b' }]);
+  });
+
+  it('ignores unrelated gateway events and wrong run or session events', async () => {
+    const harness = createAdapterHarness();
+    const events = collectRunEvents(harness.adapter.streamRun(runInput('app-1', 'provider-1', 'session-1')));
+    await nextTick();
+
+    harness.connection.pushMessage(openClawEvent('gateway.status', { sequence: 1, text: 'global' }));
+    harness.connection.pushMessage(openClawEvent('chat.delta', { runId: 'provider-2', sessionKey: 'session-1', sequence: 2, text: 'wrong run' }));
+    harness.connection.pushMessage(openClawEvent('chat.delta', { runId: 'provider-1', sessionKey: 'session-2', sequence: 3, text: 'wrong session' }));
+    harness.connection.pushMessage(openClawEvent('chat.delta', { runId: 'provider-1', sessionKey: 'session-1', sequence: 1, text: 'right' }));
+    harness.connection.pushMessage(openClawEvent('chat.completed', { runId: 'provider-1', sessionKey: 'session-1', sequence: 2, text: 'done' }));
+
+    expect((await events).filter((event) => event.type === 'assistant.delta')).toMatchObject([{ delta: 'right' }]);
+  });
+
+  it('routes valid session-scoped events without run ids only to matching sessions', async () => {
+    const harness = createAdapterHarness();
+    const events = collectRunEvents(harness.adapter.streamRun(runInput('app-1', 'provider-1', 'session-1')));
+    await nextTick();
+
+    harness.connection.pushMessage(openClawEvent('chat.delta', { sessionKey: 'session-2', sequence: 1, text: 'wrong' }));
+    harness.connection.pushMessage(openClawEvent('chat.delta', { sessionKey: 'session-1', sequence: 1, text: 'session scoped' }));
+    harness.connection.pushMessage(openClawEvent('chat.completed', { runId: 'provider-1', sessionKey: 'session-1', sequence: 2, text: 'done' }));
+
+    expect((await events).filter((event) => event.type === 'assistant.delta')).toMatchObject([{ delta: 'session scoped' }]);
+  });
+
+  it('deduplicates duplicate deltas and duplicate final events', async () => {
+    const harness = createAdapterHarness();
+    const events = collectRunEvents(harness.adapter.streamRun(runInput('app-1', 'provider-1', 'session-1')));
+    await nextTick();
+
+    harness.connection.pushMessage(openClawEvent('chat.delta', { eventId: 'evt-1', runId: 'provider-1', sessionKey: 'session-1', sequence: 1, text: 'once' }));
+    harness.connection.pushMessage(openClawEvent('chat.delta', { eventId: 'evt-1', runId: 'provider-1', sessionKey: 'session-1', sequence: 1, text: 'once' }));
+    harness.connection.pushMessage(openClawEvent('chat.completed', { eventId: 'evt-2', runId: 'provider-1', sessionKey: 'session-1', sequence: 2, text: 'done' }));
+    harness.connection.pushMessage(openClawEvent('chat.completed', { eventId: 'evt-2', runId: 'provider-1', sessionKey: 'session-1', sequence: 2, text: 'done' }));
+
+    const collected = await events;
+    expect(collected.filter((event) => event.type === 'assistant.delta')).toHaveLength(1);
+    expect(collected.filter((event) => event.type === 'run.completed')).toHaveLength(1);
+  });
+
+  it('detects sequence gaps before continuing the run stream', async () => {
+    const harness = createAdapterHarness();
+    const events = collectRunEvents(harness.adapter.streamRun(runInput('app-1', 'provider-1', 'session-1')));
+    await nextTick();
+
+    harness.connection.pushMessage(openClawEvent('chat.delta', { runId: 'provider-1', sessionKey: 'session-1', sequence: 1, text: 'one' }));
+    harness.connection.pushMessage(openClawEvent('chat.delta', { runId: 'provider-1', sessionKey: 'session-1', sequence: 3, text: 'three' }));
+    harness.connection.pushMessage(openClawEvent('chat.completed', { runId: 'provider-1', sessionKey: 'session-1', sequence: 4, text: 'done' }));
+
+    expect((await events).find((event) => event.type === 'transport.gap')).toMatchObject({ expected: 2, actual: 3 });
+  });
+
+  it('uses unique normalized event ids and the injected clock when provider data is missing', async () => {
+    const harness = createAdapterHarness({ now: new Date('2026-01-02T03:04:05.000Z') });
+    const events = collectRunEvents(harness.adapter.streamRun(runInput('app-1', 'provider-1', 'session-1')));
+    await nextTick();
+
+    harness.connection.pushMessage(openClawEvent('chat.completed', { runId: 'provider-1', sessionKey: 'session-1', sequence: 1, text: 'done' }));
+
+    const collected = await events;
+    expect(new Set(collected.map((event) => event.eventId)).size).toBe(collected.length);
+    expect(collected.every((event) => event.occurredAt === '2026-01-02T03:04:05.000Z')).toBe(true);
+  });
+
+  it('cleans up subscriptions when a stream iterator is cancelled', async () => {
+    const harness = createAdapterHarness();
+    const iterator = harness.adapter.streamRun(runInput('app-1', 'provider-1', 'session-1'))[Symbol.asyncIterator]();
+    const pending = iterator.next();
+    pending.catch(() => undefined);
+    await nextTick();
+    expect(dispatcherStats(harness.dispatcher).subscriberCount).toBe(1);
+
+    await iterator.return?.();
+
+    expect(dispatcherStats(harness.dispatcher).subscriberCount).toBe(0);
+  });
+
+  it('propagates socket closure before final output', async () => {
+    const harness = createAdapterHarness();
+    const iterator = harness.adapter.streamRun(runInput('app-1', 'provider-1', 'session-1'))[Symbol.asyncIterator]();
+    const next = iterator.next();
+    await nextTick();
+
+    harness.connection.pushClose(1006, 'lost');
+
+    await expect(next).rejects.toMatchObject({ code: 'NETWORK' });
+  });
+
+  it('rejects provider responses missing a run id and maps uncertain starts', async () => {
+    const missing = createAdapterHarness();
+    missing.dispatcher.request = async () => ({ status: 'running' });
+    await expect(
+      missing.adapter.startRun({
+        applicationRunId: 'app-1',
+        idempotencyKey: 'idem-1',
+        session: { applicationSessionId: 'session-1', externalSessionId: 'session-1', created: false },
+        input: { text: 'hello' },
+      }),
+    ).rejects.toMatchObject({ code: 'PROVIDER_ERROR' });
+
+    const uncertain = createAdapterHarness();
+    uncertain.dispatcher.request = async () => {
+      throw new RuntimeError({ code: 'NETWORK', retryable: true, adapterId: 'openclaw', message: 'lost' });
+    };
+    await expect(
+      uncertain.adapter.startRun({
+        applicationRunId: 'app-1',
+        idempotencyKey: 'idem-1',
+        session: { applicationSessionId: 'session-1', externalSessionId: 'session-1', created: false },
+        input: { text: 'hello' },
+      }),
+    ).rejects.toMatchObject({ code: 'OUTCOME_UNKNOWN' });
+  });
+
+  it('omits raw provider payloads by default and sanitizes them when enabled', async () => {
+    const disabled = createAdapterHarness();
+    const withoutRaw = collectRunEvents(disabled.adapter.streamRun(runInput('app-1', 'provider-1', 'session-1')));
+    await nextTick();
+    disabled.connection.pushMessage(openClawEvent('chat.completed', { runId: 'provider-1', sessionKey: 'session-1', sequence: 1, text: 'done', token: 'secret' }));
+    expect((await withoutRaw)[0]?.provider?.raw).toBeUndefined();
+
+    const enabled = createAdapterHarness({ includeRawProviderPayload: true });
+    const withRaw = collectRunEvents(enabled.adapter.streamRun(runInput('app-1', 'provider-1', 'session-1')));
+    await nextTick();
+    enabled.connection.pushMessage(
+      openClawEvent('chat.completed', {
+        runId: 'provider-1',
+        sessionKey: 'session-1',
+        sequence: 1,
+        text: 'done',
+        token: 'secret',
+        nested: { authorization: 'Bearer secret', ok: true },
+      }),
+    );
+    expect((await withRaw)[0]?.provider?.raw).toMatchObject({
+      token: '[redacted]',
+      nested: { authorization: '[redacted]', ok: true },
+    });
+  });
+
+  it('does not advertise image support while run-start drops image attachments', async () => {
+    const capabilities = openClawV4Codec().capabilities({ protocolVersion: 4, methods: [], events: [], features: { images: true }, raw: {} });
+    expect(capabilities.input.images).toBe(false);
+  });
+});
+
 async function readHelloFixture(path: string, codec: ReturnType<typeof openClawV3Codec> | ReturnType<typeof openClawV4Codec>) {
   const fixture = JSON.parse(await readFile(new URL(path, import.meta.url), 'utf8')) as {
     frames: Array<{ direction: string; payload: string }>;
@@ -281,6 +465,53 @@ async function readHelloFixture(path: string, codec: ReturnType<typeof openClawV
 
   expect(serverResponse?.ok).toBe(true);
   return codec.parseHello(serverResponse?.payload);
+}
+
+function createAdapterHarness(options: { now?: Date; includeRawProviderPayload?: boolean } = {}) {
+  const connection = new FakeWebSocketConnection();
+  const dispatcher = createDispatcher(connection);
+  const now = options.now ?? new Date('2026-01-01T00:00:00.000Z');
+  const deps = createTestDependencies({
+    clock: {
+      now: () => now,
+      sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+    },
+  });
+  const adapter = new OpenClawAdapter(deps, {
+    includeRawProviderPayload: options.includeRawProviderPayload,
+  });
+  (
+    adapter as unknown as {
+      connected: {
+        connection: FakeWebSocketConnection;
+        codec: ReturnType<typeof openClawV4Codec>;
+        hello: { protocolVersion: number; methods: string[]; events: string[]; features: Record<string, unknown>; raw: unknown };
+        dispatcher: OpenClawRequestManager;
+      };
+    }
+  ).connected = {
+    connection,
+    codec: openClawV4Codec(),
+    hello: { protocolVersion: 4, methods: ['chat.send', 'agent.wait', 'chat.history', 'chat.abort'], events: [], features: {}, raw: {} },
+    dispatcher,
+  };
+  return { adapter, connection, dispatcher, deps };
+}
+
+function runInput(applicationRunId: string, externalRunId: string, externalSessionId: string) {
+  return { applicationRunId, externalRunId, externalSessionId };
+}
+
+async function collectRunEvents(stream: AsyncIterable<RuntimeEvent>): Promise<RuntimeEvent[]> {
+  const events: RuntimeEvent[] = [];
+  for await (const event of stream) {
+    events.push(event);
+  }
+  return events;
+}
+
+function openClawEvent(event: string, payload: Record<string, unknown>): string {
+  return JSON.stringify({ type: 'event', event, payload, seq: payload.sequence });
 }
 
 function createDispatcher(

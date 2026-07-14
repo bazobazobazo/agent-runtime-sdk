@@ -36,6 +36,18 @@ Live captures are intentionally separate from normal unit tests. The live
 commands require explicit environment variables and should run only from a
 trusted developer or CI environment with scoped credentials.
 
+## OpenClaw Stream Reconciliation
+
+OpenClaw provider events are correlated to the active SDK run by provider run ID
+and, where a run ID is not present, by an explicit session key on recognized
+run-scoped event types. Unrelated gateway events are ignored.
+
+When OpenClaw supplies sequence numbers, the adapter tracks them per SDK run
+stream. A missing sequence range emits a `transport.gap` event before continuing
+with later events. Callers must treat that stream as requiring reconciliation and
+fetch provider history, for example through `getHistory()`, before presenting or
+persisting a complete transcript claim.
+
 ## Live targets used during SDK bring-up
 
 Known validation targets:

@@ -231,6 +231,7 @@ export type OpenClawAdapterOptions = {
     devicePairing?: 'disabled' | 'stored' | 'request';
     maxFrameBytes?: number;
     subscriberQueueSize?: number;
+    includeRawProviderPayload?: boolean;
 };
 export declare class OpenClawAdapter implements AgentRuntimeAdapter {
     private readonly deps;
@@ -255,6 +256,7 @@ export declare class OpenClawAdapter implements AgentRuntimeAdapter {
     private connectWithCodec;
     private descriptor;
     private requireConnected;
+    private mapRunStartTransportError;
     private buildSignedDeviceProof;
     private getOrCreateDeviceIdentity;
     private getStoredDeviceIdentity;
@@ -285,7 +287,7 @@ export declare class OpenClawProtocolRegistry {
 
 ```ts
 import { RuntimeError, type CancelRuntimeRunInput, type EnsureSessionInput, type GetRuntimeHistoryInput, type GetRuntimeRunInput, type RuntimeCapabilities, type RuntimeEvent, type StartRuntimeRunInput } from '@banzae/agent-runtime-core';
-import type { OpenClawConnectInput, OpenClawFrame, OpenClawHello, OpenClawProtocolCodec, OpenClawRpcRequest, OpenClawRunContext } from './types.js';
+import type { OpenClawConnectInput, OpenClawFrame, OpenClawHello, OpenClawProviderEventMetadata, OpenClawProtocolCodec, OpenClawRpcRequest, OpenClawRunContext } from './types.js';
 export declare abstract class BaseOpenClawCodec implements OpenClawProtocolCodec {
     abstract readonly protocolVersion: number;
     abstract readonly protocolName: `openclaw-gateway-v${number}`;
@@ -293,6 +295,9 @@ export declare abstract class BaseOpenClawCodec implements OpenClawProtocolCodec
     parseHello(payload: unknown): OpenClawHello;
     parseFrame(input: string | Uint8Array): OpenClawFrame;
     encodeRequest(input: OpenClawRpcRequest): string;
+    extractProviderEventMetadata(event: Extract<OpenClawFrame, {
+        type: 'event';
+    }>): OpenClawProviderEventMetadata;
     mapProviderEvent(event: Extract<OpenClawFrame, {
         type: 'event';
     }>, context: OpenClawRunContext): RuntimeEvent[];
@@ -314,13 +319,15 @@ export declare function stringArray(value: unknown): string[];
 ### protocol/types.d.ts
 
 ```ts
-import type { CancelRuntimeRunInput, EnsureSessionInput, GetRuntimeHistoryInput, GetRuntimeRunInput, RuntimeCapabilities, RuntimeEvent, StartRuntimeRunInput } from '@banzae/agent-runtime-core';
+import type { CancelRuntimeRunInput, EnsureSessionInput, GetRuntimeHistoryInput, GetRuntimeRunInput, RuntimeAdapterDependencies, RuntimeCapabilities, RuntimeEvent, StartRuntimeRunInput } from '@banzae/agent-runtime-core';
 import type { RuntimeError } from '@banzae/agent-runtime-core';
 export type OpenClawFrame = {
     type: 'event';
     event: string;
     payload?: unknown;
     seq?: number;
+    eventId?: string;
+    timestamp?: string;
 } | {
     type: 'req';
     id: string;
@@ -382,6 +389,18 @@ export type OpenClawRunContext = {
     applicationRunId: string;
     externalRunId: string;
     externalSessionId: string;
+    includeRawProviderPayload?: boolean;
+    clock: RuntimeAdapterDependencies['clock'];
+    ids: RuntimeAdapterDependencies['ids'];
+};
+export type OpenClawProviderEventMetadata = {
+    eventType: string;
+    providerRunId?: string;
+    sessionKey?: string;
+    providerEventId?: string;
+    sequence?: number;
+    occurredAt?: string;
+    terminal?: 'completed' | 'failed' | 'cancelled' | 'timeout';
 };
 export interface OpenClawProtocolCodec {
     readonly protocolVersion: number;
@@ -390,6 +409,9 @@ export interface OpenClawProtocolCodec {
     parseHello(payload: unknown): OpenClawHello;
     parseFrame(input: string | Uint8Array): OpenClawFrame;
     encodeRequest(input: OpenClawRpcRequest): string;
+    extractProviderEventMetadata(event: Extract<OpenClawFrame, {
+        type: 'event';
+    }>): OpenClawProviderEventMetadata;
     mapProviderEvent(event: Extract<OpenClawFrame, {
         type: 'event';
     }>, context: OpenClawRunContext): RuntimeEvent[];
