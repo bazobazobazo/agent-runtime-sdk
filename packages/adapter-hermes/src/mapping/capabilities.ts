@@ -56,8 +56,9 @@ export function mapHermesCapabilities(payload: unknown): RuntimeCapabilities {
   const runStatus = features.run_status === true && endpointIs(endpoints, 'run_status', 'GET', '/v1/runs/{run_id}');
   const runStream = features.run_events_sse === true && endpointIs(endpoints, 'run_events', 'GET', '/v1/runs/{run_id}/events');
   const runCancel = features.run_stop === true && endpointIs(endpoints, 'run_stop', 'POST', '/v1/runs/{run_id}/stop');
-  const runApprovalAdvertised = features.run_approval === true || features.run_approval_response === true;
-  const runApprovals = runApprovalAdvertised && features.approval_events === true && endpointIs(endpoints, 'run_approval', 'POST', '/v1/runs/{run_id}/approval');
+  const runApprovals = features.approval_events === true
+    && features.run_approval_response === true
+    && endpointIs(endpoints, 'run_approval', 'POST', '/v1/runs/{run_id}/approval');
   const sessionCreate = endpointIs(endpoints, 'session_create', 'POST', '/api/sessions');
   const sessionHistory = endpointIs(endpoints, 'session_messages', 'GET', '/api/sessions/{session_id}/messages');
   const streamTools = runStream && features.tool_progress_events === true;
@@ -77,6 +78,7 @@ export function mapHermesCapabilities(payload: unknown): RuntimeCapabilities {
       text: runStatus || runStream,
       reasoning: runStream && features.reasoning === true,
       tools: streamTools,
+      // Pinned Hermes capabilities do not advertise usage independently.
       usage: false,
     },
     extensions: {

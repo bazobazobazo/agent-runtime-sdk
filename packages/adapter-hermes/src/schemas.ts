@@ -21,22 +21,24 @@ export type HermesRunStatus = {
 
 export type HermesApprovalChoice = 'once' | 'session' | 'always' | 'deny';
 
-export function validateHealth(value: unknown): { status: 'ok'; platform?: string; version?: string } {
+export function validateHealth(value: unknown): { status: 'ok'; platform: 'hermes-agent'; version: string } {
   const record = requiredRecord(value, 'Hermes liveness response');
-  if (record.status !== 'ok') throw invalidResponse('Hermes liveness status was malformed', 'health');
-  optionalString(record.platform, 'Hermes liveness platform');
-  optionalString(record.version, 'Hermes liveness version');
-  return { status: 'ok', platform: stringValue(record.platform), version: stringValue(record.version) };
+  if (record.status !== 'ok' || record.platform !== 'hermes-agent') {
+    throw invalidResponse('Hermes liveness response was malformed', 'health');
+  }
+  const version = requiredString(record.version, 'Hermes liveness version');
+  return { status: 'ok', platform: 'hermes-agent', version };
 }
 
-export function validateDetailedHealth(value: unknown): { status: string; version?: string } {
+export function validateDetailedHealth(value: unknown): { status: string; platform: 'hermes-agent'; version: string } {
   const record = requiredRecord(value, 'Hermes readiness response');
   const status = requiredString(record.status, 'Hermes readiness status');
   if (!['ok', 'healthy', 'degraded', 'starting', 'unavailable', 'error'].includes(status)) {
     throw invalidResponse('Hermes readiness status was unknown', 'health.detailed');
   }
-  optionalString(record.version, 'Hermes readiness version');
-  return { status, version: stringValue(record.version) };
+  if (record.platform !== 'hermes-agent') throw invalidResponse('Hermes readiness platform was malformed', 'health.detailed');
+  const version = requiredString(record.version, 'Hermes readiness version');
+  return { status, platform: 'hermes-agent', version };
 }
 
 export function validateRunCreateResponse(value: unknown): HermesRunCreate {
@@ -64,6 +66,15 @@ export function validateRunStatusResponse(value: unknown): HermesRunStatus {
   if (status === 'completed' && typeof record.output !== 'string') {
     throw invalidResponse('Hermes completed run omitted output', 'run.status');
   }
+  if (status !== 'completed' && record.output !== undefined && record.output !== null) {
+    throw invalidResponse('Hermes non-completed run contained output', 'run.status');
+  }
+  if (status !== 'completed' && normalizedUsage !== undefined) {
+    throw invalidResponse('Hermes non-completed run contained usage', 'run.status');
+  }
+  if (status === 'unknown' && (record.output !== undefined || record.usage !== undefined || record.error !== undefined)) {
+    throw invalidResponse('Hermes unknown run status contained terminal data', 'run.status');
+  }
   return {
     value: record,
     runId,
@@ -80,19 +91,20 @@ export function validateUsage(value: unknown): Readonly<Record<string, number>> 
   const output: Record<string, number> = {};
   for (const key of ['input_tokens', 'output_tokens', 'total_tokens']) {
     const nested = record[key];
-    if (nested !== undefined && (typeof nested !== 'number' || !Number.isFinite(nested) || nested < 0)) {
+    if (typeof nested !== 'number' || !Number.isInteger(nested) || nested < 0) {
       throw invalidResponse(`Hermes usage ${key} was malformed`, 'run.usage');
     }
-    if (typeof nested === 'number') output[key] = nested;
+    output[key] = nested;
   }
-  if (Object.keys(output).length === 0) throw invalidResponse('Hermes usage was empty', 'run.usage');
   return output;
 }
 
 export function validateRunFailure(value: unknown): { code: string } {
   if (typeof value === 'string' && value) return { code: 'provider_error' };
   const record = requiredRecord(value, 'Hermes run failure');
-  return { code: stringValue(record.code) ?? 'provider_error' };
+  const code = requiredString(record.code, 'Hermes run failure code');
+  optionalString(record.message, 'Hermes run failure message');
+  return { code };
 }
 
 export function validateStopResponse(value: unknown, externalRunId: string): void {
@@ -146,6 +158,7 @@ export function validateSessionCreateResponse(value: unknown): { sessionId: stri
   const record = requiredRecord(value, 'Hermes session creation response');
   if (record.object !== 'hermes.session') throw invalidResponse('Hermes session creation object was malformed', 'session.create');
   const session = requiredRecord(record.session, 'Hermes created session');
+  requiredString(session.source, 'Hermes created session source');
   return { sessionId: requiredIdentifier(session.id, 'Hermes created session id') };
 }
 
@@ -166,9 +179,7 @@ export function validateTerminalEvent(value: unknown, expectedEvent: 'run.comple
     if (typeof record.output !== 'string') throw invalidResponse('Hermes completed event omitted output', 'sse.terminal');
     if (record.usage !== undefined) validateUsage(record.usage);
   }
-  if (expectedEvent === 'run.failed' && record.error === undefined) {
-    throw invalidResponse('Hermes failed event omitted error', 'sse.terminal');
-  }
+  if (expectedEvent === 'run.failed') validateRunFailure(record.error);
   return record;
 }
 

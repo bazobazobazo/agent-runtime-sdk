@@ -14,6 +14,7 @@
   },
   "body": {
     "status": "healthy",
+    "platform": "hermes-agent",
     "version": "0.18.2"
   }
 }

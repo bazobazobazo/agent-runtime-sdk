@@ -1,5 +1,5 @@
 import { readFile } from 'node:fs/promises';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   RuntimeError,
   createTestDependencies,
@@ -9,8 +9,8 @@ import {
   type RuntimeHttpTransport,
 } from '@banzae/agent-runtime-core';
 import { FakeHermesServer } from '../../testing/src/fake-hermes-server.js';
-import { BoundedDedupeWindow } from './dedupe.js';
 import { HermesAdapter } from './hermes-adapter.js';
+import { HermesHttpClient } from './http/client.js';
 import { isHermesCapabilities, mapHermesCapabilities } from './mapping/capabilities.js';
 import { mapHermesSseEvent } from './mapping/events.js';
 import { parseSseStream } from './sse/parser.js';
@@ -28,7 +28,8 @@ function capabilities(overrides: Record<string, unknown> = {}): Record<string, u
       run_status: true,
       run_events_sse: true,
       run_stop: true,
-      run_approval: true,
+      run_approval_response: true,
+      approval_events: true,
       tool_progress_events: true,
       session_continuity_header: 'X-Hermes-Session-Id',
       session_key_header: 'X-Hermes-Session-Key',
@@ -88,12 +89,48 @@ describe('Hermes contract hardening', () => {
     expect(partial.runs.streamText).toBe(false);
     expect(partial.sessions.create).toBe(false);
     expect(partial.sessions.history).toBe(false);
+
+    const missing = mapHermesCapabilities(capabilities({
+      features: { reasoning: false, responses_api: false },
+      endpoints: {},
+    }));
+    expect(missing.runs).toEqual({ start: false, status: false, streamText: false, streamTools: false, cancel: false, approvals: false });
+    expect(missing.extensions).toMatchObject({
+      'hermes.long_term_session_key': false,
+      'hermes.session_id_header': false,
+    });
+
+    for (const [features, endpoints] of [
+      [{ run_approval_response: true, approval_events: true }, {}],
+      [{ run_approval_response: true, run_status: true }, { run_approval: { method: 'POST', path: '/v1/runs/{run_id}/approval' } }],
+      [{ approval_events: true, run_status: true }, { run_approval: { method: 'POST', path: '/v1/runs/{run_id}/approval' } }],
+    ] as const) {
+      expect(mapHermesCapabilities(capabilities({ features, endpoints })).runs.approvals).toBe(false);
+    }
   });
 
   it('rejects malformed and misleading partial capabilities', () => {
     expect(isHermesCapabilities({ object: 'hermes.api_server.capabilities', platform: 'hermes-agent', features: { run_submission: true } })).toBe(false);
     expect(() => mapHermesCapabilities(capabilities({ features: { run_submission: 'yes', run_status: true } }))).toThrowError(RuntimeError);
     expect(() => mapHermesCapabilities(capabilities({ endpoints: { runs: { method: 'GET', path: '/v1/runs' } } }))).toThrowError(RuntimeError);
+  });
+
+  it('publishes missing and partial capabilities fail-closed through connect()', async () => {
+    const server = new FakeHermesServer();
+    server.capabilities = capabilities({
+      features: { run_submission: false, run_status: false, run_approval_response: true, approval_events: false },
+      endpoints: { run_approval: { method: 'POST', path: '/v1/runs/{run_id}/approval' } },
+    });
+    const adapter = new HermesAdapter(createTestDependencies({ http: server }), { baseUrl: 'https://hermes.example.test' });
+    await adapter.connect({ target: { endpoint: 'https://hermes.example.test' } });
+    const mapped = await adapter.capabilities();
+    expect(mapped.runs).toEqual({ start: false, status: false, streamText: false, streamTools: false, cancel: false, approvals: false });
+    expect(mapped.sessions).toEqual({ create: false, resume: false, history: false, fork: false });
+    expect(mapped.output.usage).toBe(false);
+    expect(mapped.extensions).toMatchObject({
+      'hermes.long_term_session_key': false,
+      'hermes.session_id_header': false,
+    });
   });
 
   it('does not treat a sanitized capabilities-only capture as a live adapter suite', async () => {
@@ -205,6 +242,7 @@ describe('Hermes contract hardening', () => {
     if (event?.type !== 'approval.requested') throw new Error('expected approval event');
     expect(event.availableDecisions).toEqual([{ action: 'allow', scope: 'once' }, { action: 'deny' }]);
     await expect(adapter.resolveApproval({ applicationRunId: 'a', externalRunId: 'run-restricted', approvalId: event.approvalId, decision: { action: 'allow', scope: 'always' } })).rejects.toMatchObject({ code: 'INVALID_REQUEST' });
+    await expect(adapter.resolveApproval({ applicationRunId: 'a', externalRunId: 'run-restricted', approvalId: 'unknown-approval', decision: { action: 'deny' } })).rejects.toMatchObject({ code: 'INVALID_REQUEST' });
     await iterator.return?.();
   });
 
@@ -221,7 +259,7 @@ describe('Hermes contract hardening', () => {
     await iterator.return?.();
 
     const disabled = new FakeHermesServer();
-    disabled.capabilities = capabilities({ features: { run_submission: true, run_status: true, run_approval: false } });
+    disabled.capabilities = capabilities({ features: { run_submission: true, run_status: true, run_approval_response: false, approval_events: true } });
     const disabledAdapter = new HermesAdapter(createTestDependencies({ http: disabled }), { baseUrl: 'https://hermes.example.test' });
     await disabledAdapter.connect({ target: { endpoint: 'https://hermes.example.test' } });
     await expect(disabledAdapter.resolveApproval({ applicationRunId: 'a', externalRunId: 'r', approvalId: 'p', decision: { action: 'deny' } })).rejects.toMatchObject({ code: 'UNSUPPORTED_CAPABILITY' });
@@ -229,7 +267,7 @@ describe('Hermes contract hardening', () => {
 
   it('reconciles a disconnected stream with terminal status', async () => {
     const server = new FakeHermesServer();
-    server.runs.set('run-complete', { id: 'run-complete', status: 'completed', sessionId: 's', output: 'done', usage: { total_tokens: 3 }, events: [] });
+    server.runs.set('run-complete', { id: 'run-complete', status: 'completed', sessionId: 's', output: 'done', usage: { input_tokens: 1, output_tokens: 2, total_tokens: 3 }, events: [] });
     const adapter = new HermesAdapter(createTestDependencies({ http: server }), { baseUrl: 'https://hermes.example.test', maxReconnectAttempts: 0, pollingIntervalMs: 1, maxReconciliationMs: 10 });
     await adapter.connect({ target: { endpoint: 'https://hermes.example.test' } });
     const events = [];
@@ -258,6 +296,37 @@ describe('Hermes contract hardening', () => {
     expect(server.streamRequests).toBe(2);
     expect(clock.sleeps).toContain(7);
     expect(events.at(-1)?.type).toBe('run.completed');
+  });
+
+  it('uses Retry-After for retryable stream failures', async () => {
+    const server = new FakeHermesServer();
+    server.runs.set('run-rate', {
+      id: 'run-rate',
+      status: 'running',
+      sessionId: 's',
+      events: [{ data: { event: 'run.completed', run_id: 'run-rate', output: 'done' } }],
+    });
+    const clock = testClock();
+    let attempts = 0;
+    const transport: RuntimeHttpTransport = {
+      request: async (input) => {
+        if (new URL(input.url).pathname.endsWith('/events') && attempts++ === 0) {
+          return { status: 503, headers: { 'content-type': 'application/json', 'retry-after': '0.02' }, body: chunks(['{}']) };
+        }
+        return server.request(input);
+      },
+    };
+    const adapter = new HermesAdapter(createTestDependencies({ http: transport, clock }), {
+      baseUrl: 'https://hermes.example.test',
+      maxReconnectAttempts: 1,
+      reconnectDelayMs: 1,
+      maxReconciliationMs: 100,
+    });
+    await adapter.connect({ target: { endpoint: 'https://hermes.example.test' } });
+    const normalized = [];
+    for await (const event of adapter.streamRun({ applicationRunId: 'a', externalRunId: 'run-rate', externalSessionId: 's' })) normalized.push(event);
+    expect(clock.sleeps).toContain(20);
+    expect(normalized.at(-1)?.type).toBe('run.completed');
   });
 
   it('enforces pollingIntervalMs and maxReconciliationMs', async () => {
@@ -292,13 +361,32 @@ describe('Hermes contract hardening', () => {
     expect(auth.streamRequests).toBe(0);
   });
 
-  it('bounds deduplication independently of event volume', () => {
-    const first = new BoundedDedupeWindow(128);
-    const second = new BoundedDedupeWindow(128);
-    for (let index = 0; index < 10_000; index += 1) expect(first.seen(`event-${index}`)).toBe(false);
-    expect(first.size).toBe(128);
-    expect(second.size).toBe(0);
-    expect(first.seen('event-9999')).toBe(true);
+  it('uses the bounded dedupe window in the production stream path', async () => {
+    const server = new FakeHermesServer();
+    server.runs.set('run-volume', { id: 'run-volume', status: 'completed', sessionId: 's', output: 'done' });
+    const events = Array.from({ length: 10_000 }, (_, index) => ({
+      id: String(index),
+      data: { event: 'message.delta', run_id: 'run-volume', delta: String(index) },
+    }));
+    events.push(
+      { id: '9999', data: { event: 'message.delta', run_id: 'run-volume', delta: '9999' } },
+      { id: '0', data: { event: 'message.delta', run_id: 'run-volume', delta: '0' } },
+      { id: 'terminal', data: { event: 'run.completed', run_id: 'run-volume', output: 'done' } },
+    );
+    const transport: RuntimeHttpTransport = {
+      request: async (input) => new URL(input.url).pathname.endsWith('/events')
+        ? chunkedSse(events)
+        : server.request(input),
+    };
+    const adapter = new HermesAdapter(createTestDependencies({ http: transport }), {
+      baseUrl: 'https://hermes.example.test',
+      maxDeduplicationEntries: 128,
+    });
+    await adapter.connect({ target: { endpoint: 'https://hermes.example.test' } });
+    const normalized = [];
+    for await (const event of adapter.streamRun({ applicationRunId: 'a', externalRunId: 'run-volume', externalSessionId: 's' })) normalized.push(event);
+    expect(normalized.filter((event) => event.type === 'assistant.delta')).toHaveLength(10_001);
+    expect(normalized.at(-1)?.type).toBe('run.completed');
   });
 
   it('rejects strict run, stop, session, and history response mismatches', async () => {
@@ -319,12 +407,18 @@ describe('Hermes contract hardening', () => {
     await expect(adapter.getHistory({ applicationSessionId: 'a', externalSessionId: 's' })).rejects.toMatchObject({ code: 'INVALID_RESPONSE' });
   });
 
-  it('failed connect leaves the adapter disconnected', async () => {
+  it('failed connect closes the temporary client and leaves the adapter disconnected', async () => {
     const server = new FakeHermesServer();
     server.capabilities = { object: 'hermes.api_server.capabilities', platform: 'hermes-agent', features: [] };
     const adapter = new HermesAdapter(createTestDependencies({ http: server }), { baseUrl: 'https://hermes.example.test' });
-    for (let attempt = 0; attempt < 3; attempt += 1) {
-      await expect(adapter.connect({ target: { endpoint: 'https://hermes.example.test' } })).rejects.toMatchObject({ code: 'INVALID_RESPONSE' });
+    const close = vi.spyOn(HermesHttpClient.prototype, 'close');
+    try {
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        await expect(adapter.connect({ target: { endpoint: 'https://hermes.example.test' } })).rejects.toMatchObject({ code: 'INVALID_RESPONSE' });
+      }
+      expect(close).toHaveBeenCalledTimes(3);
+    } finally {
+      close.mockRestore();
     }
     await expect(adapter.capabilities()).rejects.toMatchObject({ code: 'INVALID_CONFIGURATION' });
     expect(server.requests).toHaveLength(3);
@@ -332,16 +426,22 @@ describe('Hermes contract hardening', () => {
 
   it('close aborts two concurrent streams and is idempotent', async () => {
     const server = new FakeHermesServer();
-    server.runs.set('run-x', { id: 'run-x', status: 'running', sessionId: 's', events: [] });
+    server.runs.set('run-x', {
+      id: 'run-x',
+      status: 'waiting_for_approval',
+      sessionId: 's',
+      events: [{ data: { event: 'approval.request', run_id: 'run-x', choices: ['deny'] } }],
+    });
     server.runs.set('run-y', { id: 'run-y', status: 'running', sessionId: 's', events: [] });
     const transport: RuntimeHttpTransport = {
-      request: async (input) => new URL(input.url).pathname.endsWith('/events') ? hangingSse(input) : server.request(input),
+      request: async (input) => new URL(input.url).pathname === '/v1/runs/run-y/events' ? hangingSse(input) : server.request(input),
     };
     const adapter = new HermesAdapter(createTestDependencies({ http: transport }), { baseUrl: 'https://hermes.example.test' });
     await adapter.connect({ target: { endpoint: 'https://hermes.example.test' } });
     const x = adapter.streamRun({ applicationRunId: 'x', externalRunId: 'run-x', externalSessionId: 's' })[Symbol.asyncIterator]();
     const y = adapter.streamRun({ applicationRunId: 'y', externalRunId: 'run-y', externalSessionId: 's' })[Symbol.asyncIterator]();
-    const pending = Promise.allSettled([x.next(), y.next()]);
+    expect((await x.next()).value?.type).toBe('approval.requested');
+    const pending = Promise.allSettled([y.next()]);
     await Promise.resolve();
     await adapter.close();
     const results = await pending;
@@ -358,6 +458,7 @@ describe('Hermes contract hardening', () => {
     const one = adapter.streamRun({ applicationRunId: 'one', externalRunId: 'run-one', externalSessionId: 's' })[Symbol.asyncIterator]();
     expect((await one.next()).value?.type).toBe('approval.requested');
     await one.return?.();
+    await expect(adapter.connect({ target: { endpoint: 'https://hermes.example.test' } })).resolves.toBeDefined();
     const two = [];
     for await (const event of adapter.streamRun({ applicationRunId: 'two', externalRunId: 'run-two', externalSessionId: 's' })) two.push(event);
     expect(two.at(-1)?.type).toBe('run.completed');
@@ -381,6 +482,59 @@ describe('Hermes contract hardening', () => {
     const events = [];
     for await (const event of adapter.streamRun({ applicationRunId: 'a', externalRunId: 'run-dup', externalSessionId: 's' })) events.push(event);
     expect(events.map((event) => event.type)).toEqual(['assistant.delta', 'run.completed']);
+  });
+
+  it('never advances previousResponseId from response-shaped Hermes fields', async () => {
+    const server = new FakeHermesServer();
+    const transport: RuntimeHttpTransport = {
+      request: async (input) => {
+        const path = new URL(input.url).pathname;
+        if (path === '/v1/runs' && input.method === 'POST') return json(202, { run_id: 'run-response', status: 'started', response_id: 'resp-create' });
+        if (path === '/v1/runs/run-response') return json(200, {
+          object: 'hermes.run',
+          run_id: 'run-response',
+          status: 'completed',
+          output: 'done',
+          session_id: 's',
+          response_id: 'resp-status',
+          previous_response_id: 'resp-echo',
+        });
+        return server.request(input);
+      },
+    };
+    const adapter = new HermesAdapter(createTestDependencies({ http: transport }), { baseUrl: 'https://hermes.example.test' });
+    await adapter.connect({ target: { endpoint: 'https://hermes.example.test' } });
+    const session = { applicationSessionId: 's', externalSessionId: 's', created: false };
+    const handle = await adapter.startRun({ applicationRunId: 'a', idempotencyKey: 'i', session, input: { text: 'hi' } });
+    const snapshot = await adapter.getRun({ applicationRunId: 'a', externalRunId: handle.externalRunId, externalSessionId: 's' });
+    expect(handle.sessionStatePatch?.previousResponseId).toBeUndefined();
+    expect(handle.providerState).not.toHaveProperty('previousResponseId');
+    expect(snapshot.sessionStatePatch?.previousResponseId).toBeUndefined();
+    expect(snapshot.providerState).not.toHaveProperty('previousResponseId');
+  });
+
+  it('rejects malformed health and session creation payloads in production paths', async () => {
+    const healthServer = new FakeHermesServer();
+    healthServer.health = { status: 'ok' };
+    const healthAdapter = new HermesAdapter(createTestDependencies({ http: healthServer }), { baseUrl: 'https://hermes.example.test' });
+    await healthAdapter.connect({ target: { endpoint: 'https://hermes.example.test' } });
+    await expect(healthAdapter.health()).rejects.toMatchObject({ code: 'INVALID_RESPONSE' });
+
+    const detailedServer = new FakeHermesServer();
+    detailedServer.detailedHealth = { status: 'ok', version: '0.18.2' };
+    const detailedAdapter = new HermesAdapter(createTestDependencies({ http: detailedServer }), { baseUrl: 'https://hermes.example.test' });
+    await detailedAdapter.connect({ target: { endpoint: 'https://hermes.example.test' } });
+    await expect(detailedAdapter.health()).rejects.toMatchObject({ code: 'INVALID_RESPONSE' });
+
+    const sessionServer = new FakeHermesServer();
+    const transport: RuntimeHttpTransport = {
+      request: async (input) => new URL(input.url).pathname === '/api/sessions' && input.method === 'POST'
+        ? json(201, { object: 'hermes.session', session: { id: 'missing-source' } })
+        : sessionServer.request(input),
+    };
+    const sessionAdapter = new HermesAdapter(createTestDependencies({ http: transport }), { baseUrl: 'https://hermes.example.test' });
+    await sessionAdapter.connect({ target: { endpoint: 'https://hermes.example.test' } });
+    await expect(sessionAdapter.ensureSession({ applicationSessionId: 'a' })).rejects.toMatchObject({ code: 'INVALID_RESPONSE' });
   });
 
   it('caller abort stops polling immediately', async () => {
@@ -484,6 +638,21 @@ function hangingSse(input: RuntimeHttpRequest): RuntimeHttpResponse {
           }),
           return: async () => ({ done: true, value: undefined }),
         };
+      },
+    },
+  };
+}
+
+function chunkedSse(events: ReadonlyArray<{ id?: string; event?: string; data: unknown }>): RuntimeHttpResponse {
+  return {
+    status: 200,
+    headers: { 'content-type': 'text/event-stream' },
+    body: {
+      async *[Symbol.asyncIterator]() {
+        for (const event of events) {
+          const text = `${event.id ? `id: ${event.id}\n` : ''}${event.event ? `event: ${event.event}\n` : ''}data: ${JSON.stringify(event.data)}\n\n`;
+          yield new TextEncoder().encode(text);
+        }
       },
     },
   };

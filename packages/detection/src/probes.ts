@@ -293,7 +293,9 @@ function hermesCapabilities(payload: Record<string, unknown>): RuntimeCapabiliti
   const status = features.run_status === true && detectionEndpoint(endpoints.run_status, 'GET', '/v1/runs/{run_id}');
   const stream = features.run_events_sse === true && detectionEndpoint(endpoints.run_events, 'GET', '/v1/runs/{run_id}/events');
   const cancel = features.run_stop === true && detectionEndpoint(endpoints.run_stop, 'POST', '/v1/runs/{run_id}/stop');
-  const approvals = (features.run_approval === true || features.run_approval_response === true) && features.approval_events === true && detectionEndpoint(endpoints.run_approval, 'POST', '/v1/runs/{run_id}/approval');
+  const approvals = features.run_approval_response === true
+    && features.approval_events === true
+    && detectionEndpoint(endpoints.run_approval, 'POST', '/v1/runs/{run_id}/approval');
   const sessionCreate = detectionEndpoint(endpoints.session_create, 'POST', '/api/sessions');
   const sessionHistory = detectionEndpoint(endpoints.session_messages, 'GET', '/api/sessions/{session_id}/messages');
   const tools = stream && features.tool_progress_events === true;

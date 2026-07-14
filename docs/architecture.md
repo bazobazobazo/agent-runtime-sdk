@@ -59,7 +59,12 @@ The Hermes adapter uses the Runs HTTP API and Runs SSE stream as its primary
 runtime path. It does not use Chat Completions and does not expose Hermes Jobs
 as SDK scheduling. Connection validates `/v1/capabilities`, maps only features
 implemented by this adapter, and keeps image/file input disabled until the Runs
-API has fixture-backed support.
+API has fixture-backed support. Mapping begins from a fully disabled capability
+set. Each run operation requires its exact boolean feature and endpoint;
+approval support additionally requires approval events and
+`run_approval_response`. Session endpoints and headers are enabled only by exact
+endpoint/header evidence. The pinned contract has no independent usage feature,
+so `output.usage` remains false.
 
 Hermes sessions operate in `auto`, `client-scoped`, or `rest-session` mode.
 Client-scoped sessions use the SDK application session ID as Hermes

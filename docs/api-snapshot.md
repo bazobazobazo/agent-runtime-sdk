@@ -90,6 +90,7 @@ export declare class HermesAdapter implements AgentRuntimeAdapter {
     readonly adapterVersion = "0.1.0";
     private connected?;
     private closed;
+    private closing?;
     private readonly activeStreams;
     private readonly approvals;
     constructor(deps: RuntimeAdapterDependencies, options?: HermesAdapterOptions);
@@ -100,6 +101,7 @@ export declare class HermesAdapter implements AgentRuntimeAdapter {
     ensureSession(input: EnsureSessionInput, options?: OperationOptions): Promise<RuntimeSession>;
     startRun(input: StartRuntimeRunInput, options?: OperationOptions): Promise<RuntimeRunHandle>;
     streamRun(input: StreamRuntimeRunInput, options?: OperationOptions): AsyncIterable<RuntimeEvent>;
+    private iterateRunStream;
     getRun(input: GetRuntimeRunInput, options?: OperationOptions): Promise<RuntimeRunSnapshot>;
     cancelRun(input: CancelRuntimeRunInput, options?: OperationOptions): Promise<void>;
     resolveApproval(input: ResolveRuntimeApprovalInput, options?: OperationOptions): Promise<void>;
@@ -109,6 +111,7 @@ export declare class HermesAdapter implements AgentRuntimeAdapter {
     private eventContext;
     private delayWithinDeadline;
     private clearRunApprovals;
+    private closeResources;
     private requireConnected;
 }
 export declare function createHermesAdapterFactory(options?: HermesAdapterOptions): {
@@ -226,12 +229,13 @@ export type HermesRunStatus = {
 export type HermesApprovalChoice = 'once' | 'session' | 'always' | 'deny';
 export declare function validateHealth(value: unknown): {
     status: 'ok';
-    platform?: string;
-    version?: string;
+    platform: 'hermes-agent';
+    version: string;
 };
 export declare function validateDetailedHealth(value: unknown): {
     status: string;
-    version?: string;
+    platform: 'hermes-agent';
+    version: string;
 };
 export declare function validateRunCreateResponse(value: unknown): HermesRunCreate;
 export declare function validateRunStatusResponse(value: unknown): HermesRunStatus;
@@ -1700,6 +1704,7 @@ export type FakeHermesRun = {
     output?: string;
     sessionId?: string;
     usage?: Record<string, number>;
+    error?: unknown;
     events?: Array<{
         id?: string;
         event?: string;

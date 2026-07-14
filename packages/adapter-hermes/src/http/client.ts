@@ -74,16 +74,16 @@ export class HermesHttpClient {
       const bytes = await readBytes(response.body, this.options.maxBodyBytes ?? 1_000_000, operation.signal);
       if (bytes.byteLength === 0) {
         if (input.allowEmpty) return { value: undefined as T, headers: response.headers, status: response.status };
-        throw runtimeError('PROVIDER_ERROR', 'Hermes returned an empty JSON response', false, { status: response.status, stage: 'http.json' });
+        throw runtimeError('INVALID_RESPONSE', 'Hermes returned an empty JSON response', false, { status: response.status, stage: 'http.json' });
       }
       const contentType = header(response.headers, 'content-type');
       if (!contentType || !contentType.toLowerCase().includes('application/json')) {
-        throw runtimeError('PROVIDER_ERROR', 'Hermes returned a non-JSON response', false, { status: response.status, contentType, stage: 'http.json' });
+        throw runtimeError('INVALID_RESPONSE', 'Hermes returned a non-JSON response', false, { status: response.status, contentType, stage: 'http.json' });
       }
       try {
         return { value: JSON.parse(new TextDecoder().decode(bytes)) as T, headers: response.headers, status: response.status };
       } catch (error) {
-        throw runtimeError('PROVIDER_ERROR', 'Hermes returned malformed JSON', false, safeErrorDetails(error, 'http.json'));
+        throw runtimeError('INVALID_RESPONSE', 'Hermes returned malformed JSON', false, safeErrorDetails(error, 'http.json'));
       }
     } catch (error) {
       throw normalizeTransportError(error, operation.signal);
@@ -121,7 +121,7 @@ export class HermesHttpClient {
       const contentType = header(response.headers, 'content-type');
       if (!contentType || !contentType.toLowerCase().includes('text/event-stream')) {
         await closeBody(response.body);
-        throw runtimeError('PROVIDER_ERROR', 'Hermes returned a non-SSE response', false, { status: response.status, contentType, stage: 'sse' });
+        throw runtimeError('INVALID_RESPONSE', 'Hermes returned a non-SSE response', false, { status: response.status, contentType, stage: 'sse' });
       }
       return abortLinkedBody(response.body, operation, () => this.active.delete(operation));
     } catch (error) {

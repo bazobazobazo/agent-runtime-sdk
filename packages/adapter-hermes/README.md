@@ -61,9 +61,14 @@ deduplication defaults to 1,024 entries per run and is configurable with
 ## Capabilities And Limits
 
 Images and files remain unsupported for the Runs API and are rejected before a
-provider request. History is advertised only when REST session messages are
-available. Approvals are exposed only when Hermes explicitly advertises
-approval resolution. Decisions use `{ action: 'allow', scope: 'once' |
+provider request. Capability mapping starts fully disabled: run operations
+require their exact boolean feature plus endpoint, REST session creation and
+history require their exact endpoints, and session headers require their exact
+advertised header names. The pinned Hermes contract does not independently
+advertise usage support, so `output.usage` remains false even though validated
+terminal payloads may contain usage. Approvals require approval events,
+`run_approval_response`, and the exact approval endpoint. Decisions use
+`{ action: 'allow', scope: 'once' |
 'session' | 'always' }` or `{ action: 'deny' }`, and must be among the choices
 offered by that request.
 Raw provider payloads are disabled by default; when enabled, values are

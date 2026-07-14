@@ -6,6 +6,7 @@ export type FakeHermesRun = {
   output?: string;
   sessionId?: string;
   usage?: Record<string, number>;
+  error?: unknown;
   events?: Array<{ id?: string; event?: string; data: unknown }>;
 };
 
@@ -19,7 +20,7 @@ export class FakeHermesServer implements RuntimeHttpTransport {
       run_status: true,
       run_events_sse: true,
       run_stop: true,
-      run_approval: true,
+      run_approval_response: true,
       approval_events: true,
       tool_progress_events: true,
       session_continuity_header: 'X-Hermes-Session-Id',
@@ -35,8 +36,8 @@ export class FakeHermesServer implements RuntimeHttpTransport {
       session_messages: { method: 'GET', path: '/api/sessions/{session_id}/messages' },
     },
   };
-  health: Record<string, unknown> = { status: 'ok' };
-  detailedHealth: Record<string, unknown> = { status: 'healthy', version: '0.18.2' };
+  health: Record<string, unknown> = { status: 'ok', platform: 'hermes-agent', version: '0.18.2' };
+  detailedHealth: Record<string, unknown> = { status: 'healthy', platform: 'hermes-agent', version: '0.18.2' };
   readonly requests: RuntimeHttpRequest[] = [];
   readonly runs = new Map<string, FakeHermesRun>();
   sessionsCreated = 0;
@@ -55,10 +56,10 @@ export class FakeHermesServer implements RuntimeHttpTransport {
       status: 'completed',
       output: 'done',
       sessionId: 'session-1',
-      usage: { input_tokens: 1, output_tokens: 2 },
+      usage: { input_tokens: 1, output_tokens: 2, total_tokens: 3 },
       events: [
         { id: '1', event: 'message.delta', data: { event: 'message.delta', run_id: 'run-1', delta: 'hi' } },
-        { id: '2', event: 'run.completed', data: { event: 'run.completed', run_id: 'run-1', output: 'done', usage: { input_tokens: 1, output_tokens: 2 } } },
+        { id: '2', event: 'run.completed', data: { event: 'run.completed', run_id: 'run-1', output: 'done', usage: { input_tokens: 1, output_tokens: 2, total_tokens: 3 } } },
       ],
     });
   }
@@ -103,7 +104,7 @@ export class FakeHermesServer implements RuntimeHttpTransport {
     if (runStatus) {
       this.statusRequests += 1;
       const run = this.runs.get(runStatus[1]!);
-      return run ? json(200, { object: 'hermes.run', run_id: run.id, status: run.status, output: run.output, usage: run.usage, session_id: run.sessionId }) : json(404, { error: 'not found' });
+      return run ? json(200, { object: 'hermes.run', run_id: run.id, status: run.status, output: run.output, usage: run.usage, error: run.error, session_id: run.sessionId }) : json(404, { error: 'not found' });
     }
     const runStop = url.pathname.match(/^\/v1\/runs\/([^/]+)\/stop$/);
     if (runStop) {

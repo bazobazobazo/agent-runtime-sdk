@@ -120,7 +120,7 @@ function throwIfAborted(signal?: AbortSignal): void {
 }
 
 function providerError(message: string, details?: Record<string, unknown>): RuntimeError {
-  return new RuntimeError({ code: 'PROVIDER_ERROR', retryable: false, adapterId: 'hermes', message, details });
+  return new RuntimeError({ code: 'INVALID_RESPONSE', retryable: false, adapterId: 'hermes', message, details });
 }
 
 function errorName(error: unknown): string | undefined {
