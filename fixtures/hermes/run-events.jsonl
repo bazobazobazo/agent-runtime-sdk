@@ -1,0 +1,5 @@
+{"fixtureMetadata":{"runtimeProduct":"hermes-agent","targetRuntimeVersion":"current Hermes main contract","validatedRuntimeVersion":null,"protocolVersion":"1","captureDate":"2026-07-14","fixtureSchemaVersion":1,"sanitizerVersion":"synthetic-1","source":"synthetic","upstreamRepository":"NousResearch/hermes-agent","upstreamCommit":"226e8de827a669e8ffa7035b27d70c19e44b1208","inspectedSourcePath":"gateway/platforms/api_server.py"}}
+{"data":{"event":"message.delta","run_id":"run-1","timestamp":0,"delta":"hello"}}
+{"data":{"event":"tool.started","run_id":"run-1","timestamp":1,"tool":"terminal","preview":"redacted operation"}}
+{"data":{"event":"tool.completed","run_id":"run-1","timestamp":2,"tool":"terminal","duration":0.1,"error":false}}
+{"data":{"event":"run.completed","run_id":"run-1","timestamp":3,"output":"done","usage":{"input_tokens":1,"output_tokens":2,"total_tokens":3}}}

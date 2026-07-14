@@ -1,7 +1,13 @@
 {
   "runtime": "hermes",
   "capturedAt": "2026-07-13T18:47:44.289Z",
-  "source": "live capabilities capture",
+  "source": "sanitized-live-capabilities-only",
+  "fixtureSchemaVersion": 1,
+  "sanitizerVersion": "capture-1",
+  "validatedAdapterOperations": [],
+  "upstreamRepository": "NousResearch/hermes-agent",
+  "upstreamCommit": "7550c594",
+  "inspectedSourcePath": "gateway/platforms/api_server.py",
   "capabilities": {
     "status": 200,
     "headers": {

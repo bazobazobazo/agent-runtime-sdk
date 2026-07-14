@@ -53,6 +53,40 @@ files, or creates OpenClaw device-pairing requests during ordinary detection.
 Applications can inject stricter network policy, credential resolution, and
 detection storage without changing the SDK boundary.
 
+## Hermes Runtime Adapter
+
+The Hermes adapter uses the Runs HTTP API and Runs SSE stream as its primary
+runtime path. It does not use Chat Completions and does not expose Hermes Jobs
+as SDK scheduling. Connection validates `/v1/capabilities`, maps only features
+implemented by this adapter, and keeps image/file input disabled until the Runs
+API has fixture-backed support. Mapping begins from a fully disabled capability
+set. Each run operation requires its exact boolean feature and endpoint;
+approval support additionally requires approval events and
+`run_approval_response`. Session endpoints and headers are enabled only by exact
+endpoint/header evidence. The pinned contract has no independent usage feature,
+so `output.usage` remains false.
+
+Hermes sessions operate in `auto`, `client-scoped`, or `rest-session` mode.
+Client-scoped sessions use the SDK application session ID as Hermes
+`session_id`; REST sessions are created only when capabilities advertise
+session creation and message history. The Runs API accepts a caller-provided
+`previous_response_id`, but inspected Hermes source does not return a successor
+response ID from run create, status, or terminal events. The adapter therefore
+never invents or advances `previousResponseId`; it returns only verified Hermes
+`session_id` state for the host application to persist.
+
+SSE event mapping is explicit by Hermes event name and is correlated by run ID
+and session ID. Each stream has an independently bounded deduplication window.
+After a non-terminal disconnect, the adapter polls status, reconnects only for
+retryable failures within `maxReconnectAttempts`, and then performs bounded
+polling governed by `pollingIntervalMs` and `maxReconciliationMs`. Unknown
+events are warnings, never successful completion.
+
+Approval requests expose their exact available decisions. The neutral model is
+`allow` with `once`, `session`, or `always` scope, or `deny`. Hermes receives
+the exact upstream `choice` field and the adapter rejects scopes not offered by
+the specific request.
+
 Detection cancellation is explicit. Each call has an operation-wide abort
 controller linked to caller cancellation and overall timeout, and each probe has
 a child controller linked to per-probe timeout. HTTP requests, response body

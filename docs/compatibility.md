@@ -11,7 +11,7 @@ validated by the codec registry.
 |---|---:|---|---|
 | OpenClaw | v3 | supported | fixtures + contract tests |
 | OpenClaw | v4 | supported | fixtures + contract tests |
-| Hermes | HTTP/SSE Runs API | scaffold | fixtures + live bring-up validation |
+| Hermes | HTTP/SSE Runs API | implemented — synthetic/fake-server validated; live validation pending | upstream contract inspection + synthetic fixtures + fake server tests |
 
 Runtime auto-detection currently supports only OpenClaw and Hermes. Codex and Pi
 remain private placeholders and are not registered probes.
@@ -79,7 +79,7 @@ Known validation targets:
 | `bf1` | OpenClaw | `2026.4.22 (00bd2cf)` |
 | `bfp1` | OpenClaw | `2026.5.6 (c97b9f7)`, protocol `3` fixture |
 | `bfp1` | OpenClaw | `2026.6.11`, protocol `4` fixture |
-| `bfp1` | Hermes Agent | `v0.18.2 (2026.7.7.2)`, upstream `7550c594` |
+| `bfp1` | Hermes Agent | capabilities and health observed at `v0.18.2`; full live adapter suite not run |
 
 OpenClaw runtime version is not the same thing as gateway protocol version.
 The same bfp1 host validated as protocol `3` on OpenClaw `2026.5.6` and
@@ -94,11 +94,17 @@ token scoped to `operator.read` and `operator.write`. The flow creates a
 session, starts a chat run, observes the expected response, reads history, and
 submits `chat.abort` against a real provider run handle.
 
-The bfp1 Hermes runtime is validated at `v0.18.2` using authenticated
-capabilities and detailed health endpoints. Its capabilities use concrete
-feature keys such as `session_resources`, `tool_progress_events`, and
-`approval_events`; the SDK maps those into the neutral runtime capability
-contract.
+The bfp1 Hermes capture proves only that authenticated capabilities and
+detailed health were reachable at `v0.18.2`. It is not evidence that run
+creation, streaming, recovery, approvals, cancellation, or REST session
+history passed the live adapter suite. Hermes therefore remains provisional
+until that state-changing suite records a tested runtime version.
+
+Hermes detached SSE buffers expire after five minutes. The SDK does not use
+`Last-Event-ID`, because current source does not establish replay support. On
+stream disconnect it polls run status, performs bounded reconnects, then falls
+back to bounded status polling. Caller-provided `Idempotency-Key` values are
+preserved exactly and are not replaced by the adapter.
 
 ## Commands
 

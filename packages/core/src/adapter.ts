@@ -6,6 +6,7 @@ import type {
   GetRuntimeRunInput,
   OperationOptions,
   ProbeOptions,
+  ResolveRuntimeApprovalInput,
   RuntimeCapabilities,
   RuntimeConnectionConfig,
   RuntimeConnectionInfo,
@@ -35,6 +36,7 @@ export interface AgentRuntimeAdapter {
   streamRun(input: StreamRuntimeRunInput, options?: OperationOptions): AsyncIterable<RuntimeEvent>;
   getRun(input: GetRuntimeRunInput, options?: OperationOptions): Promise<RuntimeRunSnapshot>;
   cancelRun(input: CancelRuntimeRunInput, options?: OperationOptions): Promise<void>;
+  resolveApproval?(input: ResolveRuntimeApprovalInput, options?: OperationOptions): Promise<void>;
   getHistory(input: GetRuntimeHistoryInput, options?: OperationOptions): Promise<RuntimeMessage[]>;
   close(): Promise<void>;
 }
