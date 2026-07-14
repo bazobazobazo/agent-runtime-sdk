@@ -18,6 +18,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@banzae/agent-runtime-core": "workspace:*"
+    "@banzae/agent-runtime-core": "workspace:*",
+    "@banzae/agent-runtime-openclaw": "workspace:*"
   }
 }

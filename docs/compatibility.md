@@ -13,6 +13,9 @@ validated by the codec registry.
 | OpenClaw | v4 | supported | fixtures + contract tests |
 | Hermes | HTTP/SSE Runs API | scaffold | fixtures + live bring-up validation |
 
+Runtime auto-detection currently supports only OpenClaw and Hermes. Codex and Pi
+remain private placeholders and are not registered probes.
+
 Unknown OpenClaw protocol versions fail closed with `PROTOCOL_MISMATCH`. Do not
 advertise support for protocol versions that are not in the codec registry and
 compatibility matrix.

@@ -12,6 +12,12 @@ export interface RuntimeErrorInput {
 
 const SENSITIVE_KEY_PATTERN =
   /(token|secret|password|credential|private.?key|authorization|cookie|prompt|message|attachment|body)/i;
+const SENSITIVE_VALUE_PATTERNS = [
+  /\bAuthorization\s*:\s*Bearer\s+[A-Za-z0-9._~+/=-]+/gi,
+  /\bBearer\s+[A-Za-z0-9._~+/=-]+/gi,
+  /\b(token|access_token|api_key|password|cookie|secret|authorization|device_token)=([^&\s]+)/gi,
+  /\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\b/g,
+];
 
 export class RuntimeError extends Error {
   readonly code: RuntimeErrorCode;
@@ -46,11 +52,20 @@ export function sanitizeDetails(
 
 function sanitizeValue(value: unknown): unknown {
   if (value == null) return value;
-  if (typeof value === 'string') return value.length > 500 ? `${value.slice(0, 500)}...` : value;
+  if (typeof value === 'string') return sanitizeString(value);
   if (typeof value === 'number' || typeof value === 'boolean') return value;
   if (Array.isArray(value)) return value.slice(0, 20).map(sanitizeValue);
   if (typeof value === 'object') return sanitizeDetails(value as Record<string, unknown>);
   return String(value);
+}
+
+function sanitizeString(value: string): string {
+  const redacted = SENSITIVE_VALUE_PATTERNS.reduce((current, pattern) => current.replace(pattern, (match, key) => {
+    if (typeof key === 'string' && key) return `${key}=[redacted]`;
+    if (/^authorization\s*:/i.test(match)) return 'Authorization: Bearer [redacted]';
+    return 'Bearer [redacted]';
+  }), value);
+  return redacted.length > 500 ? `${redacted.slice(0, 500)}...` : redacted;
 }
 
 export function isRuntimeError(error: unknown): error is RuntimeError {

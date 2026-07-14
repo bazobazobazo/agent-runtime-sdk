@@ -77,6 +77,9 @@ importers:
       '@banzae/agent-runtime-core':
         specifier: workspace:*
         version: link:../core
+      '@banzae/agent-runtime-openclaw':
+        specifier: workspace:*
+        version: link:../adapter-openclaw
 
   packages/node:
     dependencies:

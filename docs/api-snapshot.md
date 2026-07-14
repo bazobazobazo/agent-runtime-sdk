@@ -1145,7 +1145,7 @@ export type TransportGapEvent = RuntimeEventBase & {
     actual?: number;
 };
 export type RuntimeEvent = RuntimeQueuedEvent | RuntimeStartedEvent | AssistantDeltaEvent | AssistantCompletedEvent | ReasoningDeltaEvent | ToolStartedEvent | ToolUpdatedEvent | ToolCompletedEvent | ApprovalRequestedEvent | ApprovalResolvedEvent | UsageUpdatedEvent | RunCompletedEvent | RunFailedEvent | RunCancelledEvent | TransportWarningEvent | TransportGapEvent;
-export type RuntimeErrorCode = 'DETECTION_FAILED' | 'DETECTION_AMBIGUOUS' | 'AUTHENTICATION_FAILED' | 'AUTHORIZATION_FAILED' | 'PAIRING_REQUIRED' | 'PROTOCOL_MISMATCH' | 'UNSUPPORTED_CAPABILITY' | 'INVALID_CONFIGURATION' | 'INVALID_REQUEST' | 'RUNTIME_UNAVAILABLE' | 'RATE_LIMITED' | 'TIMEOUT' | 'NETWORK' | 'CANCELLED' | 'PROVIDER_ERROR' | 'OUTCOME_UNKNOWN' | 'INTERNAL';
+export type RuntimeErrorCode = 'DETECTION_FAILED' | 'DETECTION_AMBIGUOUS' | 'AUTHENTICATION_REQUIRED' | 'AUTHENTICATION_FAILED' | 'AUTHORIZATION_FAILED' | 'PAIRING_REQUIRED' | 'PROTOCOL_MISMATCH' | 'UNSUPPORTED_CAPABILITY' | 'INVALID_CONFIGURATION' | 'INVALID_REQUEST' | 'RUNTIME_UNAVAILABLE' | 'RATE_LIMITED' | 'TIMEOUT' | 'NETWORK' | 'CANCELLED' | 'PROVIDER_ERROR' | 'OUTCOME_UNKNOWN' | 'INTERNAL';
 export type RuntimeHttpRequest = {
     url: string;
     method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE' | 'HEAD';
@@ -1183,37 +1183,206 @@ export type RuntimeSecret = {
 ### detector.d.ts
 
 ```ts
-import { RuntimeRegistry, type RuntimeAdapterDependencies, type RuntimeProbeResult, type RuntimeTarget } from '@banzae/agent-runtime-core';
-export type DetectionThresholds = {
-    minConfidence: number;
-    minMargin: number;
+import { type RuntimeAdapterDependencies, type RuntimeTarget } from '@banzae/agent-runtime-core';
+import { RuntimeProbeRegistry } from './probe-registry.js';
+import type { RuntimeCredentialProvider, RuntimeDetectionDiagnostic, RuntimeDetectionInput, RuntimeDetectionResult, RuntimeDetectionStore, RuntimeNetworkPolicy, RuntimeProbe, RuntimeProbeResult } from './types.js';
+export type RuntimeDetectorOptions = {
+    dependencies: RuntimeAdapterDependencies;
+    probes?: readonly RuntimeProbe[];
+    store?: RuntimeDetectionStore;
+    credentials?: RuntimeCredentialProvider;
+    networkPolicy?: RuntimeNetworkPolicy;
+    diagnostics?: (event: RuntimeDetectionDiagnostic) => void;
 };
-export type CachedDetectionResult = RuntimeProbeResult & {
-    connectionFingerprint: string;
-    detectedAt: string;
-};
-export type DetectionOptions = {
-    registry: RuntimeRegistry;
-    dependencies?: RuntimeAdapterDependencies;
-    allowedAdapterIds?: string[];
-    probeTimeoutMs?: number;
-    maxConcurrentProbes?: number;
-    signal?: AbortSignal;
-    thresholds?: DetectionThresholds;
-    cached?: CachedDetectionResult;
-    connectionFingerprint?: string;
-};
-export declare function detectRuntime(target: RuntimeTarget, options: DetectionOptions): Promise<RuntimeProbeResult>;
-export declare function explicitAdapterId(target: RuntimeTarget): string | undefined;
+export declare class RuntimeDetector {
+    private readonly options;
+    readonly registry: RuntimeProbeRegistry;
+    private readonly store;
+    private readonly networkPolicy;
+    constructor(options: RuntimeDetectorOptions);
+    detect(input: RuntimeDetectionInput): Promise<RuntimeDetectionResult>;
+    private detectWithFingerprint;
+    private resolveAuth;
+    private validCached;
+    private invalidateCache;
+    private readManifest;
+    private detected;
+    private emit;
+}
+export declare function createRuntimeDetector(options: RuntimeDetectorOptions): RuntimeDetector;
+export declare function detectRuntime(input: RuntimeDetectionInput, options: RuntimeDetectorOptions): Promise<RuntimeDetectionResult>;
+export declare function explicitAdapterId(input: RuntimeDetectionInput | RuntimeTarget): string | 'auto' | undefined;
+export declare function schemeHint(target: RuntimeTarget): 'openclaw' | 'hermes' | undefined;
 export declare function normalizeTargetEndpoint(target: RuntimeTarget): RuntimeTarget;
-export declare function validCachedResult(cached: CachedDetectionResult | undefined, connectionFingerprint: string | undefined): CachedDetectionResult | undefined;
-export declare function selectUnambiguousResult(results: readonly RuntimeProbeResult[], thresholds?: DetectionThresholds, explicitAdapterId?: string): RuntimeProbeResult;
+export declare function selectDetectionCandidate(candidates: readonly RuntimeProbeResult[], minimumConfidence?: number, ambiguityDelta?: number): RuntimeDetectionResult;
 ```
 
 ### index.d.ts
 
 ```ts
 export * from './detector.js';
+export * from './probe-registry.js';
+export * from './probes.js';
+export * from './security.js';
+export * from './store.js';
+export * from './types.js';
+```
+
+### probe-registry.d.ts
+
+```ts
+import type { RuntimeProbe } from './types.js';
+export declare class RuntimeProbeRegistry {
+    private readonly probes;
+    constructor(probes?: readonly RuntimeProbe[]);
+    register(probe: RuntimeProbe): void;
+    get(adapterId: string): RuntimeProbe | undefined;
+    require(adapterId: string): RuntimeProbe;
+    list(): RuntimeProbe[];
+    adapterIds(): string[];
+}
+```
+
+### probes.d.ts
+
+```ts
+import type { RuntimeProbe } from './types.js';
+export declare function createOpenClawProbe(): RuntimeProbe;
+export declare function createHermesProbe(): RuntimeProbe;
+```
+
+### security.d.ts
+
+```ts
+import { type RuntimeAdapterDependencies, type RuntimeAuthInput, type RuntimeTarget } from '@banzae/agent-runtime-core';
+import type { RuntimeNetworkPolicy } from './types.js';
+export declare const DETECTION_SCHEMA_VERSION = 1;
+export declare class DefaultRuntimeNetworkPolicy implements RuntimeNetworkPolicy {
+    validateTarget(url: URL): Promise<void>;
+    validateRedirect(from: URL, to: URL): Promise<void>;
+}
+export declare function normalizeDetectionEndpoint(endpoint: string): string;
+export declare function detectionFingerprint(deps: RuntimeAdapterDependencies, input: {
+    target: RuntimeTarget;
+    adapterId?: string | 'auto';
+    credentialRef?: string;
+}): Promise<string>;
+export declare function sanitizeDetectionValue(value: unknown): unknown;
+export declare function sanitizeString(value: string): string;
+export declare function authHeaders(auth?: RuntimeAuthInput): Readonly<Record<string, string>> | undefined;
+```
+
+### store.d.ts
+
+```ts
+import type { PersistedRuntimeDetection, RuntimeDetectionStore } from './types.js';
+export declare class MemoryRuntimeDetectionStore implements RuntimeDetectionStore {
+    private readonly values;
+    get(key: string): Promise<PersistedRuntimeDetection | undefined>;
+    set(key: string, value: PersistedRuntimeDetection): Promise<void>;
+    delete(key: string): Promise<void>;
+}
+```
+
+### types.d.ts
+
+```ts
+import type { RuntimeAdapterDependencies, RuntimeAuthInput, RuntimeCapabilities, RuntimeError, RuntimeTarget } from '@banzae/agent-runtime-core';
+export type RuntimeProbeEvidence = {
+    kind: string;
+    message: string;
+    adapterId?: string;
+    confidence?: number;
+    protocolName?: string;
+    protocolVersion?: string;
+    runtimeProduct?: string;
+    runtimeVersion?: string;
+    safeDetails?: Readonly<Record<string, unknown>>;
+};
+export type RuntimeDetectionOptions = {
+    overallTimeoutMs?: number;
+    probeTimeoutMs?: number;
+    minimumConfidence?: number;
+    ambiguityDelta?: number;
+    allowManifest?: boolean;
+    forceRedetect?: boolean;
+    signal?: AbortSignal;
+};
+export type PersistedRuntimeDetection = {
+    schemaVersion?: number;
+    adapterId: string;
+    runtimeProduct: string;
+    runtimeVersion?: string;
+    protocolName: string;
+    protocolVersion?: string;
+    capabilities?: RuntimeCapabilities;
+    fingerprint: string;
+    detectedAt: string;
+    expiresAt?: string;
+};
+export type RuntimeDetectionInput = {
+    target: RuntimeTarget;
+    adapterId?: string | 'auto';
+    credentialRef?: string;
+    auth?: RuntimeAuthInput;
+    cachedDetection?: PersistedRuntimeDetection;
+    options?: RuntimeDetectionOptions;
+};
+export type RuntimeProbeResult = {
+    adapterId: string;
+    matched: boolean;
+    confidence: number;
+    runtimeProduct?: string;
+    runtimeVersion?: string;
+    protocolName?: string;
+    protocolVersion?: string;
+    capabilities?: RuntimeCapabilities;
+    evidence: readonly RuntimeProbeEvidence[];
+    error?: RuntimeError;
+    durationMs?: number;
+};
+export type RuntimeDetectionResult = {
+    status: 'detected' | 'ambiguous' | 'failed';
+    selected?: RuntimeProbeResult;
+    candidates: readonly RuntimeProbeResult[];
+    fingerprint: string;
+    detectedAt: string;
+};
+export type RuntimeProbeContext = {
+    dependencies: RuntimeAdapterDependencies;
+    auth?: RuntimeAuthInput;
+    credentialRef?: string;
+    signal?: AbortSignal;
+    probeTimeoutMs: number;
+    networkPolicy: RuntimeNetworkPolicy;
+    emitDiagnostic(event: RuntimeDetectionDiagnostic): void;
+};
+export interface RuntimeProbe {
+    readonly adapterId: string;
+    probe(input: RuntimeDetectionInput, context: RuntimeProbeContext): Promise<RuntimeProbeResult>;
+    supportsDetectionCache?(detection: PersistedRuntimeDetection): boolean;
+}
+export interface RuntimeDetectionStore {
+    get(key: string): Promise<PersistedRuntimeDetection | undefined>;
+    set(key: string, value: PersistedRuntimeDetection): Promise<void>;
+    delete(key: string): Promise<void>;
+}
+export interface RuntimeCredentialProvider {
+    resolve(reference: string): Promise<RuntimeAuthInput>;
+}
+export interface RuntimeNetworkPolicy {
+    validateTarget(url: URL): Promise<void>;
+    validateRedirect(from: URL, to: URL): Promise<void>;
+}
+export type RuntimeDetectionDiagnostic = {
+    event: 'detection.started' | 'detection.cache_hit' | 'detection.cache_invalid' | 'detection.manifest_started' | 'detection.manifest_completed' | 'detection.probe_started' | 'detection.probe_completed' | 'detection.probe_failed' | 'detection.ambiguous' | 'detection.selected' | 'detection.failed';
+    adapterId?: string;
+    durationMs?: number;
+    confidence?: number;
+    protocolVersion?: string;
+    hostname?: string;
+    status?: string;
+};
 ```
 
 ## @banzae/agent-runtime-node
