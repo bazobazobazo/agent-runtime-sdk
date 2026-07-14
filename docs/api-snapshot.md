@@ -1599,7 +1599,65 @@ export declare class WsWebSocketFactory implements RuntimeWebSocketFactory {
 ### contract.d.ts
 
 ```ts
-import { type AgentRuntimeAdapter, type RuntimeCapabilities, type RuntimeTarget, type RuntimeUserInput } from '@banzae/agent-runtime-core';
+import { RuntimeError, type AgentRuntimeAdapter, type CancelRuntimeRunInput, type EnsureSessionInput, type GetRuntimeHistoryInput, type GetRuntimeRunInput, type RuntimeCapabilities, type RuntimeConnectionConfig, type RuntimeEvent, type RuntimeRunHandle, type RuntimeSession, type RuntimeTarget, type RuntimeUserInput, type StartRuntimeRunInput, type StreamRuntimeRunInput } from '@banzae/agent-runtime-core';
+export type RuntimeConformanceCategory = 'connection' | 'capabilities' | 'sessions' | 'runs' | 'streaming' | 'status' | 'cancellation' | 'history' | 'security' | 'resources';
+export type RuntimeConformanceCase = {
+    name: string;
+    category: RuntimeConformanceCategory;
+    run(): Promise<void>;
+};
+export type RuntimeConformanceResourceSnapshot = {
+    openConnections?: number;
+    pendingRequests?: number;
+    activeRuns?: number;
+    activeSubscriptions?: number;
+    activeResponseBodies?: number;
+    listeners?: number;
+    timers?: number;
+};
+export type RuntimeConformanceTarget = {
+    connection: RuntimeConnectionConfig;
+    resourceSnapshot?(): RuntimeConformanceResourceSnapshot;
+    providerActivityCount?(): number;
+    receivedIdempotencyKeys?(): readonly string[];
+    triggerStream?(run: RuntimeRunHandle, session: RuntimeSession): void | Promise<void>;
+    triggerApproval?(run: RuntimeRunHandle, session: RuntimeSession): void | Promise<void>;
+    confirmCancellation?(input: CancelRuntimeRunInput): void | Promise<void>;
+};
+export type RuntimeAdapterConformanceScenarios<TTarget extends RuntimeConformanceTarget> = {
+    session(target: TTarget): EnsureSessionInput;
+    run(target: TTarget, session: RuntimeSession): StartRuntimeRunInput;
+    stream?(target: TTarget, run: RuntimeRunHandle, session: RuntimeSession): StreamRuntimeRunInput;
+    status?(target: TTarget, run: RuntimeRunHandle, session: RuntimeSession): GetRuntimeRunInput;
+    cancel?(target: TTarget, run: RuntimeRunHandle, session: RuntimeSession): CancelRuntimeRunInput;
+    history?(target: TTarget, session: RuntimeSession): GetRuntimeHistoryInput;
+    connectionFailures?: readonly {
+        name: string;
+        expectedCode: RuntimeError['code'];
+        prepare(target: TTarget): void | Promise<void>;
+    }[];
+};
+export type RuntimeAdapterConformanceConfig<TTarget extends RuntimeConformanceTarget> = {
+    name: string;
+    createTarget(): TTarget | Promise<TTarget>;
+    createAdapter(target: TTarget): AgentRuntimeAdapter | Promise<AgentRuntimeAdapter>;
+    expectedCapabilities: RuntimeCapabilities | ((target: TTarget) => RuntimeCapabilities);
+    scenarios: RuntimeAdapterConformanceScenarios<TTarget>;
+    lifecycle?: {
+        beforeCase?(target: TTarget, caseName: string): void | Promise<void>;
+        cleanup?(adapter: AgentRuntimeAdapter, target: TTarget): void | Promise<void>;
+    };
+};
+export type RuntimeAdapterConformanceSuite = {
+    name: string;
+    cases: readonly RuntimeConformanceCase[];
+    run(): Promise<void>;
+};
+/**
+ * Builds provider-neutral conformance cases without depending on a particular
+ * test runner. Test runners should register each returned case independently.
+ */
+export declare function createRuntimeAdapterConformanceSuite<TTarget extends RuntimeConformanceTarget>(config: RuntimeAdapterConformanceConfig<TTarget>): RuntimeAdapterConformanceSuite;
 export type AdapterTestHarness = {
     createAdapter(): Promise<AgentRuntimeAdapter>;
     target: RuntimeTarget;
@@ -1607,14 +1665,42 @@ export type AdapterTestHarness = {
     supports: Partial<RuntimeCapabilities>;
     cleanup(): Promise<void>;
 };
+/** @deprecated Use createRuntimeAdapterConformanceSuite. */
 export declare function smokeAdapterContract(harness: AdapterTestHarness): Promise<void>;
-export declare function defineAdapterContract(_harness: AdapterTestHarness): void;
+export declare class RuntimeConformanceAssertionError extends Error {
+    readonly name = "RuntimeConformanceAssertionError";
+}
+export declare function collectRuntimeEvents(stream: AsyncIterable<RuntimeEvent>, maximum?: number): Promise<RuntimeEvent[]>;
+export declare function assertResourcesReleased(snapshot: RuntimeConformanceResourceSnapshot | undefined): void;
+export declare function assertRuntimeError(work: () => Promise<unknown>, code: RuntimeError['code']): Promise<RuntimeError>;
+```
+
+### deterministic.d.ts
+
+```ts
+import { type RuntimeClock, type RuntimeIdGenerator } from '@banzae/agent-runtime-core';
+export declare class DeterministicRuntimeClock implements RuntimeClock {
+    private current;
+    readonly sleeps: number[];
+    constructor(current?: number);
+    now(): Date;
+    sleep(ms: number, signal?: AbortSignal): Promise<void>;
+    advance(ms: number): void;
+}
+export declare class DeterministicRuntimeIdGenerator implements RuntimeIdGenerator {
+    private readonly prefix;
+    private sequence;
+    constructor(prefix?: string);
+    id(): string;
+}
+export declare function createSecretMarker(label: string): string;
+export declare function assertSecretMarkersAbsent(value: unknown, markers: readonly string[]): void;
 ```
 
 ### fake-adapter.d.ts
 
 ```ts
-import { type AgentRuntimeAdapter, type RuntimeCapabilities, type RuntimeEvent } from '@banzae/agent-runtime-core';
+import { type AgentRuntimeAdapter, type RuntimeCapabilities, type RuntimeEvent, type StartRuntimeRunInput } from '@banzae/agent-runtime-core';
 export declare class FakeRuntimeAdapter implements AgentRuntimeAdapter {
     readonly adapterId = "fake";
     readonly adapterVersion = "0.1.0";
@@ -1659,13 +1745,7 @@ export declare class FakeRuntimeAdapter implements AgentRuntimeAdapter {
         externalSessionId: string;
         created: boolean;
     }>;
-    startRun(input: {
-        applicationRunId: string;
-        idempotencyKey: string;
-        session: {
-            externalSessionId: string;
-        };
-    }): Promise<{
+    startRun(input: StartRuntimeRunInput): Promise<{
         applicationRunId: string;
         externalRunId: string;
         status: "running";
@@ -1726,16 +1806,154 @@ export declare class FakeHermesServer implements RuntimeHttpTransport {
     readonly approvalBodies: Record<string, unknown>[];
     approvalStatus: number;
     approvalResponse?: unknown;
+    failPermission: boolean;
+    rateLimitRequests: number;
+    retryAfterSeconds: number;
+    malformedJsonPaths: Set<string>;
+    malformedSse: boolean;
+    fragmentedUtf8: boolean;
+    wrongRunId: boolean;
+    wrongSessionId: boolean;
+    activeResponseBodies: number;
+    closedResponseBodies: number;
+    shutdownState: boolean;
     constructor();
     request(input: RuntimeHttpRequest): Promise<RuntimeHttpResponse>;
+    shutdown(): Promise<void>;
+    resourceSnapshot(): {
+        openConnections: number;
+        pendingRequests: number;
+        activeRuns: number;
+        activeSubscriptions: number;
+        activeResponseBodies: number;
+        listeners: number;
+    };
+    private responseJson;
+    private responseSse;
+    private responseBytes;
 }
+```
+
+### fake-openclaw-server.d.ts
+
+```ts
+import { type RuntimeWebSocketConnection, type RuntimeWebSocketEvent, type RuntimeWebSocketFactory } from '@banzae/agent-runtime-core';
+import type { RuntimeConformanceResourceSnapshot, RuntimeConformanceTarget } from './contract.js';
+export type FakeOpenClawFailureMode = 'none' | 'authentication-required' | 'authentication-failed' | 'permission-denied' | 'pairing-required' | 'protocol-mismatch' | 'malformed-frame' | 'unavailable';
+export type FakeOpenClawRun = {
+    id: string;
+    sessionKey: string;
+    status: string;
+    output?: string;
+    sequence: number;
+};
+export type FakeOpenClawServerOptions = {
+    authToken?: string;
+    failureMode?: FakeOpenClawFailureMode;
+    responseDelayMs?: number;
+    reverseConcurrentResponses?: boolean;
+    unresolvedRuns?: boolean;
+    duplicateEvents?: boolean;
+    sequenceGap?: boolean;
+};
+declare abstract class FakeOpenClawServerBase implements RuntimeWebSocketFactory {
+    readonly options: FakeOpenClawServerOptions;
+    abstract readonly protocolVersion: 3 | 4;
+    abstract readonly runtimeVersion: string;
+    abstract readonly eventNamespace: 'chat' | 'session';
+    readonly runs: Map<string, FakeOpenClawRun>;
+    readonly sessions: Set<string>;
+    readonly receivedIdempotencyKeys: string[];
+    readonly receivedProtocolVersions: number[];
+    readonly receivedMethods: string[];
+    openConnectionCount: number;
+    listenerCount: number;
+    pendingRequestCount: number;
+    activeSubscriptionCount: number;
+    shutdownState: boolean;
+    providerActivity: number;
+    private runSequence;
+    private readonly connections;
+    private readonly delayedResponses;
+    private readonly timers;
+    constructor(options?: FakeOpenClawServerOptions);
+    connect(input: {
+        url: string;
+        signal?: AbortSignal;
+    }): Promise<RuntimeWebSocketConnection>;
+    shutdown(): Promise<void>;
+    resourceSnapshot(): RuntimeConformanceResourceSnapshot;
+    createTarget(endpoint?: string): RuntimeConformanceTarget;
+    emitRunSuccess(runId: string, options?: {
+        duplicate?: boolean;
+        gap?: boolean;
+    }): void;
+    emitRunFailure(runId: string): void;
+    emitUnrelatedEvent(): void;
+    interruptSockets(): void;
+    connectionClosed(connection: FakeOpenClawConnection): void;
+    iteratorOpened(): void;
+    iteratorClosed(): void;
+    receive(connection: FakeOpenClawConnection, data: string | Uint8Array): Promise<void>;
+    protected abstract challengeFrame(): Record<string, unknown>;
+    protected abstract helloPayload(): Record<string, unknown>;
+    protected abstract deltaEventName(): string;
+    protected abstract completedEventName(): string;
+    private handleRequest;
+    protected runStartPayload(runId: string): Record<string, unknown>;
+    protected historyPayload(): Record<string, unknown>;
+    protected cancelPayload(runId: string): Record<string, unknown>;
+    private connectFailure;
+    private eventFrame;
+    private broadcast;
+    private requireRun;
+}
+/** Testing-only protocol v3 Gateway. Its v3 frame builders are independent. */
+export declare class FakeOpenClawV3Server extends FakeOpenClawServerBase {
+    readonly protocolVersion: 3;
+    readonly runtimeVersion = "2026.4.22";
+    readonly eventNamespace: "chat";
+    protected challengeFrame(): Record<string, unknown>;
+    protected helloPayload(): Record<string, unknown>;
+    protected deltaEventName(): string;
+    protected completedEventName(): string;
+}
+/** Testing-only protocol v4 Gateway with v4-specific session event fixtures. */
+export declare class FakeOpenClawV4Server extends FakeOpenClawServerBase {
+    readonly protocolVersion: 4;
+    readonly runtimeVersion = "2026.6.11";
+    readonly eventNamespace: "session";
+    protected challengeFrame(): Record<string, unknown>;
+    protected helloPayload(): Record<string, unknown>;
+    protected deltaEventName(): string;
+    protected completedEventName(): string;
+    protected runStartPayload(runId: string): Record<string, unknown>;
+    protected historyPayload(): Record<string, unknown>;
+    protected cancelPayload(runId: string): Record<string, unknown>;
+}
+declare class FakeOpenClawConnection implements RuntimeWebSocketConnection {
+    private readonly server;
+    private readonly queue;
+    private notify?;
+    private closed;
+    private iteratorActive;
+    constructor(server: FakeOpenClawServerBase);
+    send(data: string | Uint8Array): Promise<void>;
+    events(): AsyncIterable<RuntimeWebSocketEvent>;
+    close(code?: number, reason?: string): Promise<void>;
+    push(event: RuntimeWebSocketEvent): void;
+    pushMessage(value: string | Record<string, unknown>): void;
+}
+export {};
 ```
 
 ### index.d.ts
 
 ```ts
 export * from './contract.js';
+export * from './deterministic.js';
 export * from './fake-adapter.js';
 export * from './fake-hermes-server.js';
+export * from './fake-openclaw-server.js';
 ```
 

@@ -201,11 +201,14 @@ export class OpenClawAdapter implements AgentRuntimeAdapter {
 
   async ensureSession(input: EnsureSessionInput, options?: OperationOptions): Promise<RuntimeSession> {
     const state = this.requireConnected();
+    const capabilities = state.codec.capabilities(state.hello);
+    if (!capabilities.sessions.create && !capabilities.sessions.resume) throw unsupported('OpenClaw sessions are unavailable');
     const externalSessionId =
       typeof input.providerState?.externalSessionId === 'string'
         ? input.providerState.externalSessionId
         : input.applicationSessionId;
-    if (state.codec.supportsMethod('sessions.create', state.hello)) {
+    const createsProviderSession = state.codec.supportsMethod('sessions.create', state.hello);
+    if (createsProviderSession) {
       await state.dispatcher.request(state.codec.buildSessionCreate({ ...input, applicationSessionId: externalSessionId }), {
         signal: options?.signal,
       });
@@ -217,13 +220,14 @@ export class OpenClawAdapter implements AgentRuntimeAdapter {
         adapterId: this.adapterId,
         protocolVersion: state.codec.protocolVersion,
       },
-      created: true,
+      created: createsProviderSession,
     };
   }
 
   async startRun(input: StartRuntimeRunInput, options?: OperationOptions): Promise<RuntimeRunHandle> {
     assertStartRunInput(input);
     const capabilities = await this.capabilities();
+    if (!capabilities.runs.start) throw unsupported('OpenClaw run start is unavailable');
     validateInputCapabilities(capabilities, input.input);
     const state = this.requireConnected();
     let response: Record<string, unknown>;
@@ -245,14 +249,13 @@ export class OpenClawAdapter implements AgentRuntimeAdapter {
 
   streamRun(input: StreamRuntimeRunInput): AsyncIterable<RuntimeEvent> {
     const state = this.requireConnected();
+    if (!state.codec.capabilities(state.hello).runs.streamText) throw unsupported('OpenClaw run streaming is unavailable');
     return new OpenClawRunEventStream(state, this.deps, input, this.options.includeRawProviderPayload ?? false);
   }
 
   async getRun(input: GetRuntimeRunInput, options?: OperationOptions): Promise<RuntimeRunSnapshot> {
     const state = this.requireConnected();
-    if (!state.codec.supportsMethod('agent.wait', state.hello)) {
-      return { applicationRunId: input.applicationRunId, externalRunId: input.externalRunId, status: 'unknown' };
-    }
+    if (!state.codec.capabilities(state.hello).runs.status) throw unsupported('OpenClaw run status is unavailable');
     const response = await state.dispatcher.request<Record<string, unknown>>(state.codec.buildRunWait(input), {
       signal: options?.signal,
     });
@@ -261,13 +264,14 @@ export class OpenClawAdapter implements AgentRuntimeAdapter {
 
   async cancelRun(input: CancelRuntimeRunInput, options?: OperationOptions): Promise<void> {
     const state = this.requireConnected();
-    if (!state.codec.supportsMethod('chat.abort', state.hello) && !state.codec.supportsMethod('sessions.abort', state.hello)) return;
+    if (!state.codec.capabilities(state.hello).runs.cancel) throw unsupported('OpenClaw run cancellation is unavailable');
     const response = await state.dispatcher.request(state.codec.buildCancel(input), { signal: options?.signal });
     state.codec.parseCancelResponse(response);
   }
 
   async getHistory(input: GetRuntimeHistoryInput, options?: OperationOptions): Promise<RuntimeMessage[]> {
     const state = this.requireConnected();
+    if (!state.codec.capabilities(state.hello).sessions.history) throw unsupported('OpenClaw session history is unavailable');
     const payload = await state.dispatcher.request(state.codec.buildHistory(input), { signal: options?.signal });
     return normalizeOpenClawHistory(payload);
   }
@@ -674,6 +678,10 @@ async function waitForChallenge(
     }
   }
   return undefined;
+}
+
+function unsupported(message: string): RuntimeError {
+  return new RuntimeError({ code: 'UNSUPPORTED_CAPABILITY', retryable: false, adapterId: 'openclaw', message });
 }
 
 function toWebSocketEndpoint(endpoint: string): string {

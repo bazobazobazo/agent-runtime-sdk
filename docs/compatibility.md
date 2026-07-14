@@ -9,9 +9,9 @@ validated by the codec registry.
 
 | SDK adapter | Wire protocol | Status | Validation |
 |---|---:|---|---|
-| OpenClaw | v3 | supported | fixtures + contract tests |
-| OpenClaw | v4 | supported | fixtures + contract tests |
-| Hermes | HTTP/SSE Runs API | implemented — synthetic/fake-server validated; live validation pending | upstream contract inspection + synthetic fixtures + fake server tests |
+| OpenClaw | v3 | supported | fixtures + shared fake-server conformance + provider tests |
+| OpenClaw | v4 | supported | fixtures + shared fake-server conformance + provider tests |
+| Hermes | HTTP/SSE Runs API | implemented — synthetic/fake-server validated; live validation pending | upstream contract inspection + synthetic fixtures + shared fake-server conformance |
 
 Runtime auto-detection currently supports only OpenClaw and Hermes. Codex and Pi
 remain private placeholders and are not registered probes.
@@ -40,6 +40,11 @@ against a real target runtime and exercises state-changing behavior such as
 session creation, run creation, streaming, history reads, and cancellation. Until
 those live commands are confirmed for the target release environment, treat the
 SDK as an initial scaffold even when fixture-backed replay tests pass.
+
+Shared fake-server conformance adds provider-neutral lifecycle, capability,
+session, run, stream, status, cancellation, concurrency, security, and resource
+cleanup evidence. It remains synthetic evidence and does not change Hermes to
+live-supported.
 
 Live captures are intentionally separate from normal unit tests. The live
 commands require explicit environment variables and should run only from a

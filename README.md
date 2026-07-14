@@ -68,3 +68,10 @@ BanzaeForge-specific integration are outside this adapter.
 Hermes compatibility is currently implemented and synthetic/fake-server
 validated; a full live validation run is still required before it is labeled
 supported.
+
+All implemented adapters run through the exported provider-neutral conformance
+suite in `@banzae/agent-runtime-testing`. Controlled fake OpenClaw v3,
+OpenClaw v4, and Hermes servers prove shared lifecycle, session, run, stream,
+status, cancellation, security, concurrency, and cleanup behavior. This
+fake-server evidence remains distinct from live compatibility evidence. See
+`docs/adapter-conformance.md`.

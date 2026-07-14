@@ -47,8 +47,26 @@ jobs:
       - name: Typecheck
         run: pnpm typecheck
 
-      - name: Test
+      - name: All package tests
         run: pnpm test
+
+      - name: Core tests
+        run: pnpm test:core
+
+      - name: Detection tests
+        run: pnpm test:detection
+
+      - name: OpenClaw v3 conformance
+        run: pnpm test:openclaw:v3
+
+      - name: OpenClaw v4 conformance
+        run: pnpm test:openclaw:v4
+
+      - name: Hermes tests and conformance
+        run: pnpm test:hermes
+
+      - name: Shared conformance group
+        run: pnpm test:conformance
 
       - name: Build
         run: pnpm build

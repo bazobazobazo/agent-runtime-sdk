@@ -2,9 +2,11 @@ import {
   TEXT_RUN_CAPABILITIES,
   assertStartRunInput,
   runtimeEventBase,
+  validateInputCapabilities,
   type AgentRuntimeAdapter,
   type RuntimeCapabilities,
   type RuntimeEvent,
+  type StartRuntimeRunInput,
 } from '@banzae/agent-runtime-core';
 
 export class FakeRuntimeAdapter implements AgentRuntimeAdapter {
@@ -60,8 +62,9 @@ export class FakeRuntimeAdapter implements AgentRuntimeAdapter {
     return { applicationSessionId: input.applicationSessionId, externalSessionId: input.applicationSessionId, created: true };
   }
 
-  async startRun(input: { applicationRunId: string; idempotencyKey: string; session: { externalSessionId: string } }) {
+  async startRun(input: StartRuntimeRunInput) {
     assertStartRunInput(input);
+    validateInputCapabilities(this.caps, input.input);
     return { applicationRunId: input.applicationRunId, externalRunId: `fake:${input.applicationRunId}`, status: 'running' as const };
   }
 

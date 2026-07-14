@@ -589,6 +589,14 @@ describe('OpenClaw run event correlation', () => {
     const capabilities = openClawV4Codec().capabilities({ protocolVersion: 4, methods: [], events: [], features: { images: true }, raw: {} });
     expect(capabilities.input.images).toBe(false);
   });
+
+  it('maps missing OpenClaw methods and events fail-closed', () => {
+    const capabilities = openClawV4Codec().capabilities({ protocolVersion: 4, methods: [], events: [], features: {}, raw: {} });
+    expect(capabilities.sessions).toEqual({ create: false, resume: false, history: false, fork: false });
+    expect(capabilities.runs).toEqual({ start: false, status: false, streamText: false, streamTools: false, cancel: false, approvals: false });
+    expect(capabilities.input).toEqual({ text: false, images: false, files: false });
+    expect(capabilities.output).toMatchObject({ text: false, reasoning: false, tools: false, usage: false });
+  });
 });
 
 async function readHelloFixture(path: string, codec: ReturnType<typeof openClawV3Codec> | ReturnType<typeof openClawV4Codec>) {
@@ -665,7 +673,13 @@ function createAdapterHarness(options: { now?: Date; includeRawProviderPayload?:
   ).connected = {
     connection,
     codec: openClawV4Codec(),
-    hello: { protocolVersion: 4, methods: ['chat.send', 'agent.wait', 'chat.history', 'chat.abort'], events: [], features: {}, raw: {} },
+    hello: {
+      protocolVersion: 4,
+      methods: ['chat.send', 'agent.wait', 'chat.history', 'chat.abort'],
+      events: ['chat.delta', 'chat.completed', 'chat.failed', 'chat.cancelled'],
+      features: {},
+      raw: {},
+    },
     dispatcher,
   };
   return { adapter, connection, dispatcher, deps };

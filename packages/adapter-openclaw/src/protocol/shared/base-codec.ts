@@ -1,6 +1,6 @@
 import {
   RuntimeError,
-  TEXT_RUN_CAPABILITIES,
+  NO_CAPABILITIES,
   runtimeEventBase,
   type CancelRuntimeRunInput,
   type EnsureSessionInput,
@@ -280,7 +280,7 @@ export abstract class MappedOpenClawCodec implements OpenClawProtocolCodec {
       return new RuntimeError({ code: 'PAIRING_REQUIRED', retryable: false, message, adapterId: 'openclaw', details: providerDetails, cause: error });
     }
     if (lower.includes('permission') || lower.includes('forbidden') || lower.includes('missing scope')) {
-      return new RuntimeError({ code: 'AUTHORIZATION_FAILED', retryable: false, message, adapterId: 'openclaw', details: providerDetails, cause: error });
+      return new RuntimeError({ code: 'PERMISSION_DENIED', retryable: false, message, adapterId: 'openclaw', details: providerDetails, cause: error });
     }
     if (lower.includes('auth') || lower.includes('token') || providerCode === 'AUTHENTICATION_FAILED') {
       return new RuntimeError({ code: 'AUTHENTICATION_FAILED', retryable: false, message, adapterId: 'openclaw', details: providerDetails, cause: error });
@@ -300,28 +300,32 @@ export abstract class MappedOpenClawCodec implements OpenClawProtocolCodec {
 
   capabilities(hello?: OpenClawHello): RuntimeCapabilities {
     const methods = new Set(hello?.methods ?? []);
+    const events = new Set(hello?.events ?? []);
+    const runStart = methods.has(this.mappings.runStartMethod) || methods.has('sessions.send');
+    const runStream = this.mappings.deltaEvents.some((event) => events.has(event))
+      && this.mappings.completedEvents.some((event) => events.has(event));
     return {
-      ...TEXT_RUN_CAPABILITIES,
+      ...NO_CAPABILITIES,
       sessions: {
-        create: methods.size === 0 || methods.has(this.mappings.sessionCreateMethod),
-        resume: true,
-        history: methods.size === 0 || methods.has(this.mappings.historyMethod) || methods.has('sessions.get'),
+        create: methods.has(this.mappings.sessionCreateMethod),
+        resume: runStart,
+        history: methods.has(this.mappings.historyMethod) || methods.has('sessions.get'),
         fork: false,
       },
       runs: {
-        start: methods.size === 0 || methods.has(this.mappings.runStartMethod) || methods.has('sessions.send'),
-        status: methods.size === 0 || methods.has(this.mappings.runWaitMethod),
-        streamText: true,
-        streamTools: (hello?.events ?? []).some((event) => event.includes('tool')),
-        cancel: methods.size === 0 || methods.has(this.mappings.cancelMethod) || methods.has('sessions.abort'),
-        approvals: (hello?.events ?? []).some((event) => event.includes('approval')),
+        start: runStart,
+        status: methods.has(this.mappings.runWaitMethod),
+        streamText: runStream,
+        streamTools: false,
+        cancel: methods.has(this.mappings.cancelMethod) || methods.has('sessions.abort'),
+        approvals: false,
       },
-      input: { text: true, images: false, files: false },
+      input: { text: runStart, images: false, files: false },
       output: {
-        text: true,
-        reasoning: Boolean(hello?.features.reasoning),
-        tools: (hello?.events ?? []).some((event) => event.includes('tool')),
-        usage: methods.has('usage.status') || methods.has('sessions.usage'),
+        text: runStream || methods.has(this.mappings.runWaitMethod),
+        reasoning: false,
+        tools: false,
+        usage: false,
       },
       extensions: {
         'openclaw.cron': methods.has('cron.add') || methods.has('cron.list'),

@@ -25,6 +25,21 @@ worker crashes.
 
 Codex and Pi directories are private placeholders only.
 
+## Shared Adapter Conformance
+
+The testing package exports runner-independent conformance cases that use only
+`AgentRuntimeAdapter` and provider-neutral SDK contracts. The same definitions
+run against separate fake OpenClaw v3, OpenClaw v4, and Hermes targets.
+Controller hooks inject provider events and expose cleanup counters; shared
+tests do not inspect adapter private fields or provider-specific application
+types.
+
+Capability-dependent cases run only when an adapter advertises the operation.
+Advertised history, streaming, cancellation, and approvals must perform a real
+public operation. Provider-specific suites remain responsible for codec
+negotiation, device state, sequence gaps, Hermes recovery timing, and other
+wire-only contracts. See `adapter-conformance.md`.
+
 ## Runtime Detection
 
 Runtime detection is provider-neutral and independent from application concerns
