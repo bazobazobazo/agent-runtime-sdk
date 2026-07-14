@@ -213,11 +213,20 @@ export type GetRuntimeRunInput = {
 
 export type CancelRuntimeRunInput = GetRuntimeRunInput;
 
+export type RuntimeApprovalDecision =
+  | {
+      action: 'allow';
+      scope: 'once' | 'session' | 'always';
+    }
+  | {
+      action: 'deny';
+    };
+
 export type ResolveRuntimeApprovalInput = {
   applicationRunId: string;
   externalRunId: string;
   approvalId: string;
-  decision: 'approve' | 'deny';
+  decision: RuntimeApprovalDecision;
   comment?: string;
 };
 
@@ -325,17 +334,23 @@ export type ApprovalRequestedEvent = RuntimeEventBase & {
   type: 'approval.requested';
   approvalId: string;
   description: string;
+  availableDecisions: readonly RuntimeApprovalDecision[];
 };
 export type ApprovalResolvedEvent = RuntimeEventBase & {
   type: 'approval.resolved';
   approvalId: string;
-  decision: 'approve' | 'deny';
+  decision: RuntimeApprovalDecision;
 };
 export type UsageUpdatedEvent = RuntimeEventBase & {
   type: 'usage.updated';
   usage: Readonly<Record<string, number>>;
 };
-export type RunCompletedEvent = RuntimeEventBase & { type: 'run.completed' };
+export type RunCompletedEvent = RuntimeEventBase & {
+  type: 'run.completed';
+  output?: string;
+  usage?: Readonly<Record<string, number>>;
+  sessionStatePatch?: RuntimeSessionStatePatch;
+};
 export type RunFailedEvent = RuntimeEventBase & {
   type: 'run.failed';
   error: {
@@ -343,8 +358,12 @@ export type RunFailedEvent = RuntimeEventBase & {
     message: string;
     retryable: boolean;
   };
+  sessionStatePatch?: RuntimeSessionStatePatch;
 };
-export type RunCancelledEvent = RuntimeEventBase & { type: 'run.cancelled' };
+export type RunCancelledEvent = RuntimeEventBase & {
+  type: 'run.cancelled';
+  sessionStatePatch?: RuntimeSessionStatePatch;
+};
 export type TransportWarningEvent = RuntimeEventBase & {
   type: 'transport.warning';
   warning: string;
@@ -385,6 +404,7 @@ export type RuntimeErrorCode =
   | 'UNSUPPORTED_CAPABILITY'
   | 'INVALID_CONFIGURATION'
   | 'INVALID_REQUEST'
+  | 'INVALID_RESPONSE'
   | 'NOT_FOUND'
   | 'CONFLICT'
   | 'RUNTIME_UNAVAILABLE'

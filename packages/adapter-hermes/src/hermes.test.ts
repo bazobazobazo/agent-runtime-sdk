@@ -1,7 +1,15 @@
-import { describe, expect, it } from 'vitest';
 import { readFile } from 'node:fs/promises';
-import { RuntimeError, createTestDependencies } from '@banzae/agent-runtime-core';
+import { describe, expect, it } from 'vitest';
+import {
+  RuntimeError,
+  createTestDependencies,
+  type RuntimeClock,
+  type RuntimeHttpRequest,
+  type RuntimeHttpResponse,
+  type RuntimeHttpTransport,
+} from '@banzae/agent-runtime-core';
 import { FakeHermesServer } from '../../testing/src/fake-hermes-server.js';
+import { BoundedDedupeWindow } from './dedupe.js';
 import { HermesAdapter } from './hermes-adapter.js';
 import { isHermesCapabilities, mapHermesCapabilities } from './mapping/capabilities.js';
 import { mapHermesSseEvent } from './mapping/events.js';
@@ -11,176 +19,472 @@ async function* chunks(values: string[]): AsyncIterable<Uint8Array> {
   for (const value of values) yield new TextEncoder().encode(value);
 }
 
-describe('Hermes adapter foundations', () => {
-  it('maps capabilities', () => {
-    const capabilities = mapHermesCapabilities({
-      object: 'hermes.api_server.capabilities',
-      platform: 'hermes-agent',
-      features: { run_submission: true, run_events_sse: true, run_stop: true, images: true },
-    });
-    expect(capabilities.runs.start).toBe(true);
-    expect(capabilities.input.images).toBe(false);
-    expect(capabilities.input.files).toBe(false);
-    expect(capabilities.extensions['hermes.jobs']).toBe(false);
+function capabilities(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    object: 'hermes.api_server.capabilities',
+    platform: 'hermes-agent',
+    features: {
+      run_submission: true,
+      run_status: true,
+      run_events_sse: true,
+      run_stop: true,
+      run_approval: true,
+      tool_progress_events: true,
+      session_continuity_header: 'X-Hermes-Session-Id',
+      session_key_header: 'X-Hermes-Session-Key',
+    },
+    endpoints: {
+      runs: { method: 'POST', path: '/v1/runs' },
+      run_status: { method: 'GET', path: '/v1/runs/{run_id}' },
+      run_events: { method: 'GET', path: '/v1/runs/{run_id}/events' },
+      run_stop: { method: 'POST', path: '/v1/runs/{run_id}/stop' },
+      run_approval: { method: 'POST', path: '/v1/runs/{run_id}/approval' },
+      session_create: { method: 'POST', path: '/api/sessions' },
+      session_messages: { method: 'GET', path: '/api/sessions/{session_id}/messages' },
+    },
+    ...overrides,
+  };
+}
+
+function eventContext() {
+  return {
+    ids: { id: () => 'event-1' },
+    clock: { now: () => new Date('2026-01-01T00:00:00.000Z'), sleep: async () => undefined },
+    applicationRunId: 'app-run-1',
+    externalRunId: 'run-1',
+    externalSessionId: 'session-1',
+    pendingApprovalIds: [] as string[],
+    pendingToolIds: new Map<string, string[]>(),
+  };
+}
+
+function testClock(): RuntimeClock & { sleeps: number[] } {
+  let now = 0;
+  const sleeps: number[] = [];
+  return {
+    sleeps,
+    now: () => new Date(now),
+    sleep: async (ms, signal) => {
+      if (signal?.aborted) throw signal.reason;
+      sleeps.push(ms);
+      now += ms;
+    },
+  };
+}
+
+describe('Hermes contract hardening', () => {
+  it('maps every capability fail-closed and independently', () => {
+    const empty = mapHermesCapabilities(capabilities({ features: { run_submission: false, run_status: false } , endpoints: {} }));
+    expect(empty.sessions).toEqual({ create: false, resume: false, history: false, fork: false });
+    expect(empty.runs).toEqual({ start: false, status: false, streamText: false, streamTools: false, cancel: false, approvals: false });
+    expect(empty.output.usage).toBe(false);
+
+    const partial = mapHermesCapabilities(capabilities({
+      features: { run_submission: true, run_status: false, run_events_sse: false },
+      endpoints: { runs: { method: 'POST', path: '/v1/runs' } },
+    }));
+    expect(partial.runs.start).toBe(true);
+    expect(partial.runs.status).toBe(false);
+    expect(partial.runs.streamText).toBe(false);
+    expect(partial.sessions.create).toBe(false);
+    expect(partial.sessions.history).toBe(false);
   });
 
-  it('replays the bfp1 live capabilities fixture', async () => {
-    const fixture = JSON.parse(
-      await readFile(new URL('../../../fixtures/hermes/bfp1-capabilities.json', import.meta.url), 'utf8'),
-    ) as { capabilities: { body: unknown }; detailedHealth: { body: Record<string, unknown> } };
-
-    expect(isHermesCapabilities(fixture.capabilities.body)).toBe(true);
-    expect(fixture.detailedHealth.body.version).toBe('0.18.2');
-
-    const capabilities = mapHermesCapabilities(fixture.capabilities.body);
-    expect(capabilities.runs.start).toBe(true);
-    expect(capabilities.runs.status).toBe(true);
-    expect(capabilities.runs.streamText).toBe(true);
-    expect(capabilities.runs.streamTools).toBe(true);
-    expect(capabilities.runs.approvals).toBe(true);
-    expect(capabilities.output.tools).toBe(true);
-    expect(capabilities.extensions['hermes.sessions_rest']).toBe(true);
-  });
-
-  it('requires Hermes identity and feature evidence for capabilities', () => {
-    expect(isHermesCapabilities({ capabilities: [], features: { run_submission: true, run_status: true } })).toBe(false);
+  it('rejects malformed and misleading partial capabilities', () => {
     expect(isHermesCapabilities({ object: 'hermes.api_server.capabilities', platform: 'hermes-agent', features: { run_submission: true } })).toBe(false);
-    expect(isHermesCapabilities({ object: 'hermes.api_server.capabilities', platform: 'hermes-agent', features: { run_submission: true, run_status: true } })).toBe(true);
+    expect(() => mapHermesCapabilities(capabilities({ features: { run_submission: 'yes', run_status: true } }))).toThrowError(RuntimeError);
+    expect(() => mapHermesCapabilities(capabilities({ endpoints: { runs: { method: 'GET', path: '/v1/runs' } } }))).toThrowError(RuntimeError);
   });
 
-  it('parses split SSE events', async () => {
-    const events = [];
-    for await (const event of parseSseStream(chunks(['id: 1\nevent: run.delta\ndata: {"te', 'xt":"hi"}\n\n']))) {
-      events.push(event);
-    }
-    expect(events).toEqual([{ id: '1', event: 'run.delta', data: '{"text":"hi"}' }]);
+  it('does not treat a sanitized capabilities-only capture as a live adapter suite', async () => {
+    const fixture = JSON.parse(await readFile(new URL('../../../fixtures/hermes/bfp1-capabilities.json', import.meta.url), 'utf8')) as { capabilities: { body: unknown } };
+    expect(isHermesCapabilities(fixture.capabilities.body)).toBe(false);
+    const synthetic = JSON.parse(await readFile(new URL('../../../fixtures/hermes/capabilities.json', import.meta.url), 'utf8')) as { metadata: Record<string, unknown> };
+    expect(synthetic.metadata).toMatchObject({ source: 'synthetic', validatedRuntimeVersion: null });
+    const compatibility = await readFile(new URL('../../../docs/compatibility.md', import.meta.url), 'utf8');
+    expect(compatibility).not.toContain('| Hermes | HTTP/SSE Runs API | supported |');
   });
 
-  it('maps Hermes event names carried in JSON data', () => {
-    const [event] = mapHermesSseEvent(undefined, { event: 'message.delta', delta: 'sdk-live-ok' }, {
-      ids: { id: () => 'event-1' },
-      clock: { now: () => new Date('2026-01-01T00:00:00.000Z'), sleep: async () => undefined },
-      applicationRunId: 'run-1',
-      externalRunId: 'external-run-1',
-      externalSessionId: 'session-1',
-    });
-
-    expect(event?.type).toBe('assistant.delta');
-    if (event?.type === 'assistant.delta') expect(event.delta).toBe('sdk-live-ok');
-  });
-
-  it('connects, negotiates REST sessions, starts text runs, and preserves idempotency keys', async () => {
+  it('uses client-scoped auto mode unless both REST session endpoints are advertised', async () => {
     const server = new FakeHermesServer();
-    const deps = createTestDependencies({ http: server });
-    const adapter = new HermesAdapter(deps, { baseUrl: 'https://hermes.example.test' });
-    const info = await adapter.connect({ target: { endpoint: 'https://hermes.example.test' }, auth: { kind: 'bearer', token: 'secret' } });
-    expect(info.descriptor.capabilities.sessions.history).toBe(true);
-    expect(info.descriptor.capabilities.input.images).toBe(false);
-
-    const session = await adapter.ensureSession({ applicationSessionId: 'app-session' });
-    expect(session.externalSessionId).toBe('rest-session-1');
-    const handle = await adapter.startRun({
-      applicationRunId: 'app-run',
-      idempotencyKey: 'idem-1',
-      session,
-      input: { text: 'hello' },
-      instructions: 'be brief',
+    server.capabilities = capabilities({
+      endpoints: {
+        runs: { method: 'POST', path: '/v1/runs' },
+        run_status: { method: 'GET', path: '/v1/runs/{run_id}' },
+        run_events: { method: 'GET', path: '/v1/runs/{run_id}/events' },
+      },
     });
-    expect(handle.externalRunId).toBe('run-2');
-    expect(handle.sessionStatePatch?.previousResponseId).toBe('resp-run-2');
-    expect(server.requests.find((request) => new URL(request.url).pathname === '/v1/runs')?.headers?.['Idempotency-Key']).toBe('idem-1');
-  });
-
-  it('reuses existing Hermes REST session provider state', async () => {
-    const server = new FakeHermesServer();
-    const adapter = new HermesAdapter(createTestDependencies({ http: server }), { baseUrl: 'https://hermes.example.test', sessionMode: 'rest-session' });
+    const adapter = new HermesAdapter(createTestDependencies({ http: server }), { baseUrl: 'https://hermes.example.test' });
     await adapter.connect({ target: { endpoint: 'https://hermes.example.test' } });
-    const session = await adapter.ensureSession({ applicationSessionId: 'app-session', providerState: { hermesSessionId: 'existing-session' } });
-    expect(session.externalSessionId).toBe('existing-session');
-    expect(session.created).toBe(false);
+    const session = await adapter.ensureSession({ applicationSessionId: 'app-session' });
+    expect(session).toMatchObject({ externalSessionId: 'app-session', created: false });
     expect(server.sessionsCreated).toBe(0);
   });
 
-  it('streams explicit SSE events, ignores wrong run events, and deduplicates replayed events', async () => {
+  it('rejects explicit REST session mode when creation or history is unavailable', async () => {
     const server = new FakeHermesServer();
-    server.runs.set('run-stream', {
-      id: 'run-stream',
-      status: 'completed',
+    server.capabilities = capabilities({ endpoints: { session_create: { method: 'POST', path: '/api/sessions' } } });
+    const adapter = new HermesAdapter(createTestDependencies({ http: server }), { baseUrl: 'https://hermes.example.test', sessionMode: 'rest-session' });
+    await expect(adapter.connect({ target: { endpoint: 'https://hermes.example.test' } })).rejects.toMatchObject({ code: 'UNSUPPORTED_CAPABILITY' });
+    await expect(adapter.capabilities()).rejects.toMatchObject({ code: 'INVALID_CONFIGURATION' });
+  });
+
+  it('connects, creates REST sessions, and preserves exact idempotency keys', async () => {
+    const server = new FakeHermesServer();
+    const adapter = new HermesAdapter(createTestDependencies({ http: server }), { baseUrl: 'https://hermes.example.test' });
+    const info = await adapter.connect({ target: { endpoint: 'https://hermes.example.test' } });
+    expect(info.descriptor.capabilities.sessions).toMatchObject({ create: true, history: true });
+    const session = await adapter.ensureSession({ applicationSessionId: 'app-session' });
+    const handle = await adapter.startRun({ applicationRunId: 'app-run', idempotencyKey: 'caller-idem', session, input: { text: 'hello' } });
+    expect(handle.externalRunId).toBe('run-2');
+    expect(handle.sessionStatePatch?.previousResponseId).toBeUndefined();
+    expect(server.requests.find((request) => new URL(request.url).pathname === '/v1/runs')?.headers?.['Idempotency-Key']).toBe('caller-idem');
+  });
+
+  it('accepts caller previous_response_id but never invents its successor', async () => {
+    const server = new FakeHermesServer();
+    const adapter = new HermesAdapter(createTestDependencies({ http: server }), { baseUrl: 'https://hermes.example.test' });
+    await adapter.connect({ target: { endpoint: 'https://hermes.example.test' } });
+    const session = { applicationSessionId: 's', externalSessionId: 's', created: false, providerState: { previousResponseId: 'resp-caller' } };
+    const handle = await adapter.startRun({ applicationRunId: 'r', idempotencyKey: 'i', session, input: { text: 'next' } });
+    const request = server.requests.find((item) => new URL(item.url).pathname === '/v1/runs' && item.method === 'POST');
+    expect(JSON.parse(String(request?.body))).toMatchObject({ previous_response_id: 'resp-caller' });
+    expect(handle.sessionStatePatch?.previousResponseId).toBeUndefined();
+    const snapshot = await adapter.getRun({ applicationRunId: 'r', externalRunId: handle.externalRunId, externalSessionId: 's' });
+    expect(snapshot.sessionStatePatch?.previousResponseId).toBeUndefined();
+  });
+
+  it('maps only source-backed Runs events and records mismatched correlation safely', () => {
+    const [delta] = mapHermesSseEvent(undefined, { event: 'message.delta', run_id: 'run-1', delta: 'hi' }, eventContext());
+    expect(delta).toMatchObject({ type: 'assistant.delta', delta: 'hi', occurredAt: '2026-01-01T00:00:00.000Z' });
+    const [wrong] = mapHermesSseEvent(undefined, { event: 'message.delta', run_id: 'other', delta: 'bad' }, eventContext());
+    expect(wrong).toMatchObject({ type: 'transport.warning', warning: 'Ignored Hermes event for another run' });
+    expect(() => mapHermesSseEvent(undefined, { event: 'message.delta', delta: 'bad' }, eventContext())).toThrowError(RuntimeError);
+  });
+
+  it('parses split UTF-8, CRLF, multiline data, keepalives, and a final event', async () => {
+    const output = [];
+    for await (const event of parseSseStream(chunks(['\uFEFF: ping\r\nid: 1\r\nevent: x\r\ndata: hel', 'lo\r\ndata: world']))) output.push(event);
+    expect(output).toEqual([{ id: '1', event: 'x', data: 'hello\nworld' }]);
+  });
+
+  it.each([
+    [{ action: 'allow', scope: 'once' } as const, 'once'],
+    [{ action: 'allow', scope: 'session' } as const, 'session'],
+    [{ action: 'allow', scope: 'always' } as const, 'always'],
+    [{ action: 'deny' } as const, 'deny'],
+  ])('maps provider-neutral approval decision %j to Hermes %s', async (decision, expectedChoice) => {
+    const server = new FakeHermesServer();
+    server.runs.set('run-approval', {
+      id: 'run-approval',
+      status: 'waiting_for_approval',
       sessionId: 'session-1',
+      events: [{ data: { event: 'approval.request', run_id: 'run-approval', description: 'Approve action', choices: ['once', 'session', 'always', 'deny'] } }],
+    });
+    const adapter = new HermesAdapter(createTestDependencies({ http: server }), { baseUrl: 'https://hermes.example.test' });
+    await adapter.connect({ target: { endpoint: 'https://hermes.example.test' } });
+    const iterator = adapter.streamRun({ applicationRunId: 'app', externalRunId: 'run-approval', externalSessionId: 'session-1' })[Symbol.asyncIterator]();
+    const event = (await iterator.next()).value;
+    expect(event?.type).toBe('approval.requested');
+    if (event?.type !== 'approval.requested') throw new Error('expected approval event');
+    await adapter.resolveApproval({ applicationRunId: 'app', externalRunId: 'run-approval', approvalId: event.approvalId, decision });
+    expect(server.approvalBodies.at(-1)).toEqual({ choice: expectedChoice });
+    await iterator.return?.();
+  });
+
+  it('enforces approval choices offered by the specific event', async () => {
+    const server = new FakeHermesServer();
+    server.runs.set('run-restricted', {
+      id: 'run-restricted', status: 'waiting_for_approval', sessionId: 's',
+      events: [{ data: { event: 'approval.request', run_id: 'run-restricted', choices: ['once', 'deny'] } }],
+    });
+    const adapter = new HermesAdapter(createTestDependencies({ http: server }), { baseUrl: 'https://hermes.example.test' });
+    await adapter.connect({ target: { endpoint: 'https://hermes.example.test' } });
+    const iterator = adapter.streamRun({ applicationRunId: 'a', externalRunId: 'run-restricted', externalSessionId: 's' })[Symbol.asyncIterator]();
+    const event = (await iterator.next()).value;
+    if (event?.type !== 'approval.requested') throw new Error('expected approval event');
+    expect(event.availableDecisions).toEqual([{ action: 'allow', scope: 'once' }, { action: 'deny' }]);
+    await expect(adapter.resolveApproval({ applicationRunId: 'a', externalRunId: 'run-restricted', approvalId: event.approvalId, decision: { action: 'allow', scope: 'always' } })).rejects.toMatchObject({ code: 'INVALID_REQUEST' });
+    await iterator.return?.();
+  });
+
+  it('rejects malformed approval responses and disabled approval capability', async () => {
+    const server = new FakeHermesServer();
+    server.approvalResponse = { accepted: true };
+    server.runs.set('run-a', { id: 'run-a', status: 'waiting_for_approval', sessionId: 's', events: [{ data: { event: 'approval.request', run_id: 'run-a', choices: ['deny'] } }] });
+    const adapter = new HermesAdapter(createTestDependencies({ http: server }), { baseUrl: 'https://hermes.example.test' });
+    await adapter.connect({ target: { endpoint: 'https://hermes.example.test' } });
+    const iterator = adapter.streamRun({ applicationRunId: 'a', externalRunId: 'run-a', externalSessionId: 's' })[Symbol.asyncIterator]();
+    const event = (await iterator.next()).value;
+    if (event?.type !== 'approval.requested') throw new Error('expected approval event');
+    await expect(adapter.resolveApproval({ applicationRunId: 'a', externalRunId: 'run-a', approvalId: event.approvalId, decision: { action: 'deny' } })).rejects.toMatchObject({ code: 'INVALID_RESPONSE' });
+    await iterator.return?.();
+
+    const disabled = new FakeHermesServer();
+    disabled.capabilities = capabilities({ features: { run_submission: true, run_status: true, run_approval: false } });
+    const disabledAdapter = new HermesAdapter(createTestDependencies({ http: disabled }), { baseUrl: 'https://hermes.example.test' });
+    await disabledAdapter.connect({ target: { endpoint: 'https://hermes.example.test' } });
+    await expect(disabledAdapter.resolveApproval({ applicationRunId: 'a', externalRunId: 'r', approvalId: 'p', decision: { action: 'deny' } })).rejects.toMatchObject({ code: 'UNSUPPORTED_CAPABILITY' });
+  });
+
+  it('reconciles a disconnected stream with terminal status', async () => {
+    const server = new FakeHermesServer();
+    server.runs.set('run-complete', { id: 'run-complete', status: 'completed', sessionId: 's', output: 'done', usage: { total_tokens: 3 }, events: [] });
+    const adapter = new HermesAdapter(createTestDependencies({ http: server }), { baseUrl: 'https://hermes.example.test', maxReconnectAttempts: 0, pollingIntervalMs: 1, maxReconciliationMs: 10 });
+    await adapter.connect({ target: { endpoint: 'https://hermes.example.test' } });
+    const events = [];
+    for await (const event of adapter.streamRun({ applicationRunId: 'a', externalRunId: 'run-complete', externalSessionId: 's' })) events.push(event);
+    expect(events.at(-1)).toMatchObject({ type: 'run.completed', output: 'done', usage: { total_tokens: 3 } });
+  });
+
+  it('enforces reconnect limit and reconnectDelayMs', async () => {
+    const server = new FakeHermesServer();
+    server.runs.set('run-reconnect', { id: 'run-reconnect', status: 'running', sessionId: 's', events: [] });
+    const clock = testClock();
+    const transport: RuntimeHttpTransport = {
+      request: async (input) => {
+        const response = await server.request(input);
+        if (new URL(input.url).pathname.endsWith('/events') && server.streamRequests === 2) {
+          const run = server.runs.get('run-reconnect');
+          if (run) { run.status = 'completed'; run.output = 'after reconnect'; }
+        }
+        return response;
+      },
+    };
+    const adapter = new HermesAdapter(createTestDependencies({ http: transport, clock }), { baseUrl: 'https://hermes.example.test', maxReconnectAttempts: 1, reconnectDelayMs: 7, pollingIntervalMs: 3, maxReconciliationMs: 30 });
+    await adapter.connect({ target: { endpoint: 'https://hermes.example.test' } });
+    const events = [];
+    for await (const event of adapter.streamRun({ applicationRunId: 'a', externalRunId: 'run-reconnect', externalSessionId: 's' })) events.push(event);
+    expect(server.streamRequests).toBe(2);
+    expect(clock.sleeps).toContain(7);
+    expect(events.at(-1)?.type).toBe('run.completed');
+  });
+
+  it('enforces pollingIntervalMs and maxReconciliationMs', async () => {
+    const server = new FakeHermesServer();
+    server.runs.set('run-poll', { id: 'run-poll', status: 'running', sessionId: 's', events: [] });
+    const clock = testClock();
+    const adapter = new HermesAdapter(createTestDependencies({ http: server, clock }), { baseUrl: 'https://hermes.example.test', maxReconnectAttempts: 0, pollingIntervalMs: 4, maxReconciliationMs: 9 });
+    await adapter.connect({ target: { endpoint: 'https://hermes.example.test' } });
+    await expect(async () => {
+      for await (const _event of adapter.streamRun({ applicationRunId: 'a', externalRunId: 'run-poll', externalSessionId: 's' })) { /* consume */ }
+    }).rejects.toMatchObject({ code: 'TIMEOUT' });
+    expect(clock.sleeps).toEqual([4, 4, 1]);
+  });
+
+  it('does not reconnect malformed SSE or authentication failures', async () => {
+    const malformed = new FakeHermesServer();
+    malformed.runs.set('run-bad', { id: 'run-bad', status: 'running', sessionId: 's', events: [{ data: 'not-json' }] });
+    const malformedAdapter = new HermesAdapter(createTestDependencies({ http: malformed }), { baseUrl: 'https://hermes.example.test', maxReconnectAttempts: 5 });
+    await malformedAdapter.connect({ target: { endpoint: 'https://hermes.example.test' } });
+    await expect(async () => {
+      for await (const _event of malformedAdapter.streamRun({ applicationRunId: 'a', externalRunId: 'run-bad', externalSessionId: 's' })) { /* consume */ }
+    }).rejects.toMatchObject({ code: 'INVALID_RESPONSE' });
+    expect(malformed.streamRequests).toBe(1);
+
+    const auth = new FakeHermesServer();
+    const authAdapter = new HermesAdapter(createTestDependencies({ http: auth }), { baseUrl: 'https://hermes.example.test', bearerToken: 'secret', maxReconnectAttempts: 5 });
+    await authAdapter.connect({ target: { endpoint: 'https://hermes.example.test' } });
+    auth.failAuth = true;
+    await expect(async () => {
+      for await (const _event of authAdapter.streamRun({ applicationRunId: 'a', externalRunId: 'run-1', externalSessionId: 'session-1' })) { /* consume */ }
+    }).rejects.toMatchObject({ code: 'AUTHENTICATION_FAILED' });
+    expect(auth.streamRequests).toBe(0);
+  });
+
+  it('bounds deduplication independently of event volume', () => {
+    const first = new BoundedDedupeWindow(128);
+    const second = new BoundedDedupeWindow(128);
+    for (let index = 0; index < 10_000; index += 1) expect(first.seen(`event-${index}`)).toBe(false);
+    expect(first.size).toBe(128);
+    expect(second.size).toBe(0);
+    expect(first.seen('event-9999')).toBe(true);
+  });
+
+  it('rejects strict run, stop, session, and history response mismatches', async () => {
+    const server = new FakeHermesServer();
+    const transport: RuntimeHttpTransport = {
+      request: async (input) => {
+        const path = new URL(input.url).pathname;
+        if (path === '/v1/runs/bad') return json(200, { run_id: 'bad', status: 'completed' });
+        if (path === '/v1/runs/run-1/stop') return json(200, { accepted: true });
+        if (path === '/api/sessions/s/messages') return json(200, { messages: [] });
+        return server.request(input);
+      },
+    };
+    const adapter = new HermesAdapter(createTestDependencies({ http: transport }), { baseUrl: 'https://hermes.example.test' });
+    await adapter.connect({ target: { endpoint: 'https://hermes.example.test' } });
+    await expect(adapter.getRun({ applicationRunId: 'a', externalRunId: 'bad' })).rejects.toMatchObject({ code: 'INVALID_RESPONSE' });
+    await expect(adapter.cancelRun({ applicationRunId: 'a', externalRunId: 'run-1' })).rejects.toMatchObject({ code: 'INVALID_RESPONSE' });
+    await expect(adapter.getHistory({ applicationSessionId: 'a', externalSessionId: 's' })).rejects.toMatchObject({ code: 'INVALID_RESPONSE' });
+  });
+
+  it('failed connect leaves the adapter disconnected', async () => {
+    const server = new FakeHermesServer();
+    server.capabilities = { object: 'hermes.api_server.capabilities', platform: 'hermes-agent', features: [] };
+    const adapter = new HermesAdapter(createTestDependencies({ http: server }), { baseUrl: 'https://hermes.example.test' });
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      await expect(adapter.connect({ target: { endpoint: 'https://hermes.example.test' } })).rejects.toMatchObject({ code: 'INVALID_RESPONSE' });
+    }
+    await expect(adapter.capabilities()).rejects.toMatchObject({ code: 'INVALID_CONFIGURATION' });
+    expect(server.requests).toHaveLength(3);
+  });
+
+  it('close aborts two concurrent streams and is idempotent', async () => {
+    const server = new FakeHermesServer();
+    server.runs.set('run-x', { id: 'run-x', status: 'running', sessionId: 's', events: [] });
+    server.runs.set('run-y', { id: 'run-y', status: 'running', sessionId: 's', events: [] });
+    const transport: RuntimeHttpTransport = {
+      request: async (input) => new URL(input.url).pathname.endsWith('/events') ? hangingSse(input) : server.request(input),
+    };
+    const adapter = new HermesAdapter(createTestDependencies({ http: transport }), { baseUrl: 'https://hermes.example.test' });
+    await adapter.connect({ target: { endpoint: 'https://hermes.example.test' } });
+    const x = adapter.streamRun({ applicationRunId: 'x', externalRunId: 'run-x', externalSessionId: 's' })[Symbol.asyncIterator]();
+    const y = adapter.streamRun({ applicationRunId: 'y', externalRunId: 'run-y', externalSessionId: 's' })[Symbol.asyncIterator]();
+    const pending = Promise.allSettled([x.next(), y.next()]);
+    await Promise.resolve();
+    await adapter.close();
+    const results = await pending;
+    expect(results.every((result) => result.status === 'rejected')).toBe(true);
+    await expect(adapter.close()).resolves.toBeUndefined();
+  });
+
+  it('iterator return releases stream resources without affecting another run', async () => {
+    const server = new FakeHermesServer();
+    server.runs.set('run-one', { id: 'run-one', status: 'waiting_for_approval', sessionId: 's', events: [{ data: { event: 'approval.request', run_id: 'run-one', choices: ['deny'] } }] });
+    server.runs.set('run-two', { id: 'run-two', status: 'completed', sessionId: 's', output: 'two', events: [] });
+    const adapter = new HermesAdapter(createTestDependencies({ http: server }), { baseUrl: 'https://hermes.example.test', maxReconnectAttempts: 0, pollingIntervalMs: 1, maxReconciliationMs: 10 });
+    await adapter.connect({ target: { endpoint: 'https://hermes.example.test' } });
+    const one = adapter.streamRun({ applicationRunId: 'one', externalRunId: 'run-one', externalSessionId: 's' })[Symbol.asyncIterator]();
+    expect((await one.next()).value?.type).toBe('approval.requested');
+    await one.return?.();
+    const two = [];
+    for await (const event of adapter.streamRun({ applicationRunId: 'two', externalRunId: 'run-two', externalSessionId: 's' })) two.push(event);
+    expect(two.at(-1)?.type).toBe('run.completed');
+  });
+
+  it('deduplicates replayed deltas and terminal events', async () => {
+    const server = new FakeHermesServer();
+    const delta = { event: 'message.delta', run_id: 'run-dup', delta: 'hi' };
+    const terminal = { event: 'run.completed', run_id: 'run-dup', output: 'hi' };
+    server.runs.set('run-dup', {
+      id: 'run-dup', status: 'completed', sessionId: 's', output: 'hi',
       events: [
-        { id: '1', event: 'assistant.delta', data: { run_id: 'other', session_id: 'session-1', delta: 'bad' } },
-        { id: '2', event: 'assistant.delta', data: { run_id: 'run-stream', session_id: 'session-1', delta: 'hi' } },
-        { id: '2', event: 'assistant.delta', data: { run_id: 'run-stream', session_id: 'session-1', delta: 'hi' } },
-        { id: '3', event: 'run.completed', data: { run_id: 'run-stream', session_id: 'session-1' } },
+        { id: '1', data: delta },
+        { id: '1', data: delta },
+        { id: '2', data: terminal },
+        { id: '2', data: terminal },
       ],
     });
     const adapter = new HermesAdapter(createTestDependencies({ http: server }), { baseUrl: 'https://hermes.example.test' });
     await adapter.connect({ target: { endpoint: 'https://hermes.example.test' } });
     const events = [];
-    for await (const event of adapter.streamRun({ applicationRunId: 'app-run', externalRunId: 'run-stream', externalSessionId: 'session-1' })) events.push(event);
+    for await (const event of adapter.streamRun({ applicationRunId: 'a', externalRunId: 'run-dup', externalSessionId: 's' })) events.push(event);
     expect(events.map((event) => event.type)).toEqual(['assistant.delta', 'run.completed']);
   });
 
-  it('reconciles ended SSE streams with run status', async () => {
+  it('caller abort stops polling immediately', async () => {
     const server = new FakeHermesServer();
-    server.runs.set('run-reconcile', { id: 'run-reconcile', status: 'completed', sessionId: 'session-1', output: 'done', events: [] });
-    const adapter = new HermesAdapter(createTestDependencies({ http: server }), { baseUrl: 'https://hermes.example.test', maxReconnectAttempts: 0 });
+    server.runs.set('run-abort', { id: 'run-abort', status: 'running', sessionId: 's', events: [] });
+    const controller = new AbortController();
+    let sleeps = 0;
+    const clock: RuntimeClock = {
+      now: () => new Date(0),
+      sleep: async (_ms, signal) => {
+        sleeps += 1;
+        controller.abort();
+        if (signal?.aborted) throw signal.reason;
+      },
+    };
+    const adapter = new HermesAdapter(createTestDependencies({ http: server, clock }), { baseUrl: 'https://hermes.example.test', maxReconnectAttempts: 0, pollingIntervalMs: 5, maxReconciliationMs: 100 });
     await adapter.connect({ target: { endpoint: 'https://hermes.example.test' } });
-    const events = [];
-    for await (const event of adapter.streamRun({ applicationRunId: 'app-run', externalRunId: 'run-reconcile', externalSessionId: 'session-1' })) events.push(event);
-    expect(events.at(-1)?.type).toBe('run.completed');
-  });
-
-  it('normalizes history, approvals, cancellation, and unsupported attachments', async () => {
-    const server = new FakeHermesServer();
-    const adapter = new HermesAdapter(createTestDependencies({ http: server }), { baseUrl: 'https://hermes.example.test' });
-    await adapter.connect({ target: { endpoint: 'https://hermes.example.test' } });
-    const history = await adapter.getHistory({ applicationSessionId: 'app-session', externalSessionId: 'session-1' });
-    expect(history[0]).toMatchObject({ role: 'user', content: 'hello' });
-    await expect(adapter.resolveApproval?.({ applicationRunId: 'app-run', externalRunId: 'run-1', approvalId: 'approval-1', decision: 'approve' })).resolves.toBeUndefined();
-    await expect(adapter.cancelRun({ applicationRunId: 'app-run', externalRunId: 'run-1' })).resolves.toBeUndefined();
-    await expect(
-      adapter.startRun({
-        applicationRunId: 'app-run',
-        idempotencyKey: 'idem',
-        session: { applicationSessionId: 's', externalSessionId: 's', created: false },
-        input: { text: 'hi', attachments: [{ kind: 'image', mimeType: 'image/png', data: new Uint8Array([1]) }] },
-      }),
-    ).rejects.toMatchObject({ code: 'UNSUPPORTED_CAPABILITY' });
-  });
-
-  it('maps ambiguous run creation interruption to OUTCOME_UNKNOWN and redacts provider details', async () => {
-    const server = new FakeHermesServer();
-    server.nextRunCreateNetworkFailure = true;
-    const adapter = new HermesAdapter(createTestDependencies({ http: server }), { baseUrl: 'https://hermes.example.test' });
-    await adapter.connect({ target: { endpoint: 'https://hermes.example.test' } });
-    await expect(
-      adapter.startRun({
-        applicationRunId: 'app-run',
-        idempotencyKey: 'idem-unknown',
-        session: { applicationSessionId: 's', externalSessionId: 's', created: false },
-        input: { text: 'hi' },
-      }),
-    ).rejects.toMatchObject({ code: 'OUTCOME_UNKNOWN' });
-  });
-
-  it('rejects invalid session headers and malformed SSE input safely', async () => {
-    const server = new FakeHermesServer();
-    const adapter = new HermesAdapter(createTestDependencies({ http: server }), { baseUrl: 'https://hermes.example.test' });
-    await adapter.connect({ target: { endpoint: 'https://hermes.example.test' } });
-    await expect(
-      adapter.startRun({
-        applicationRunId: 'app-run',
-        idempotencyKey: 'idem',
-        session: { applicationSessionId: 'bad\nsession', externalSessionId: 's', created: false },
-        input: { text: 'hi' },
-      }),
-    ).rejects.toMatchObject({ code: 'INVALID_REQUEST' });
-
     await expect(async () => {
-      for await (const _ of parseSseStream(chunks(['data: x\n']), { maxLineBytes: 1 })) {
-        // consume
-      }
-    }).rejects.toBeInstanceOf(RuntimeError);
+      for await (const _event of adapter.streamRun({ applicationRunId: 'a', externalRunId: 'run-abort', externalSessionId: 's' }, { signal: controller.signal })) { /* consume */ }
+    }).rejects.toMatchObject({ code: 'CANCELLED' });
+    expect(sleeps).toBe(1);
+  });
+
+  it('rejects unavailable history and unsafe 257-character session headers', async () => {
+    const server = new FakeHermesServer();
+    server.capabilities = capabilities({
+      endpoints: {
+        runs: { method: 'POST', path: '/v1/runs' },
+        run_status: { method: 'GET', path: '/v1/runs/{run_id}' },
+        run_events: { method: 'GET', path: '/v1/runs/{run_id}/events' },
+      },
+    });
+    const adapter = new HermesAdapter(createTestDependencies({ http: server }), { baseUrl: 'https://hermes.example.test' });
+    await adapter.connect({ target: { endpoint: 'https://hermes.example.test' } });
+    await expect(adapter.getHistory({ applicationSessionId: 'a', externalSessionId: 's' })).rejects.toMatchObject({ code: 'UNSUPPORTED_CAPABILITY' });
+
+    const advertised = new FakeHermesServer();
+    const headerAdapter = new HermesAdapter(createTestDependencies({ http: advertised }), { baseUrl: 'https://hermes.example.test' });
+    await headerAdapter.connect({ target: { endpoint: 'https://hermes.example.test' } });
+    await expect(headerAdapter.startRun({
+      applicationRunId: 'a', idempotencyKey: 'i',
+      session: { applicationSessionId: 'a', externalSessionId: 'x'.repeat(257), created: false },
+      input: { text: 'hi' },
+    })).rejects.toMatchObject({ code: 'INVALID_REQUEST' });
+  });
+
+  it('normalizes an already-resolved approval conflict without replay', async () => {
+    const server = new FakeHermesServer();
+    server.approvalStatus = 409;
+    server.runs.set('run-resolved', { id: 'run-resolved', status: 'waiting_for_approval', sessionId: 's', events: [{ data: { event: 'approval.request', run_id: 'run-resolved', choices: ['deny'] } }] });
+    const adapter = new HermesAdapter(createTestDependencies({ http: server }), { baseUrl: 'https://hermes.example.test' });
+    await adapter.connect({ target: { endpoint: 'https://hermes.example.test' } });
+    const iterator = adapter.streamRun({ applicationRunId: 'a', externalRunId: 'run-resolved', externalSessionId: 's' })[Symbol.asyncIterator]();
+    const event = (await iterator.next()).value;
+    if (event?.type !== 'approval.requested') throw new Error('expected approval event');
+    await expect(adapter.resolveApproval({ applicationRunId: 'a', externalRunId: 'run-resolved', approvalId: event.approvalId, decision: { action: 'deny' } })).rejects.toMatchObject({ code: 'CONFLICT' });
+    expect(server.approvalBodies).toHaveLength(1);
+    await iterator.return?.();
+  });
+
+  it('treats repeated stop of a confirmed terminal run idempotently', async () => {
+    const server = new FakeHermesServer();
+    const transport: RuntimeHttpTransport = {
+      request: async (input) => new URL(input.url).pathname.endsWith('/stop')
+        ? json(404, { error: { code: 'run_not_found' } })
+        : server.request(input),
+    };
+    const adapter = new HermesAdapter(createTestDependencies({ http: transport }), { baseUrl: 'https://hermes.example.test' });
+    await adapter.connect({ target: { endpoint: 'https://hermes.example.test' } });
+    await expect(adapter.cancelRun({ applicationRunId: 'a', externalRunId: 'run-1', externalSessionId: 'session-1' })).resolves.toBeUndefined();
+    await expect(adapter.cancelRun({ applicationRunId: 'a', externalRunId: 'run-1', externalSessionId: 'session-1' })).resolves.toBeUndefined();
+  });
+
+  it('ships upstream-reference fixtures for every Hermes approval choice', async () => {
+    for (const choice of ['once', 'session', 'always', 'deny']) {
+      const fixture = JSON.parse(await readFile(new URL(`../../../fixtures/hermes/approval-response-${choice}.json`, import.meta.url), 'utf8')) as {
+        metadata: Record<string, unknown>;
+        request: Record<string, unknown>;
+        response: Record<string, unknown>;
+      };
+      expect(fixture.metadata).toMatchObject({ source: 'upstream-reference', upstreamCommit: '226e8de827a669e8ffa7035b27d70c19e44b1208' });
+      expect(fixture.request.choice).toBe(choice);
+      expect(fixture.response.choice).toBe(choice);
+    }
   });
 });
+
+function json(status: number, value: unknown): RuntimeHttpResponse {
+  return { status, headers: { 'content-type': 'application/json' }, body: chunks([JSON.stringify(value)]) };
+}
+
+function hangingSse(input: RuntimeHttpRequest): RuntimeHttpResponse {
+  return {
+    status: 200,
+    headers: { 'content-type': 'text/event-stream' },
+    body: {
+      [Symbol.asyncIterator]() {
+        return {
+          next: () => new Promise<IteratorResult<Uint8Array>>((_, reject) => {
+            input.signal?.addEventListener('abort', () => reject(input.signal?.reason), { once: true });
+          }),
+          return: async () => ({ done: true, value: undefined }),
+        };
+      },
+    },
+  };
+}

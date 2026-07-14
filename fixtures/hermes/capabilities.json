@@ -1,12 +1,16 @@
 {
   "metadata": {
     "runtimeProduct": "hermes-agent",
-    "runtimeVersion": "0.18.2",
+    "targetRuntimeVersion": "current Hermes main contract",
+    "validatedRuntimeVersion": null,
     "protocolVersion": "1",
     "captureDate": "2026-07-14",
     "fixtureSchemaVersion": 1,
     "sanitizerVersion": "synthetic-1",
-    "source": "synthetic"
+    "source": "synthetic",
+    "upstreamRepository": "NousResearch/hermes-agent",
+    "upstreamCommit": "226e8de827a669e8ffa7035b27d70c19e44b1208",
+    "inspectedSourcePath": "gateway/platforms/api_server.py"
   },
   "body": {
     "object": "hermes.api_server.capabilities",
@@ -17,10 +21,21 @@
       "run_status": true,
       "run_events_sse": true,
       "run_stop": true,
-      "run_approval": true,
+      "run_approval_response": true,
       "approval_events": true,
       "tool_progress_events": true,
-      "session_resources": true
+      "session_resources": true,
+      "session_continuity_header": "X-Hermes-Session-Id",
+      "session_key_header": "X-Hermes-Session-Key"
+    },
+    "endpoints": {
+      "runs": { "method": "POST", "path": "/v1/runs" },
+      "run_status": { "method": "GET", "path": "/v1/runs/{run_id}" },
+      "run_events": { "method": "GET", "path": "/v1/runs/{run_id}/events" },
+      "run_approval": { "method": "POST", "path": "/v1/runs/{run_id}/approval" },
+      "run_stop": { "method": "POST", "path": "/v1/runs/{run_id}/stop" },
+      "session_create": { "method": "POST", "path": "/api/sessions" },
+      "session_messages": { "method": "GET", "path": "/api/sessions/{session_id}/messages" }
     }
   }
 }

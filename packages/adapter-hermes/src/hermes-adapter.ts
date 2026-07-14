@@ -15,6 +15,7 @@ import {
   type ProbeOptions,
   type ResolveRuntimeApprovalInput,
   type RuntimeAdapterDependencies,
+  type RuntimeApprovalDecision,
   type RuntimeCapabilities,
   type RuntimeConnectionConfig,
   type RuntimeConnectionInfo,
@@ -25,16 +26,28 @@ import {
   type RuntimeProbeResult,
   type RuntimeRunHandle,
   type RuntimeRunSnapshot,
-  type RuntimeRunStatus,
   type RuntimeSession,
   type RuntimeSessionStatePatch,
   type RuntimeTarget,
   type StartRuntimeRunInput,
   type StreamRuntimeRunInput,
 } from '@banzae/agent-runtime-core';
+import { BoundedDedupeWindow } from './dedupe.js';
 import { HermesHttpClient } from './http/client.js';
-import { isHermesCapabilities, mapHermesCapabilities } from './mapping/capabilities.js';
-import { mapHermesSseEvent, parseHermesEventData } from './mapping/events.js';
+import { isHermesCapabilities, mapHermesCapabilities, validateHermesCapabilities } from './mapping/capabilities.js';
+import { mapHermesSseEvent, parseHermesEventData, toHermesChoice } from './mapping/events.js';
+import {
+  normalizeStatus,
+  validateApprovalResponse,
+  validateDetailedHealth,
+  validateHealth,
+  validateRunCreateResponse,
+  validateRunStatusResponse,
+  validateSessionCreateResponse,
+  validateSessionMessagesResponse,
+  validateStopResponse,
+  type HermesApprovalChoice,
+} from './schemas.js';
 import { parseSseStream } from './sse/parser.js';
 
 export type HermesSessionMode = 'auto' | 'client-scoped' | 'rest-session';
@@ -55,6 +68,7 @@ export type HermesAdapterOptions = {
   reconnectDelayMs?: number;
   pollingIntervalMs?: number;
   maxReconciliationMs?: number;
+  maxDeduplicationEntries?: number;
 };
 
 type ConnectedHermes = {
@@ -65,23 +79,50 @@ type ConnectedHermes = {
   sessionMode: HermesSessionMode;
 };
 
+type StreamOperation = {
+  controller: AbortController;
+  signal: AbortSignal;
+  done: Promise<void>;
+  finish: () => void;
+  cleanup: () => void;
+};
+
+type ApprovalState = {
+  externalRunId: string;
+  choices: Set<HermesApprovalChoice>;
+};
+
+const DEFAULT_MAX_RECONNECT_ATTEMPTS = 2;
+const DEFAULT_RECONNECT_DELAY_MS = 250;
+const DEFAULT_POLLING_INTERVAL_MS = 1_000;
+const DEFAULT_MAX_RECONCILIATION_MS = 30_000;
+const DEFAULT_MAX_DEDUPLICATION_ENTRIES = 1_024;
+
 export class HermesAdapter implements AgentRuntimeAdapter {
   readonly adapterId = 'hermes';
   readonly adapterVersion = '0.1.0';
 
   private connected?: ConnectedHermes;
   private closed = false;
+  private readonly activeStreams = new Set<StreamOperation>();
+  private readonly approvals = new Map<string, ApprovalState>();
 
   constructor(
     private readonly deps: RuntimeAdapterDependencies,
     private readonly options: HermesAdapterOptions = {},
-  ) {}
+  ) {
+    positiveInteger(options.maxReconnectAttempts, 'maxReconnectAttempts', true);
+    positiveInteger(options.reconnectDelayMs, 'reconnectDelayMs', true);
+    positiveInteger(options.pollingIntervalMs, 'pollingIntervalMs');
+    positiveInteger(options.maxReconciliationMs, 'maxReconciliationMs');
+    positiveInteger(options.maxDeduplicationEntries, 'maxDeduplicationEntries');
+  }
 
   async probe(target: RuntimeTarget, options?: ProbeOptions): Promise<RuntimeProbeResult> {
     const started = this.deps.clock.now().getTime();
     const client = new HermesHttpClient(this.deps.http, {
       baseUrl: toHttpBase(target.endpoint),
-      bearerToken: options?.allowAuthentication ? authToken(target.authHint, this.options.bearerToken) : undefined,
+      bearerToken: options?.allowAuthentication ? this.options.bearerToken : undefined,
       requestTimeoutMs: options?.timeoutMs,
     });
     try {
@@ -89,71 +130,73 @@ export class HermesAdapter implements AgentRuntimeAdapter {
       if (!isHermesCapabilities(response.value)) {
         return { matched: false, confidence: 0.2, adapterId: this.adapterId, evidence: ['capabilities endpoint returned non-Hermes shape'], warnings: [], durationMs: elapsed(started, this.deps) };
       }
-      const capabilities = asCapabilities(response.value);
+      const validated = validateHermesCapabilities(response.value);
       return {
         matched: true,
         confidence: 1,
         adapterId: this.adapterId,
         runtimeProduct: 'hermes-agent',
-        runtimeVersion: stringValue(capabilities.version ?? capabilities.runtimeVersion),
+        runtimeVersion: runtimeVersion(validated.value),
         protocolName: 'hermes-runs-http',
         protocolVersion: '1',
         endpointFingerprint: await connectionFingerprint(this.deps.crypto, { adapterId: this.adapterId, endpoint: normalizeEndpoint(toHttpBase(target.endpoint)) }),
-        capabilities: mapHermesCapabilities(capabilities),
+        capabilities: mapHermesCapabilities(validated.value),
         evidence: ['/v1/capabilities identified hermes-agent'],
         warnings: [],
         durationMs: elapsed(started, this.deps),
       };
     } catch (error) {
-      return {
-        matched: false,
-        confidence: 0,
-        adapterId: this.adapterId,
-        evidence: [],
-        warnings: [safeWarning(error)],
-        durationMs: elapsed(started, this.deps),
-      };
+      return { matched: false, confidence: 0, adapterId: this.adapterId, evidence: [], warnings: [safeWarning(error)], durationMs: elapsed(started, this.deps) };
     } finally {
       await client.close();
     }
   }
 
   async connect(config: RuntimeConnectionConfig, options?: ConnectOptions): Promise<RuntimeConnectionInfo> {
+    if (this.activeStreams.size > 0) throw runtimeError('INVALID_CONFIGURATION', 'Hermes cannot reconnect while streams are active', false);
     const token = await resolveBearerToken(this.deps, config, this.options);
     const client = new HermesHttpClient(this.deps.http, {
       baseUrl: this.options.baseUrl ?? toHttpBase(config.target.endpoint),
       bearerToken: token,
       requestTimeoutMs: options?.timeoutMs ?? this.options.requestTimeoutMs,
     });
-    const capabilitiesPayload = asCapabilities((await client.json<unknown>('GET', '/v1/capabilities', { signal: options?.signal })).value);
-    if (!isHermesCapabilities(capabilitiesPayload)) {
-      throw runtimeError('DETECTION_FAILED', 'Hermes capabilities endpoint did not return a Hermes capability object', false);
+    const previous = this.connected;
+    this.connected = undefined;
+    await previous?.client.close();
+    try {
+      const response = await client.json<unknown>('GET', '/v1/capabilities', { signal: options?.signal });
+      const validated = validateHermesCapabilities(response.value);
+      const capabilities = mapHermesCapabilities(validated.value);
+      const sessionMode = selectSessionMode(this.options.sessionMode ?? 'auto', capabilities);
+      const next: ConnectedHermes = {
+        client,
+        capabilitiesPayload: validated.value,
+        capabilities,
+        sessionMode,
+        descriptorFingerprint: await connectionFingerprint(this.deps.crypto, {
+          adapterId: this.adapterId,
+          endpoint: normalizeEndpoint(this.options.baseUrl ?? toHttpBase(config.target.endpoint)),
+          credentialRef: config.credentialRef ?? this.options.bearerTokenRef,
+        }),
+      };
+      this.connected = next;
+      this.closed = false;
+      return { descriptor: this.descriptor(next), connectedAt: this.deps.clock.now().toISOString(), warnings: [] };
+    } catch (error) {
+      await client.close();
+      throw error;
     }
-    const capabilities = mapHermesCapabilities(capabilitiesPayload);
-    const sessionMode = selectSessionMode(this.options.sessionMode ?? 'auto', capabilities);
-    this.connected = {
-      client,
-      capabilitiesPayload,
-      capabilities,
-      sessionMode,
-      descriptorFingerprint: await connectionFingerprint(this.deps.crypto, {
-        adapterId: this.adapterId,
-        endpoint: normalizeEndpoint(this.options.baseUrl ?? toHttpBase(config.target.endpoint)),
-        credentialRef: config.credentialRef ?? this.options.bearerTokenRef,
-      }),
-    };
-    this.closed = false;
-    return { descriptor: this.descriptor(this.connected), connectedAt: this.deps.clock.now().toISOString(), warnings: [] };
   }
 
   async health(options?: OperationOptions): Promise<RuntimeHealth> {
     const connected = this.requireConnected();
     try {
-      const liveness = validateHealth((await connected.client.json<unknown>('GET', '/health', { signal: options?.signal, allowEmpty: false })).value);
+      const liveness = validateHealth((await connected.client.json<unknown>('GET', '/health', { signal: options?.signal })).value);
       try {
         const detailed = validateDetailedHealth((await connected.client.json<unknown>('GET', '/health/detailed', { signal: options?.signal })).value);
         return { status: healthStatus(detailed.status), checkedAt: this.deps.clock.now().toISOString(), descriptor: this.descriptor(connected), warnings: [], details: { status: detailed.status, version: detailed.version } };
       } catch (error) {
+        if (error instanceof RuntimeError && (error.code === 'AUTHENTICATION_FAILED' || error.code === 'PERMISSION_DENIED')) throw error;
         return { status: healthStatus(liveness.status), checkedAt: this.deps.clock.now().toISOString(), descriptor: this.descriptor(connected), warnings: ['detailed health unavailable'] };
       }
     } catch {
@@ -167,150 +210,212 @@ export class HermesAdapter implements AgentRuntimeAdapter {
 
   async ensureSession(input: EnsureSessionInput, options?: OperationOptions): Promise<RuntimeSession> {
     const connected = this.requireConnected();
-    const existing = stringValue(input.providerState?.hermesSessionId ?? input.providerState?.sessionId ?? input.providerState?.externalSessionId);
-    if (existing) {
-      return { applicationSessionId: input.applicationSessionId, externalSessionId: existing, providerState: { ...(input.providerState ?? {}), hermesSessionId: existing }, created: false };
-    }
+    const existing = safeIdentifier(input.providerState?.hermesSessionId ?? input.providerState?.externalSessionId);
+    if (existing) return { applicationSessionId: input.applicationSessionId, externalSessionId: existing, providerState: { ...(input.providerState ?? {}), hermesSessionId: existing }, created: false };
     if (connected.sessionMode === 'rest-session') {
-      if (!connected.capabilities.sessions.create) throw unsupported('Hermes REST session creation is unavailable');
-      const response = validateSessionCreateResponse(
-        (await connected.client.json<unknown>('POST', '/api/sessions', {
-          signal: options?.signal,
-          body: { id: input.applicationSessionId, title: input.title, metadata: input.metadata },
-        })).value,
-      );
+      if (!connected.capabilities.sessions.create || !connected.capabilities.sessions.history) throw unsupported('Hermes REST sessions are unavailable');
+      const response = validateSessionCreateResponse((await connected.client.json<unknown>('POST', '/api/sessions', {
+        signal: options?.signal,
+        body: { id: input.applicationSessionId, title: input.title },
+      })).value);
       return { applicationSessionId: input.applicationSessionId, externalSessionId: response.sessionId, providerState: { ...(input.providerState ?? {}), hermesSessionId: response.sessionId }, created: true };
     }
-    return {
-      applicationSessionId: input.applicationSessionId,
-      externalSessionId: input.applicationSessionId,
-      providerState: { ...(input.providerState ?? {}), hermesClientScopedSessionId: input.applicationSessionId },
-      created: false,
-    };
+    const applicationSessionId = validateHeaderValue(input.applicationSessionId, 'application session id');
+    return { applicationSessionId, externalSessionId: applicationSessionId, providerState: { ...(input.providerState ?? {}), hermesClientScopedSessionId: applicationSessionId }, created: false };
   }
 
   async startRun(input: StartRuntimeRunInput, options?: OperationOptions): Promise<RuntimeRunHandle> {
     assertStartRunInput(input);
     const connected = this.requireConnected();
+    if (!connected.capabilities.runs.start) throw unsupported('Hermes run submission is unavailable');
     validateInputCapabilities(connected.capabilities, input.input);
     rejectUnsupportedAttachments(input);
-    const body = buildRunBody(input, this.options);
-    let response: Record<string, unknown>;
+    let response;
     try {
-      response = validateRunCreateResponse(
-        (await connected.client.json<unknown>('POST', '/v1/runs', {
-          body,
-          idempotencyKey: input.idempotencyKey,
-          signal: options?.signal,
-          timeoutMs: options?.timeoutMs ?? input.timeoutMs ?? this.options.runTimeoutMs,
-          headers: sessionHeaders(input.session, this.options),
-        })).value,
-      );
+      response = validateRunCreateResponse((await connected.client.json<unknown>('POST', '/v1/runs', {
+        body: buildRunBody(input, this.options),
+        idempotencyKey: input.idempotencyKey,
+        signal: options?.signal,
+        timeoutMs: options?.timeoutMs ?? input.timeoutMs ?? this.options.runTimeoutMs,
+        headers: sessionHeaders(input.session, this.options, connected.capabilities),
+      })).value);
     } catch (error) {
       if (isOutcomeUnknown(error)) throw runtimeError('OUTCOME_UNKNOWN', 'Hermes run creation outcome is unknown', true, { idempotencyKey: input.idempotencyKey });
       throw error;
     }
-    const externalRunId = requiredString(response.run_id ?? response.id, 'Hermes run creation did not return a run id');
-    const sessionPatch = sessionStatePatch(response);
     return {
       applicationRunId: input.applicationRunId,
-      externalRunId,
+      externalRunId: response.runId,
       status: normalizeStatus(response.status),
-      sessionStatePatch: sessionPatch,
-      providerState: safeProviderState({ idempotencyKey: input.idempotencyKey, ...sessionPatch.providerState }),
+      sessionStatePatch: sessionStatePatch({ session_id: input.session.externalSessionId }),
+      providerState: safeProviderState({ idempotencyKey: input.idempotencyKey, hermesSessionId: input.session.externalSessionId }),
     };
   }
 
   async *streamRun(input: StreamRuntimeRunInput, options?: OperationOptions): AsyncIterable<RuntimeEvent> {
     const connected = this.requireConnected();
-    const dedupe = new Set<string>();
-    let terminal = false;
-    let attempts = 0;
-    while (!terminal) {
-      try {
-        const stream = await connected.client.stream(`/v1/runs/${encodeURIComponent(input.externalRunId)}/events`, { signal: options?.signal });
-        for await (const sse of parseSseStream(stream, { signal: options?.signal })) {
-          const data = parseHermesEventData(sse.data);
-          for (const event of mapHermesSseEvent(sse.event, data, this.eventContext(input))) {
-            const key = eventDedupeKey(sse.id, event);
-            if (dedupe.has(key)) continue;
-            dedupe.add(key);
-            yield event;
-            if (isTerminalEvent(event)) terminal = true;
+    if (!connected.capabilities.runs.streamText) throw unsupported('Hermes run event streaming is unavailable');
+    const operation = createStreamOperation(options?.signal, options?.timeoutMs);
+    this.activeStreams.add(operation);
+    const dedupe = new BoundedDedupeWindow(this.options.maxDeduplicationEntries ?? DEFAULT_MAX_DEDUPLICATION_ENTRIES);
+    const pendingApprovalIds: string[] = [];
+    const pendingToolIds = new Map<string, string[]>();
+    const startedAt = this.deps.clock.now().getTime();
+    const maxReconciliationMs = this.options.maxReconciliationMs ?? DEFAULT_MAX_RECONCILIATION_MS;
+    const maxReconnectAttempts = this.options.maxReconnectAttempts ?? DEFAULT_MAX_RECONNECT_ATTEMPTS;
+    let reconnectAttempts = 0;
+    let lastError: RuntimeError | undefined;
+    let observedStatus = false;
+    try {
+      while (elapsedSince(startedAt, this.deps) <= maxReconciliationMs) {
+        throwIfAborted(operation.signal);
+        let terminal = false;
+        try {
+          const stream = await connected.client.stream(`/v1/runs/${encodeURIComponent(input.externalRunId)}/events`, { signal: operation.signal });
+          for await (const sse of parseSseStream(stream, { signal: operation.signal })) {
+            const data = parseHermesEventData(sse.data);
+            const key = eventDedupeKey(sse.id, sse.event, data);
+            if (dedupe.seen(key)) continue;
+            for (const event of mapHermesSseEvent(sse.event, data, this.eventContext(input, pendingApprovalIds, pendingToolIds))) {
+              if (event.type === 'approval.requested') {
+                this.approvals.set(event.approvalId, {
+                  externalRunId: input.externalRunId,
+                  choices: new Set(event.availableDecisions.map(toHermesChoice)),
+                });
+              }
+              yield event;
+              if (isTerminalEvent(event)) {
+                terminal = true;
+                this.clearRunApprovals(input.externalRunId);
+                break;
+              }
+            }
+            if (terminal) break;
+          }
+        } catch (error) {
+          const normalized = normalizeStreamError(error, operation.signal);
+          if (!isRetryable(normalized)) throw normalized;
+          lastError = normalized;
+        }
+        if (terminal) return;
+
+        let snapshot: RuntimeRunSnapshot | undefined;
+        try {
+          snapshot = await this.getRun(input, { ...options, signal: operation.signal });
+          observedStatus = true;
+        } catch (error) {
+          const normalized = normalizeStreamError(error, operation.signal);
+          if (!isRetryable(normalized)) throw normalized;
+          lastError = normalized;
+        }
+        if (snapshot && isTerminalStatus(snapshot.status)) {
+          yield terminalFromSnapshot(input, snapshot, this.deps);
+          this.clearRunApprovals(input.externalRunId);
+          return;
+        }
+
+        if (reconnectAttempts < maxReconnectAttempts) {
+          reconnectAttempts += 1;
+          await this.delayWithinDeadline(retryDelay(lastError, this.options.reconnectDelayMs ?? DEFAULT_RECONNECT_DELAY_MS), operation.signal, startedAt, maxReconciliationMs);
+          continue;
+        }
+
+        const pollingIntervalMs = this.options.pollingIntervalMs ?? DEFAULT_POLLING_INTERVAL_MS;
+        let pollDelayMs = pollingIntervalMs;
+        while (elapsedSince(startedAt, this.deps) <= maxReconciliationMs) {
+          await this.delayWithinDeadline(pollDelayMs, operation.signal, startedAt, maxReconciliationMs);
+          try {
+            snapshot = await this.getRun(input, { ...options, signal: operation.signal });
+            observedStatus = true;
+            pollDelayMs = pollingIntervalMs;
+            if (isTerminalStatus(snapshot.status)) {
+              yield terminalFromSnapshot(input, snapshot, this.deps);
+              this.clearRunApprovals(input.externalRunId);
+              return;
+            }
+          } catch (error) {
+            const normalized = normalizeStreamError(error, operation.signal);
+            if (!isRetryable(normalized)) throw normalized;
+            lastError = normalized;
+            pollDelayMs = Math.max(pollingIntervalMs, retryDelay(normalized, pollingIntervalMs));
           }
         }
-      } catch (error) {
-        if (options?.signal?.aborted) throw error;
-        if (attempts >= (this.options.maxReconnectAttempts ?? 1)) break;
       }
-      if (terminal) break;
-      const snapshot = await this.getRun(input, options);
-      if (snapshot.status === 'completed') {
-        yield terminalEvent(input, 'run.completed', this.deps);
-        terminal = true;
-      } else if (snapshot.status === 'failed') {
-        yield failedTerminalEvent(input, snapshot, this.deps);
-        terminal = true;
-      } else if (snapshot.status === 'cancelled') {
-        yield terminalEvent(input, 'run.cancelled', this.deps);
-        terminal = true;
-      } else if (attempts >= (this.options.maxReconnectAttempts ?? 1)) {
-        yield warningEvent(input, this.deps, 'Hermes SSE stream ended before terminal event');
-        break;
-      } else {
-        attempts += 1;
-        await this.deps.clock.sleep?.(this.options.reconnectDelayMs ?? 50, options?.signal);
-      }
+      throw reconciliationError(observedStatus, lastError, maxReconciliationMs);
+    } finally {
+      dedupe.clear();
+      pendingApprovalIds.length = 0;
+      pendingToolIds.clear();
+      this.activeStreams.delete(operation);
+      operation.cleanup();
+      operation.finish();
     }
   }
 
   async getRun(input: GetRuntimeRunInput, options?: OperationOptions): Promise<RuntimeRunSnapshot> {
-    const value = validateRunStatusResponse(
-      (await this.requireConnected().client.json<unknown>('GET', `/v1/runs/${encodeURIComponent(input.externalRunId)}`, { signal: options?.signal })).value,
-    );
+    const connected = this.requireConnected();
+    if (!connected.capabilities.runs.status) throw unsupported('Hermes run status is unavailable');
+    const value = validateRunStatusResponse((await connected.client.json<unknown>('GET', `/v1/runs/${encodeURIComponent(input.externalRunId)}`, { signal: options?.signal, timeoutMs: options?.timeoutMs })).value);
+    if (value.runId !== input.externalRunId) throw runtimeError('INVALID_RESPONSE', 'Hermes run status returned another run', false, { stage: 'run.status' });
+    if (input.externalSessionId && value.sessionId && input.externalSessionId !== value.sessionId) throw runtimeError('INVALID_RESPONSE', 'Hermes run status returned another session', false, { stage: 'run.status' });
+    const patch = sessionStatePatch(value.value);
     return {
       applicationRunId: input.applicationRunId,
       externalRunId: input.externalRunId,
-      status: normalizeStatus(value.status),
-      output: stringValue(value.output ?? value.text),
-      usage: usage(value.usage),
-      sessionStatePatch: sessionStatePatch(value),
-      error: value.error ? normalizeProviderRunError(value.error) : undefined,
-      providerState: safeProviderState(sessionStatePatch(value).providerState),
+      status: value.status,
+      output: value.output,
+      usage: value.usage,
+      sessionStatePatch: patch,
+      error: value.error ? { code: 'PROVIDER_ERROR', message: `Hermes run failed: ${value.error.code}`, retryable: false } : undefined,
+      providerState: safeProviderState(patch?.providerState),
     };
   }
 
   async cancelRun(input: CancelRuntimeRunInput, options?: OperationOptions): Promise<void> {
-    validateStopResponse(
-      (await this.requireConnected().client.json<unknown>('POST', `/v1/runs/${encodeURIComponent(input.externalRunId)}/stop`, { signal: options?.signal })).value,
-    );
+    const connected = this.requireConnected();
+    if (!connected.capabilities.runs.cancel) throw unsupported('Hermes run cancellation is unavailable');
+    try {
+      validateStopResponse((await connected.client.json<unknown>('POST', `/v1/runs/${encodeURIComponent(input.externalRunId)}/stop`, { signal: options?.signal, timeoutMs: options?.timeoutMs })).value, input.externalRunId);
+    } catch (error) {
+      if (!(error instanceof RuntimeError) || error.code !== 'NOT_FOUND' || !connected.capabilities.runs.status) throw error;
+      const snapshot = await this.getRun(input, options);
+      if (snapshot.status !== 'completed' && snapshot.status !== 'cancelled') throw error;
+    }
   }
 
   async resolveApproval(input: ResolveRuntimeApprovalInput, options?: OperationOptions): Promise<void> {
     const connected = this.requireConnected();
     if (!connected.capabilities.runs.approvals) throw unsupported('Hermes approval resolution is unavailable');
-    if (!input.approvalId || /[\r\n\0]/.test(input.approvalId)) throw runtimeError('INVALID_REQUEST', 'Invalid Hermes approval id', false);
-    validateApprovalResponse(
-      (await connected.client.json<unknown>('POST', `/v1/runs/${encodeURIComponent(input.externalRunId)}/approval`, {
-        signal: options?.signal,
-        body: { approval_id: input.approvalId, decision: input.decision, comment: input.comment },
-      })).value,
-    );
+    validateIdentifier(input.externalRunId, 'run id');
+    validateIdentifier(input.approvalId, 'approval id');
+    const state = this.approvals.get(input.approvalId);
+    if (!state || state.externalRunId !== input.externalRunId) throw runtimeError('INVALID_REQUEST', 'Hermes approval ID is not active for this run', false);
+    const choice = toHermesChoice(input.decision);
+    if (!state.choices.has(choice)) throw runtimeError('INVALID_REQUEST', 'Hermes approval choice was not offered for this request', false, { choice });
+    if (input.comment) throw unsupported('Hermes Runs approval comments are unavailable');
+    validateApprovalResponse((await connected.client.json<unknown>('POST', `/v1/runs/${encodeURIComponent(input.externalRunId)}/approval`, {
+      signal: options?.signal,
+      timeoutMs: options?.timeoutMs,
+      body: { choice },
+    })).value, input.externalRunId, choice);
+    this.approvals.delete(input.approvalId);
   }
 
   async getHistory(input: GetRuntimeHistoryInput, options?: OperationOptions): Promise<RuntimeMessage[]> {
     const connected = this.requireConnected();
     if (!connected.capabilities.sessions.history) throw unsupported('Hermes session message history is unavailable');
-    const response = validateSessionMessagesResponse(
-      (await connected.client.json<unknown>('GET', `/api/sessions/${encodeURIComponent(input.externalSessionId)}/messages`, { signal: options?.signal })).value,
-    );
-    return response.messages;
+    return validateSessionMessagesResponse((await connected.client.json<unknown>('GET', `/api/sessions/${encodeURIComponent(input.externalSessionId)}/messages`, { signal: options?.signal, timeoutMs: options?.timeoutMs })).value, input.externalSessionId).messages;
   }
 
   async close(): Promise<void> {
-    if (this.closed) return;
+    if (this.closed && !this.connected && this.activeStreams.size === 0) return;
     this.closed = true;
+    const active = [...this.activeStreams];
+    for (const operation of active) operation.controller.abort(runtimeError('CANCELLED', 'Hermes adapter was closed', false));
     await this.connected?.client.close();
+    await Promise.all(active.map((operation) => operation.done));
+    this.activeStreams.clear();
+    this.approvals.clear();
     this.connected = undefined;
   }
 
@@ -320,7 +425,7 @@ export class HermesAdapter implements AgentRuntimeAdapter {
       adapterId: this.adapterId,
       adapterVersion: this.adapterVersion,
       runtimeProduct: 'hermes-agent',
-      runtimeVersion: stringValue(connected.capabilitiesPayload.version ?? connected.capabilitiesPayload.runtimeVersion),
+      runtimeVersion: runtimeVersion(connected.capabilitiesPayload),
       protocolName: 'hermes-runs-http',
       protocolVersion: '1',
       endpointFingerprint: connected.descriptorFingerprint,
@@ -328,7 +433,7 @@ export class HermesAdapter implements AgentRuntimeAdapter {
     };
   }
 
-  private eventContext(input: StreamRuntimeRunInput) {
+  private eventContext(input: StreamRuntimeRunInput, pendingApprovalIds: string[], pendingToolIds: Map<string, string[]>) {
     return {
       ids: this.deps.ids,
       clock: this.deps.clock,
@@ -336,7 +441,19 @@ export class HermesAdapter implements AgentRuntimeAdapter {
       externalRunId: input.externalRunId,
       externalSessionId: input.externalSessionId,
       includeRawProviderPayload: this.options.includeRawProviderPayload,
+      pendingApprovalIds,
+      pendingToolIds,
     };
+  }
+
+  private async delayWithinDeadline(delayMs: number, signal: AbortSignal, startedAt: number, maxMs: number): Promise<void> {
+    const remaining = maxMs - elapsedSince(startedAt, this.deps);
+    if (remaining <= 0) throw reconciliationError(true, undefined, maxMs);
+    await this.deps.clock.sleep(Math.min(delayMs, remaining), signal);
+  }
+
+  private clearRunApprovals(externalRunId: string): void {
+    for (const [approvalId, state] of this.approvals) if (state.externalRunId === externalRunId) this.approvals.delete(approvalId);
   }
 
   private requireConnected(): ConnectedHermes {
@@ -350,29 +467,37 @@ export function createHermesAdapterFactory(options?: HermesAdapterOptions) {
 }
 
 function buildRunBody(input: StartRuntimeRunInput, options: HermesAdapterOptions): Record<string, unknown> {
-  const providerState = input.session.providerState ?? {};
-  const previousResponseId = stringValue(providerState.previousResponseId ?? providerState.hermesPreviousResponseId);
-  const body: Record<string, unknown> = {
-    input: input.input.text,
-    session_id: input.session.externalSessionId,
-    instructions: input.instructions,
-    model: options.model,
-  };
+  const previousResponseId = stringValue(input.session.providerState?.previousResponseId ?? input.session.providerState?.hermesPreviousResponseId);
+  const body: Record<string, unknown> = { input: input.input.text, session_id: input.session.externalSessionId, instructions: input.instructions, model: options.model };
   if (previousResponseId && options.historyMode !== 'conversation_history') body.previous_response_id = previousResponseId;
   else if (input.history?.length) body.conversation_history = input.history.map((message) => ({ role: message.role, content: message.content }));
   return compact(body);
 }
 
-function sessionHeaders(session: RuntimeSession, options: HermesAdapterOptions): Record<string, string> {
+function sessionHeaders(session: RuntimeSession, options: HermesAdapterOptions, capabilities: RuntimeCapabilities): Record<string, string> {
   const headers: Record<string, string> = {};
-  headers[options.sessionKeyHeader ?? 'X-Hermes-Session-Key'] = validateHeaderValue(stringValue(session.providerState?.sessionKey) ?? session.applicationSessionId, 'session key');
-  headers[options.sessionIdHeader ?? 'X-Hermes-Session-Id'] = validateHeaderValue(session.externalSessionId, 'session id');
+  if (capabilities.extensions['hermes.long_term_session_key'] === true) {
+    const sessionKey = stringValue(session.providerState?.sessionKey);
+    if (sessionKey) headers[options.sessionKeyHeader ?? 'X-Hermes-Session-Key'] = validateHeaderValue(sessionKey, 'session key');
+  }
+  if (capabilities.extensions['hermes.session_id_header'] === true) {
+    headers[options.sessionIdHeader ?? 'X-Hermes-Session-Id'] = validateHeaderValue(session.externalSessionId, 'session id');
+  }
   return headers;
 }
 
 function validateHeaderValue(value: string, label: string): string {
-  if (value.length > 256 || /[\u0000-\u001F\u007F]/.test(value)) throw runtimeError('INVALID_REQUEST', `Invalid Hermes ${label} header value`, false);
+  if (!value || value.length > 256 || /[\u0000-\u001F\u007F]/.test(value)) throw runtimeError('INVALID_REQUEST', `Invalid Hermes ${label} header value`, false);
   return value;
+}
+
+function validateIdentifier(value: string, label: string): void {
+  validateHeaderValue(value, label);
+}
+
+function safeIdentifier(value: unknown): string | undefined {
+  const found = stringValue(value);
+  return found ? validateHeaderValue(found, 'session id') : undefined;
 }
 
 async function resolveBearerToken(deps: RuntimeAdapterDependencies, config: RuntimeConnectionConfig, options: HermesAdapterOptions): Promise<string | undefined> {
@@ -387,6 +512,7 @@ async function resolveBearerToken(deps: RuntimeAdapterDependencies, config: Runt
 
 function selectSessionMode(mode: HermesSessionMode, capabilities: RuntimeCapabilities): HermesSessionMode {
   if (mode === 'auto') return capabilities.sessions.create && capabilities.sessions.history ? 'rest-session' : 'client-scoped';
+  if (mode === 'rest-session' && (!capabilities.sessions.create || !capabilities.sessions.history)) throw unsupported('Hermes REST session mode is unavailable');
   return mode;
 }
 
@@ -394,117 +520,117 @@ function rejectUnsupportedAttachments(input: StartRuntimeRunInput): void {
   if (input.input.attachments?.length) throw runtimeError('UNSUPPORTED_CAPABILITY', 'Hermes Runs API adapter supports text input only', false);
 }
 
-function sessionStatePatch(value: Record<string, unknown>): RuntimeSessionStatePatch {
-  const previousResponseId = stringValue(value.response_id ?? value.previous_response_id ?? value.previousResponseId);
+function sessionStatePatch(value: Record<string, unknown>): RuntimeSessionStatePatch | undefined {
   const externalSessionId = stringValue(value.session_id ?? value.sessionId);
-  return { previousResponseId, externalSessionId, providerState: compact({ previousResponseId, hermesSessionId: externalSessionId, continuation: sanitize(value.continuation) }) };
+  return externalSessionId ? { externalSessionId, providerState: { hermesSessionId: externalSessionId } } : undefined;
+}
+
+function terminalFromSnapshot(input: StreamRuntimeRunInput, snapshot: RuntimeRunSnapshot, deps: RuntimeAdapterDependencies): RuntimeEvent {
+  const base = { schemaVersion: 1 as const, eventId: `reconciled:${deps.ids.id()}`, occurredAt: deps.clock.now().toISOString(), applicationRunId: input.applicationRunId, externalRunId: input.externalRunId, externalSessionId: input.externalSessionId, provider: { adapterId: 'hermes', eventName: 'status.reconciliation' } };
+  if (snapshot.status === 'completed') return { ...base, type: 'run.completed', output: snapshot.output, usage: snapshot.usage, sessionStatePatch: snapshot.sessionStatePatch };
+  if (snapshot.status === 'failed') return { ...base, type: 'run.failed', error: snapshot.error ?? { code: 'PROVIDER_ERROR', message: 'Hermes run failed', retryable: false }, sessionStatePatch: snapshot.sessionStatePatch };
+  return { ...base, type: 'run.cancelled', sessionStatePatch: snapshot.sessionStatePatch };
+}
+
+function createStreamOperation(parent: AbortSignal | undefined, timeoutMs: number | undefined): StreamOperation {
+  const controller = new AbortController();
+  let resolveDone!: () => void;
+  const done = new Promise<void>((resolve) => { resolveDone = resolve; });
+  const onAbort = () => controller.abort(parent?.reason instanceof RuntimeError ? parent.reason : runtimeError('CANCELLED', 'Hermes stream was cancelled', false));
+  if (parent?.aborted) onAbort();
+  else parent?.addEventListener('abort', onAbort, { once: true });
+  const timeout = timeoutMs && timeoutMs > 0 ? setTimeout(() => controller.abort(runtimeError('TIMEOUT', 'Hermes stream timed out', true, { timeoutMs })), timeoutMs) : undefined;
+  return {
+    controller,
+    signal: controller.signal,
+    done,
+    finish: resolveDone,
+    cleanup: () => {
+      if (timeout) clearTimeout(timeout);
+      parent?.removeEventListener('abort', onAbort);
+    },
+  };
+}
+
+function eventDedupeKey(sseId: string | undefined, eventName: string | undefined, data: unknown): string {
+  return sseId ? `sse:${hashString(sseId)}` : `event:${eventName ?? ''}:${hashString(stableJson(data))}`;
+}
+
+function hashString(value: string): string {
+  let first = 2166136261;
+  let second = 2246822507;
+  for (let index = 0; index < value.length; index += 1) {
+    const code = value.charCodeAt(index);
+    first = Math.imul(first ^ code, 16777619);
+    second = Math.imul(second ^ code, 3266489909);
+  }
+  return `${(first >>> 0).toString(16)}${(second >>> 0).toString(16)}`;
+}
+
+function stableJson(value: unknown): string {
+  if (value === null || typeof value !== 'object') return JSON.stringify(value);
+  if (Array.isArray(value)) return `[${value.map(stableJson).join(',')}]`;
+  return `{${Object.entries(value as Record<string, unknown>).sort(([a], [b]) => a.localeCompare(b)).map(([key, nested]) => `${JSON.stringify(key)}:${stableJson(nested)}`).join(',')}}`;
+}
+
+function normalizeStreamError(error: unknown, signal: AbortSignal): RuntimeError {
+  if (error instanceof RuntimeError) return error;
+  if (signal.aborted) return signal.reason instanceof RuntimeError ? signal.reason : runtimeError('CANCELLED', 'Hermes stream was cancelled', false);
+  return runtimeError('PROVIDER_UNAVAILABLE', 'Hermes stream transport failed', true, { stage: 'stream' });
+}
+
+function isRetryable(error: RuntimeError): boolean {
+  return error.retryable && ['NETWORK', 'TIMEOUT', 'RATE_LIMITED', 'RUNTIME_UNAVAILABLE', 'PROVIDER_UNAVAILABLE'].includes(error.code);
+}
+
+function retryDelay(error: RuntimeError | undefined, fallback: number): number {
+  return error?.retryAfterMs ?? fallback;
+}
+
+function reconciliationError(observedStatus: boolean, lastError: RuntimeError | undefined, maxMs: number): RuntimeError {
+  if (observedStatus) return runtimeError('TIMEOUT', 'Hermes run did not reach a terminal state before reconciliation expired', true, { maxReconciliationMs: maxMs });
+  if (lastError?.code === 'PROVIDER_UNAVAILABLE' || lastError?.code === 'RUNTIME_UNAVAILABLE' || lastError?.code === 'RATE_LIMITED') return lastError;
+  return runtimeError('OUTCOME_UNKNOWN', 'Hermes run state could not be reconciled', true, { maxReconciliationMs: maxMs });
+}
+
+function throwIfAborted(signal: AbortSignal): void {
+  if (signal.aborted) throw signal.reason instanceof RuntimeError ? signal.reason : runtimeError('CANCELLED', 'Hermes stream was cancelled', false);
+}
+
+function positiveInteger(value: number | undefined, name: string, allowZero = false): void {
+  if (value === undefined) return;
+  if (!Number.isInteger(value) || value < (allowZero ? 0 : 1)) throw runtimeError('INVALID_CONFIGURATION', `${name} must be ${allowZero ? 'a non-negative' : 'a positive'} integer`, false);
+}
+
+function isTerminalStatus(status: RuntimeRunSnapshot['status']): status is 'completed' | 'failed' | 'cancelled' {
+  return status === 'completed' || status === 'failed' || status === 'cancelled';
 }
 
 function toHttpBase(endpoint: string): string {
   return endpoint.replace(/^hermes\+http:/, 'http:').replace(/^hermes\+https:/, 'https:').replace(/^agent\+https:/, 'https:');
 }
 
-function authToken(_hint: RuntimeTarget['authHint'], token: string | undefined): string | undefined {
-  return token;
-}
-
-function validateRunCreateResponse(value: unknown): Record<string, unknown> {
-  const record = asRecord(value, 'Hermes run creation response');
-  if (!stringValue(record.run_id ?? record.id)) throw runtimeError('PROVIDER_ERROR', 'Hermes run creation did not return a run id', false);
-  return record;
-}
-
-function validateRunStatusResponse(value: unknown): Record<string, unknown> {
-  const record = asRecord(value, 'Hermes run status response');
-  if (!stringValue(record.run_id ?? record.id)) throw runtimeError('PROVIDER_ERROR', 'Hermes run status did not return a run id', false);
-  return record;
-}
-
-function validateHealth(value: unknown): Record<string, unknown> {
-  return asRecord(value, 'Hermes health response');
-}
-
-function validateDetailedHealth(value: unknown): Record<string, unknown> {
-  return asRecord(value, 'Hermes detailed health response');
-}
-
-function validateSessionCreateResponse(value: unknown): { sessionId: string } {
-  const record = asRecord(value, 'Hermes session creation response');
-  return { sessionId: requiredString(record.session_id ?? record.id, 'Hermes session creation did not return a session id') };
-}
-
-function validateSessionMessagesResponse(value: unknown): { messages: RuntimeMessage[] } {
-  const record = asRecord(value, 'Hermes session message-history response');
-  const values = Array.isArray(record.messages) ? record.messages : Array.isArray(record.data) ? record.data : undefined;
-  if (!values) throw runtimeError('PROVIDER_ERROR', 'Hermes history response did not return messages', false);
-  return { messages: values.map((message) => normalizeMessage(asRecord(message, 'Hermes message'))) };
-}
-
-function validateApprovalResponse(value: unknown): void {
-  asRecord(value, 'Hermes approval response');
-}
-
-function validateStopResponse(value: unknown): void {
-  asRecord(value, 'Hermes stop response');
-}
-
-function normalizeMessage(message: Record<string, unknown>): RuntimeMessage {
-  const role = message.role === 'user' || message.role === 'assistant' || message.role === 'system' || message.role === 'tool' ? message.role : 'assistant';
-  return { id: stringValue(message.id), role, content: stringValue(message.content ?? message.text) ?? '', createdAt: stringValue(message.created_at ?? message.createdAt) };
-}
-
-function normalizeStatus(status: unknown): RuntimeRunStatus {
-  if (status === 'queued' || status === 'running' || status === 'waiting_for_approval' || status === 'stopping') return status;
-  if (status === 'started') return 'running';
-  if (status === 'completed' || status === 'failed' || status === 'cancelled') return status;
-  return 'unknown';
+function runtimeVersion(value: Record<string, unknown>): string | undefined {
+  return stringValue(value.version ?? value.runtimeVersion);
 }
 
 function healthStatus(status: unknown): RuntimeHealth['status'] {
-  if (status === 'ok' || status === 'healthy' || status === true) return 'healthy';
+  if (status === 'ok' || status === 'healthy') return 'healthy';
   if (status === 'degraded' || status === 'starting') return 'degraded';
   return 'unavailable';
-}
-
-function normalizeProviderRunError(value: unknown) {
-  const record = asRecord(value, 'Hermes run error');
-  return { code: 'PROVIDER_ERROR' as const, message: stringValue(record.code) ? `Hermes run failed: ${record.code}` : 'Hermes run failed', retryable: false };
-}
-
-function usage(value: unknown): Record<string, number> | undefined {
-  const record = value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : undefined;
-  if (!record) return undefined;
-  const out: Record<string, number> = {};
-  for (const [key, nested] of Object.entries(record)) if (typeof nested === 'number' && Number.isFinite(nested)) out[key] = nested;
-  return out;
-}
-
-function asCapabilities(value: unknown): Record<string, unknown> {
-  return asRecord(value, 'Hermes capabilities response');
-}
-
-function asRecord(value: unknown, label: string): Record<string, unknown> {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) throw runtimeError('PROVIDER_ERROR', `${label} was malformed`, false);
-  return value as Record<string, unknown>;
-}
-
-function requiredString(value: unknown, message: string): string {
-  const found = stringValue(value);
-  if (!found) throw runtimeError('PROVIDER_ERROR', message, false);
-  return found;
-}
-
-function stringValue(value: unknown): string | undefined {
-  return typeof value === 'string' && value ? value : undefined;
 }
 
 function compact(value: Record<string, unknown>): Record<string, unknown> {
   return Object.fromEntries(Object.entries(value).filter(([, nested]) => nested !== undefined));
 }
 
+function stringValue(value: unknown): string | undefined {
+  return typeof value === 'string' && value ? value : undefined;
+}
+
 function safeProviderState(value: unknown): Record<string, unknown> | undefined {
   const sanitized = sanitize(value);
-  return sanitized && typeof sanitized === 'object' && !Array.isArray(sanitized) ? (sanitized as Record<string, unknown>) : undefined;
+  return sanitized && typeof sanitized === 'object' && !Array.isArray(sanitized) ? sanitized as Record<string, unknown> : undefined;
 }
 
 function sanitize(value: unknown): unknown {
@@ -512,28 +638,12 @@ function sanitize(value: unknown): unknown {
   if (typeof value === 'string') return value.replace(/\b(Bearer|token|secret|password|api_key|session_key)=?[^&\s]*/gi, '$1=[redacted]');
   if (typeof value === 'number' || typeof value === 'boolean') return value;
   if (Array.isArray(value)) return value.slice(0, 20).map(sanitize);
-  if (typeof value === 'object') return Object.fromEntries(Object.entries(value as Record<string, unknown>).map(([key, nested]) => [key, /(token|secret|password|authorization|cookie|api.?key|session.?key)/i.test(key) ? '[redacted]' : sanitize(nested)]));
+  if (typeof value === 'object') return Object.fromEntries(Object.entries(value as Record<string, unknown>).map(([key, nested]) => [key, /(token|secret|password|authorization|cookie|api.?key|session.?key|command|arguments?)/i.test(key) ? '[redacted]' : sanitize(nested)]));
   return String(value);
 }
 
-function eventDedupeKey(sseId: string | undefined, event: RuntimeEvent): string {
-  return sseId ?? `${event.type}:${event.externalRunId}:${event.eventId}`;
-}
-
-function terminalEvent(input: StreamRuntimeRunInput, type: 'run.completed' | 'run.cancelled', deps: RuntimeAdapterDependencies): RuntimeEvent {
-  return { schemaVersion: 1, type, eventId: `${type}:${deps.ids.id()}`, occurredAt: deps.clock.now().toISOString(), applicationRunId: input.applicationRunId, externalRunId: input.externalRunId, externalSessionId: input.externalSessionId, provider: { adapterId: 'hermes' } };
-}
-
-function failedTerminalEvent(input: StreamRuntimeRunInput, snapshot: RuntimeRunSnapshot, deps: RuntimeAdapterDependencies): RuntimeEvent {
-  return { schemaVersion: 1, type: 'run.failed', eventId: `run.failed:${deps.ids.id()}`, occurredAt: deps.clock.now().toISOString(), applicationRunId: input.applicationRunId, externalRunId: input.externalRunId, externalSessionId: input.externalSessionId, provider: { adapterId: 'hermes' }, error: snapshot.error ?? { code: 'PROVIDER_ERROR', message: 'Hermes run failed', retryable: false } };
-}
-
-function warningEvent(input: StreamRuntimeRunInput, deps: RuntimeAdapterDependencies, warning: string): RuntimeEvent {
-  return { schemaVersion: 1, type: 'transport.warning', eventId: `transport.warning:${deps.ids.id()}`, occurredAt: deps.clock.now().toISOString(), applicationRunId: input.applicationRunId, externalRunId: input.externalRunId, externalSessionId: input.externalSessionId, provider: { adapterId: 'hermes' }, warning };
-}
-
 function isOutcomeUnknown(error: unknown): boolean {
-  return error instanceof RuntimeError && (error.code === 'NETWORK' || error.code === 'TIMEOUT' || error.code === 'RUNTIME_UNAVAILABLE' || error.code === 'PROVIDER_UNAVAILABLE');
+  return error instanceof RuntimeError && ['NETWORK', 'TIMEOUT', 'RUNTIME_UNAVAILABLE', 'PROVIDER_UNAVAILABLE'].includes(error.code);
 }
 
 function unsupported(message: string): RuntimeError {
@@ -550,4 +660,8 @@ function safeWarning(error: unknown): string {
 
 function elapsed(started: number, deps: RuntimeAdapterDependencies): number {
   return deps.clock.now().getTime() - started;
+}
+
+function elapsedSince(started: number, deps: RuntimeAdapterDependencies): number {
+  return Math.max(0, deps.clock.now().getTime() - started);
 }

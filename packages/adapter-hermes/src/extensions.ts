@@ -1,10 +1,10 @@
-import type { RuntimeMessage } from '@banzae/agent-runtime-core';
+import type { RuntimeApprovalDecision, RuntimeMessage } from '@banzae/agent-runtime-core';
 
 export interface RuntimeApprovalCapability {
   resolveApproval(input: {
     externalRunId: string;
     approvalId: string;
-    decision: 'approve' | 'deny';
+    decision: RuntimeApprovalDecision;
     comment?: string;
   }): Promise<void>;
 }

@@ -64,3 +64,7 @@ capability discovery, health checks, text run creation, status polling, bounded
 SSE recovery, cancellation, approval resolution, and REST session history when
 advertised. Images, files, Hermes Jobs, scheduling, Codex, Pi, and
 BanzaeForge-specific integration are outside this adapter.
+
+Hermes compatibility is currently implemented and synthetic/fake-server
+validated; a full live validation run is still required before it is labeled
+supported.

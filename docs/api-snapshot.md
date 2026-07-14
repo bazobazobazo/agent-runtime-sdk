@@ -4,15 +4,29 @@ Generated from package declaration files. Review diffs before release.
 
 ## @banzae/agent-runtime-hermes
 
+### dedupe.d.ts
+
+```ts
+export declare class BoundedDedupeWindow {
+    readonly capacity: number;
+    private readonly values;
+    private readonly order;
+    constructor(capacity: number);
+    get size(): number;
+    seen(key: string): boolean;
+    clear(): void;
+}
+```
+
 ### extensions.d.ts
 
 ```ts
-import type { RuntimeMessage } from '@banzae/agent-runtime-core';
+import type { RuntimeApprovalDecision, RuntimeMessage } from '@banzae/agent-runtime-core';
 export interface RuntimeApprovalCapability {
     resolveApproval(input: {
         externalRunId: string;
         approvalId: string;
-        decision: 'approve' | 'deny';
+        decision: RuntimeApprovalDecision;
         comment?: string;
     }): Promise<void>;
 }
@@ -67,6 +81,7 @@ export type HermesAdapterOptions = {
     reconnectDelayMs?: number;
     pollingIntervalMs?: number;
     maxReconciliationMs?: number;
+    maxDeduplicationEntries?: number;
 };
 export declare class HermesAdapter implements AgentRuntimeAdapter {
     private readonly deps;
@@ -75,6 +90,8 @@ export declare class HermesAdapter implements AgentRuntimeAdapter {
     readonly adapterVersion = "0.1.0";
     private connected?;
     private closed;
+    private readonly activeStreams;
+    private readonly approvals;
     constructor(deps: RuntimeAdapterDependencies, options?: HermesAdapterOptions);
     probe(target: RuntimeTarget, options?: ProbeOptions): Promise<RuntimeProbeResult>;
     connect(config: RuntimeConnectionConfig, options?: ConnectOptions): Promise<RuntimeConnectionInfo>;
@@ -90,6 +107,8 @@ export declare class HermesAdapter implements AgentRuntimeAdapter {
     close(): Promise<void>;
     private descriptor;
     private eventContext;
+    private delayWithinDeadline;
+    private clearRunApprovals;
     private requireConnected;
 }
 export declare function createHermesAdapterFactory(options?: HermesAdapterOptions): {
@@ -122,6 +141,7 @@ export declare class HermesHttpClient {
     private readonly options;
     private readonly baseUrl;
     private closed;
+    private readonly active;
     constructor(transport: RuntimeHttpTransport, options: HermesHttpClientOptions);
     get hasCredentials(): boolean;
     json<T>(method: 'GET' | 'POST', path: string, input?: HermesHttpInput): Promise<{
@@ -153,6 +173,12 @@ export * from './sse/parser.js';
 
 ```ts
 import { type RuntimeCapabilities } from '@banzae/agent-runtime-core';
+export type ValidatedHermesCapabilities = {
+    value: Record<string, unknown>;
+    features: Record<string, unknown>;
+    endpoints: Record<string, unknown>;
+};
+export declare function validateHermesCapabilities(payload: unknown): ValidatedHermesCapabilities;
 export declare function mapHermesCapabilities(payload: unknown): RuntimeCapabilities;
 export declare function isHermesCapabilities(payload: unknown): boolean;
 ```
@@ -160,7 +186,8 @@ export declare function isHermesCapabilities(payload: unknown): boolean;
 ### mapping/events.d.ts
 
 ```ts
-import { type RuntimeAdapterDependencies, type RuntimeEvent } from '@banzae/agent-runtime-core';
+import { type RuntimeAdapterDependencies, type RuntimeApprovalDecision, type RuntimeEvent } from '@banzae/agent-runtime-core';
+import { type HermesApprovalChoice } from '../schemas.js';
 export type HermesEventContext = {
     ids: RuntimeAdapterDependencies['ids'];
     clock: RuntimeAdapterDependencies['clock'];
@@ -168,9 +195,65 @@ export type HermesEventContext = {
     externalRunId: string;
     externalSessionId: string;
     includeRawProviderPayload?: boolean;
+    pendingApprovalIds?: string[];
+    pendingToolIds?: Map<string, string[]>;
 };
 export declare function mapHermesSseEvent(eventName: string | undefined, data: unknown, context: HermesEventContext): RuntimeEvent[];
 export declare function parseHermesEventData(data: string): unknown;
+export declare function toHermesChoice(decision: RuntimeApprovalDecision): HermesApprovalChoice;
+export declare function fromHermesChoice(choice: HermesApprovalChoice): RuntimeApprovalDecision;
+```
+
+### schemas.d.ts
+
+```ts
+import { type RuntimeMessage, type RuntimeRunStatus } from '@banzae/agent-runtime-core';
+export type HermesRunCreate = {
+    runId: string;
+    status: 'started';
+};
+export type HermesRunStatus = {
+    value: Record<string, unknown>;
+    runId: string;
+    status: RuntimeRunStatus;
+    output?: string;
+    usage?: Readonly<Record<string, number>>;
+    sessionId?: string;
+    error?: {
+        code: string;
+    };
+};
+export type HermesApprovalChoice = 'once' | 'session' | 'always' | 'deny';
+export declare function validateHealth(value: unknown): {
+    status: 'ok';
+    platform?: string;
+    version?: string;
+};
+export declare function validateDetailedHealth(value: unknown): {
+    status: string;
+    version?: string;
+};
+export declare function validateRunCreateResponse(value: unknown): HermesRunCreate;
+export declare function validateRunStatusResponse(value: unknown): HermesRunStatus;
+export declare function validateUsage(value: unknown): Readonly<Record<string, number>>;
+export declare function validateRunFailure(value: unknown): {
+    code: string;
+};
+export declare function validateStopResponse(value: unknown, externalRunId: string): void;
+export declare function validateApprovalRequest(value: unknown): {
+    runId: string;
+    choices: HermesApprovalChoice[];
+    description: string;
+};
+export declare function validateApprovalResponse(value: unknown, externalRunId: string, choice: HermesApprovalChoice): void;
+export declare function validateSessionCreateResponse(value: unknown): {
+    sessionId: string;
+};
+export declare function validateSessionMessagesResponse(value: unknown, externalSessionId: string): {
+    messages: RuntimeMessage[];
+};
+export declare function validateTerminalEvent(value: unknown, expectedEvent: 'run.completed' | 'run.failed' | 'run.cancelled'): Record<string, unknown>;
+export declare function normalizeStatus(status: string): RuntimeRunStatus;
 ```
 
 ### sse/parser.d.ts
@@ -1059,11 +1142,17 @@ export type GetRuntimeRunInput = {
     providerState?: Readonly<Record<string, unknown>>;
 };
 export type CancelRuntimeRunInput = GetRuntimeRunInput;
+export type RuntimeApprovalDecision = {
+    action: 'allow';
+    scope: 'once' | 'session' | 'always';
+} | {
+    action: 'deny';
+};
 export type ResolveRuntimeApprovalInput = {
     applicationRunId: string;
     externalRunId: string;
     approvalId: string;
-    decision: 'approve' | 'deny';
+    decision: RuntimeApprovalDecision;
     comment?: string;
 };
 export type GetRuntimeHistoryInput = {
@@ -1153,11 +1242,12 @@ export type ApprovalRequestedEvent = RuntimeEventBase & {
     type: 'approval.requested';
     approvalId: string;
     description: string;
+    availableDecisions: readonly RuntimeApprovalDecision[];
 };
 export type ApprovalResolvedEvent = RuntimeEventBase & {
     type: 'approval.resolved';
     approvalId: string;
-    decision: 'approve' | 'deny';
+    decision: RuntimeApprovalDecision;
 };
 export type UsageUpdatedEvent = RuntimeEventBase & {
     type: 'usage.updated';
@@ -1165,6 +1255,9 @@ export type UsageUpdatedEvent = RuntimeEventBase & {
 };
 export type RunCompletedEvent = RuntimeEventBase & {
     type: 'run.completed';
+    output?: string;
+    usage?: Readonly<Record<string, number>>;
+    sessionStatePatch?: RuntimeSessionStatePatch;
 };
 export type RunFailedEvent = RuntimeEventBase & {
     type: 'run.failed';
@@ -1173,9 +1266,11 @@ export type RunFailedEvent = RuntimeEventBase & {
         message: string;
         retryable: boolean;
     };
+    sessionStatePatch?: RuntimeSessionStatePatch;
 };
 export type RunCancelledEvent = RuntimeEventBase & {
     type: 'run.cancelled';
+    sessionStatePatch?: RuntimeSessionStatePatch;
 };
 export type TransportWarningEvent = RuntimeEventBase & {
     type: 'transport.warning';
@@ -1187,7 +1282,7 @@ export type TransportGapEvent = RuntimeEventBase & {
     actual?: number;
 };
 export type RuntimeEvent = RuntimeQueuedEvent | RuntimeStartedEvent | AssistantDeltaEvent | AssistantCompletedEvent | ReasoningDeltaEvent | ToolStartedEvent | ToolUpdatedEvent | ToolCompletedEvent | ApprovalRequestedEvent | ApprovalResolvedEvent | UsageUpdatedEvent | RunCompletedEvent | RunFailedEvent | RunCancelledEvent | TransportWarningEvent | TransportGapEvent;
-export type RuntimeErrorCode = 'DETECTION_FAILED' | 'DETECTION_AMBIGUOUS' | 'AUTHENTICATION_REQUIRED' | 'AUTHENTICATION_FAILED' | 'AUTHORIZATION_FAILED' | 'PERMISSION_DENIED' | 'PAIRING_REQUIRED' | 'PROTOCOL_MISMATCH' | 'UNSUPPORTED_CAPABILITY' | 'INVALID_CONFIGURATION' | 'INVALID_REQUEST' | 'NOT_FOUND' | 'CONFLICT' | 'RUNTIME_UNAVAILABLE' | 'PROVIDER_UNAVAILABLE' | 'RATE_LIMITED' | 'TIMEOUT' | 'NETWORK' | 'CANCELLED' | 'PROVIDER_ERROR' | 'OUTCOME_UNKNOWN' | 'INTERNAL';
+export type RuntimeErrorCode = 'DETECTION_FAILED' | 'DETECTION_AMBIGUOUS' | 'AUTHENTICATION_REQUIRED' | 'AUTHENTICATION_FAILED' | 'AUTHORIZATION_FAILED' | 'PERMISSION_DENIED' | 'PAIRING_REQUIRED' | 'PROTOCOL_MISMATCH' | 'UNSUPPORTED_CAPABILITY' | 'INVALID_CONFIGURATION' | 'INVALID_REQUEST' | 'INVALID_RESPONSE' | 'NOT_FOUND' | 'CONFLICT' | 'RUNTIME_UNAVAILABLE' | 'PROVIDER_UNAVAILABLE' | 'RATE_LIMITED' | 'TIMEOUT' | 'NETWORK' | 'CANCELLED' | 'PROVIDER_ERROR' | 'OUTCOME_UNKNOWN' | 'INTERNAL';
 export type RuntimeHttpRequest = {
     url: string;
     method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE' | 'HEAD';
@@ -1604,7 +1699,6 @@ export type FakeHermesRun = {
     status: string;
     output?: string;
     sessionId?: string;
-    responseId?: string;
     usage?: Record<string, number>;
     events?: Array<{
         id?: string;
@@ -1622,6 +1716,11 @@ export declare class FakeHermesServer implements RuntimeHttpTransport {
     failAuth: boolean;
     nextRunCreateNetworkFailure: boolean;
     eventStreamFailures: number;
+    streamRequests: number;
+    statusRequests: number;
+    readonly approvalBodies: Record<string, unknown>[];
+    approvalStatus: number;
+    approvalResponse?: unknown;
     constructor();
     request(input: RuntimeHttpRequest): Promise<RuntimeHttpResponse>;
 }

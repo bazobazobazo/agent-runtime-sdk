@@ -25,6 +25,7 @@ export type HermesHttpInput = {
 export class HermesHttpClient {
   private readonly baseUrl: URL;
   private closed = false;
+  private readonly active = new Set<LinkedOperation>();
 
   constructor(
     private readonly transport: RuntimeHttpTransport,
@@ -47,6 +48,7 @@ export class HermesHttpClient {
   ): Promise<{ value: T; headers: Readonly<Record<string, string>>; status: number }> {
     this.assertOpen();
     const operation = linkedTimeout(input.signal, input.timeoutMs ?? this.options.requestTimeoutMs);
+    this.active.add(operation);
     try {
       const response = await this.transport.request({
         url: this.url(path).toString(),
@@ -55,7 +57,12 @@ export class HermesHttpClient {
         body: input.body === undefined ? undefined : JSON.stringify(input.body),
         signal: operation.signal,
       });
-      validateHeaderSize(response.headers, this.options.maxHeaderBytes ?? 32_000);
+      try {
+        validateHeaderSize(response.headers, this.options.maxHeaderBytes ?? 32_000);
+      } catch (error) {
+        await closeBody(response.body);
+        throw error;
+      }
       if (isRedirect(response.status)) {
         await closeBody(response.body);
         throw this.httpError(response.status, 'Hermes redirects are not supported', false, response.headers, 'redirect');
@@ -70,7 +77,7 @@ export class HermesHttpClient {
         throw runtimeError('PROVIDER_ERROR', 'Hermes returned an empty JSON response', false, { status: response.status, stage: 'http.json' });
       }
       const contentType = header(response.headers, 'content-type');
-      if (contentType && !contentType.toLowerCase().includes('application/json')) {
+      if (!contentType || !contentType.toLowerCase().includes('application/json')) {
         throw runtimeError('PROVIDER_ERROR', 'Hermes returned a non-JSON response', false, { status: response.status, contentType, stage: 'http.json' });
       }
       try {
@@ -81,6 +88,7 @@ export class HermesHttpClient {
     } catch (error) {
       throw normalizeTransportError(error, operation.signal);
     } finally {
+      this.active.delete(operation);
       operation.cleanup();
     }
   }
@@ -88,6 +96,7 @@ export class HermesHttpClient {
   async stream(path: string, input: HermesHttpInput = {}): Promise<AsyncIterable<Uint8Array>> {
     this.assertOpen();
     const operation = linkedTimeout(input.signal, input.timeoutMs ?? this.options.requestTimeoutMs);
+    this.active.add(operation);
     try {
       const response = await this.transport.request({
         url: this.url(path).toString(),
@@ -95,7 +104,12 @@ export class HermesHttpClient {
         headers: this.headers({ ...input, headers: { Accept: 'text/event-stream', ...input.headers } }),
         signal: operation.signal,
       });
-      validateHeaderSize(response.headers, this.options.maxHeaderBytes ?? 32_000);
+      try {
+        validateHeaderSize(response.headers, this.options.maxHeaderBytes ?? 32_000);
+      } catch (error) {
+        await closeBody(response.body);
+        throw error;
+      }
       if (isRedirect(response.status)) {
         await closeBody(response.body);
         throw this.httpError(response.status, 'Hermes redirects are not supported', false, response.headers, 'redirect');
@@ -105,19 +119,22 @@ export class HermesHttpClient {
         throw this.httpError(response.status, `Hermes SSE HTTP ${response.status}`, retryableStatus(response.status), response.headers, 'sse');
       }
       const contentType = header(response.headers, 'content-type');
-      if (contentType && !contentType.toLowerCase().includes('text/event-stream')) {
+      if (!contentType || !contentType.toLowerCase().includes('text/event-stream')) {
         await closeBody(response.body);
         throw runtimeError('PROVIDER_ERROR', 'Hermes returned a non-SSE response', false, { status: response.status, contentType, stage: 'sse' });
       }
-      return abortLinkedBody(response.body, operation);
+      return abortLinkedBody(response.body, operation, () => this.active.delete(operation));
     } catch (error) {
+      this.active.delete(operation);
       operation.cleanup();
       throw normalizeTransportError(error, operation.signal);
     }
   }
 
   async close(): Promise<void> {
+    if (this.closed) return;
     this.closed = true;
+    for (const operation of this.active) operation.abort(runtimeError('CANCELLED', 'Hermes HTTP client is closed', false));
   }
 
   private assertOpen(): void {
@@ -129,7 +146,7 @@ export class HermesHttpClient {
     if (this.baseUrl.protocol === 'https:' && url.protocol === 'http:') {
       throw runtimeError('INVALID_CONFIGURATION', 'Hermes redirect would downgrade HTTPS to HTTP', false, { stage: 'url' });
     }
-    if (url.hostname !== this.baseUrl.hostname) {
+    if (url.host !== this.baseUrl.host) {
       throw runtimeError('INVALID_CONFIGURATION', 'Hermes request attempted to cross host boundary', false, { stage: 'url' });
     }
     return url;
@@ -147,10 +164,17 @@ export class HermesHttpClient {
   }
 
   private httpError(status: number, message: string, retryable: boolean, headers: Readonly<Record<string, string>>, stage: string): RuntimeError {
-    return runtimeError(mapStatus(status, this.hasCredentials), message, retryable, {
-      status,
+    return new RuntimeError({
+      code: mapStatus(status, this.hasCredentials),
+      message,
+      retryable,
       retryAfterMs: retryAfterMs(headers),
-      stage,
+      adapterId: 'hermes',
+      details: {
+        status,
+        retryAfterMs: retryAfterMs(headers),
+        stage,
+      },
     });
   }
 }
@@ -190,7 +214,8 @@ function header(headers: Readonly<Record<string, string>>, name: string): string
 }
 
 function validateHeaderSize(headers: Readonly<Record<string, string>>, maxBytes: number): void {
-  const size = Object.entries(headers).reduce((total, [key, value]) => total + key.length + value.length, 0);
+  const encoder = new TextEncoder();
+  const size = Object.entries(headers).reduce((total, [key, value]) => total + encoder.encode(key).byteLength + encoder.encode(value).byteLength, 0);
   if (size > maxBytes) throw runtimeError('PROVIDER_ERROR', 'Hermes response headers exceeded maximum size', false, { maxBytes, stage: 'headers' });
 }
 
@@ -233,7 +258,7 @@ async function closeBody(body: AsyncIterable<Uint8Array>): Promise<void> {
   await iterator.return?.().catch(() => undefined);
 }
 
-function abortLinkedBody(body: AsyncIterable<Uint8Array>, operation: LinkedOperation): AsyncIterable<Uint8Array> {
+function abortLinkedBody(body: AsyncIterable<Uint8Array>, operation: LinkedOperation, onDone: () => void): AsyncIterable<Uint8Array> {
   return {
     async *[Symbol.asyncIterator]() {
       const iterator = body[Symbol.asyncIterator]();
@@ -251,13 +276,14 @@ function abortLinkedBody(body: AsyncIterable<Uint8Array>, operation: LinkedOpera
       } finally {
         operation.signal.removeEventListener('abort', onAbort);
         await iterator.return?.().catch(() => undefined);
+        onDone();
         operation.cleanup();
       }
     },
   };
 }
 
-type LinkedOperation = { signal: AbortSignal; cleanup: () => void };
+type LinkedOperation = { signal: AbortSignal; abort: (reason: unknown) => void; cleanup: () => void };
 
 function linkedTimeout(parent: AbortSignal | undefined, timeoutMs: number | undefined): LinkedOperation {
   const controller = new AbortController();
@@ -272,6 +298,7 @@ function linkedTimeout(parent: AbortSignal | undefined, timeoutMs: number | unde
   }
   return {
     signal: controller.signal,
+    abort: (reason) => controller.abort(reason),
     cleanup: () => {
       if (timeout) clearTimeout(timeout);
       parent?.removeEventListener('abort', onAbort);

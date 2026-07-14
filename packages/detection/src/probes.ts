@@ -1,6 +1,6 @@
 import {
   RuntimeError,
-  TEXT_RUN_CAPABILITIES,
+  NO_CAPABILITIES,
   withDeadline,
   type RuntimeCapabilities,
   type RuntimeWebSocketConnection,
@@ -288,14 +288,32 @@ function hasHermesFeatureEvidence(features: Record<string, unknown>): boolean {
 
 function hermesCapabilities(payload: Record<string, unknown>): RuntimeCapabilities {
   const features = record(payload.features);
+  const endpoints = record(payload.endpoints);
+  const start = features.run_submission === true && detectionEndpoint(endpoints.runs, 'POST', '/v1/runs');
+  const status = features.run_status === true && detectionEndpoint(endpoints.run_status, 'GET', '/v1/runs/{run_id}');
+  const stream = features.run_events_sse === true && detectionEndpoint(endpoints.run_events, 'GET', '/v1/runs/{run_id}/events');
+  const cancel = features.run_stop === true && detectionEndpoint(endpoints.run_stop, 'POST', '/v1/runs/{run_id}/stop');
+  const approvals = (features.run_approval === true || features.run_approval_response === true) && features.approval_events === true && detectionEndpoint(endpoints.run_approval, 'POST', '/v1/runs/{run_id}/approval');
+  const sessionCreate = detectionEndpoint(endpoints.session_create, 'POST', '/api/sessions');
+  const sessionHistory = detectionEndpoint(endpoints.session_messages, 'GET', '/api/sessions/{session_id}/messages');
+  const tools = stream && features.tool_progress_events === true;
   return {
-    ...TEXT_RUN_CAPABILITIES,
-    sessions: { create: Boolean(features.session_resources), resume: true, history: Boolean(features.session_resources), fork: false },
-    runs: { start: true, status: true, streamText: true, streamTools: Boolean(features.tool_progress_events), cancel: true, approvals: Boolean(features.approval_events) },
-    input: { text: true, images: false, files: false },
-    output: { text: true, reasoning: false, tools: Boolean(features.tool_progress_events), usage: true },
-    extensions: { 'hermes.protocol': 'hermes-runs-http' },
+    ...NO_CAPABILITIES,
+    sessions: { create: sessionCreate, resume: start, history: sessionHistory, fork: false },
+    runs: { start, status, streamText: stream, streamTools: tools, cancel, approvals },
+    input: { text: start, images: false, files: false },
+    output: { text: status || stream, reasoning: false, tools, usage: false },
+    extensions: {
+      'hermes.protocol': 'hermes-runs-http',
+      'hermes.long_term_session_key': features.session_key_header === 'X-Hermes-Session-Key',
+      'hermes.session_id_header': features.session_continuity_header === 'X-Hermes-Session-Id',
+    },
   };
+}
+
+function detectionEndpoint(value: unknown, method: string, path: string): boolean {
+  const endpoint = record(value);
+  return endpoint.method === method && endpoint.path === path;
 }
 
 function noMatch(adapterId: string, confidence: number, started: number, context: RuntimeProbeContext, message: string): RuntimeProbeResult {

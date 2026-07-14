@@ -5,7 +5,6 @@ export type FakeHermesRun = {
   status: string;
   output?: string;
   sessionId?: string;
-  responseId?: string;
   usage?: Record<string, number>;
   events?: Array<{ id?: string; event?: string; data: unknown }>;
 };
@@ -23,7 +22,17 @@ export class FakeHermesServer implements RuntimeHttpTransport {
       run_approval: true,
       approval_events: true,
       tool_progress_events: true,
-      session_resources: true,
+      session_continuity_header: 'X-Hermes-Session-Id',
+      session_key_header: 'X-Hermes-Session-Key',
+    },
+    endpoints: {
+      runs: { method: 'POST', path: '/v1/runs' },
+      run_status: { method: 'GET', path: '/v1/runs/{run_id}' },
+      run_events: { method: 'GET', path: '/v1/runs/{run_id}/events' },
+      run_stop: { method: 'POST', path: '/v1/runs/{run_id}/stop' },
+      run_approval: { method: 'POST', path: '/v1/runs/{run_id}/approval' },
+      session_create: { method: 'POST', path: '/api/sessions' },
+      session_messages: { method: 'GET', path: '/api/sessions/{session_id}/messages' },
     },
   };
   health: Record<string, unknown> = { status: 'ok' };
@@ -34,6 +43,11 @@ export class FakeHermesServer implements RuntimeHttpTransport {
   failAuth = false;
   nextRunCreateNetworkFailure = false;
   eventStreamFailures = 0;
+  streamRequests = 0;
+  statusRequests = 0;
+  readonly approvalBodies: Record<string, unknown>[] = [];
+  approvalStatus = 200;
+  approvalResponse?: unknown;
 
   constructor() {
     this.runs.set('run-1', {
@@ -41,12 +55,10 @@ export class FakeHermesServer implements RuntimeHttpTransport {
       status: 'completed',
       output: 'done',
       sessionId: 'session-1',
-      responseId: 'resp-1',
       usage: { input_tokens: 1, output_tokens: 2 },
       events: [
-        { id: '1', event: 'run.started', data: { run_id: 'run-1', session_id: 'session-1' } },
-        { id: '2', event: 'assistant.delta', data: { run_id: 'run-1', session_id: 'session-1', delta: 'hi' } },
-        { id: '3', event: 'run.completed', data: { run_id: 'run-1', session_id: 'session-1' } },
+        { id: '1', event: 'message.delta', data: { event: 'message.delta', run_id: 'run-1', delta: 'hi' } },
+        { id: '2', event: 'run.completed', data: { event: 'run.completed', run_id: 'run-1', output: 'done', usage: { input_tokens: 1, output_tokens: 2 } } },
       ],
     });
   }
@@ -61,10 +73,11 @@ export class FakeHermesServer implements RuntimeHttpTransport {
     if (url.pathname === '/health/detailed') return json(200, this.detailedHealth);
     if (url.pathname === '/api/sessions' && input.method === 'POST') {
       this.sessionsCreated += 1;
-      return json(200, { session_id: `rest-session-${this.sessionsCreated}` });
+      const id = `rest-session-${this.sessionsCreated}`;
+      return json(201, { object: 'hermes.session', session: { id, source: 'api_server' } });
     }
     const sessionMessages = url.pathname.match(/^\/api\/sessions\/([^/]+)\/messages$/);
-    if (sessionMessages) return json(200, { messages: [{ id: 'm1', role: 'user', content: 'hello', created_at: '2026-01-01T00:00:00.000Z' }] });
+    if (sessionMessages) return json(200, { object: 'list', session_id: sessionMessages[1], data: [{ id: 'm1', role: 'user', content: 'hello', timestamp: '2026-01-01T00:00:00.000Z' }] });
     if (url.pathname === '/v1/runs' && input.method === 'POST') {
       if (this.nextRunCreateNetworkFailure) {
         this.nextRunCreateNetworkFailure = false;
@@ -72,12 +85,13 @@ export class FakeHermesServer implements RuntimeHttpTransport {
       }
       const body = parseBody(input.body);
       const id = `run-${this.runs.size + 1}`;
-      const run: FakeHermesRun = { id, status: 'running', sessionId: stringValue(body.session_id), responseId: `resp-${id}`, events: [] };
+      const run: FakeHermesRun = { id, status: 'running', sessionId: stringValue(body.session_id), events: [] };
       this.runs.set(id, run);
-      return json(200, { run_id: id, status: 'running', session_id: run.sessionId, response_id: run.responseId });
+      return json(202, { run_id: id, status: 'started' });
     }
     const runEvents = url.pathname.match(/^\/v1\/runs\/([^/]+)\/events$/);
     if (runEvents) {
+      this.streamRequests += 1;
       if (this.eventStreamFailures > 0) {
         this.eventStreamFailures -= 1;
         return sse([]);
@@ -87,17 +101,22 @@ export class FakeHermesServer implements RuntimeHttpTransport {
     }
     const runStatus = url.pathname.match(/^\/v1\/runs\/([^/]+)$/);
     if (runStatus) {
+      this.statusRequests += 1;
       const run = this.runs.get(runStatus[1]!);
-      return run ? json(200, { run_id: run.id, status: run.status, output: run.output, usage: run.usage, session_id: run.sessionId, response_id: run.responseId }) : json(404, { error: 'not found' });
+      return run ? json(200, { object: 'hermes.run', run_id: run.id, status: run.status, output: run.output, usage: run.usage, session_id: run.sessionId }) : json(404, { error: 'not found' });
     }
     const runStop = url.pathname.match(/^\/v1\/runs\/([^/]+)\/stop$/);
     if (runStop) {
       const run = this.runs.get(runStop[1]!);
       if (run && run.status !== 'completed') run.status = 'stopping';
-      return json(200, { accepted: true, status: run?.status ?? 'unknown' });
+      return run ? json(200, { run_id: run.id, status: 'stopping' }) : json(404, { error: 'not found' });
     }
     const approval = url.pathname.match(/^\/v1\/runs\/([^/]+)\/approval$/);
-    if (approval) return json(200, { accepted: true });
+    if (approval) {
+      const body = parseBody(input.body);
+      this.approvalBodies.push(body);
+      return json(this.approvalStatus, this.approvalResponse ?? { object: 'hermes.run.approval_response', run_id: approval[1], choice: body.choice, resolved: 1 });
+    }
     return json(404, { error: 'not found' });
   }
 }

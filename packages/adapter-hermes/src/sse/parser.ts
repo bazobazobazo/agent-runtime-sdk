@@ -62,14 +62,15 @@ export async function* parseSseStream(
         firstChunk = false;
       }
       buffer += decoded;
-      if (buffer.length > maxPendingBytes) throw providerError('Hermes SSE pending buffer exceeded maximum size', { maxPendingBytes, stage: 'sse.buffer' });
+      if (byteLength(buffer) > maxPendingBytes) throw providerError('Hermes SSE pending buffer exceeded maximum size', { maxPendingBytes, stage: 'sse.buffer' });
       while (true) {
         const newline = buffer.indexOf('\n');
         if (newline < 0) break;
         const rawLine = buffer.slice(0, newline).replace(/\r$/, '');
         buffer = buffer.slice(newline + 1);
-        if (rawLine.length > maxLineBytes) throw providerError('Hermes SSE line exceeded maximum size', { maxLineBytes, stage: 'sse.line' });
-        eventBytes += rawLine.length;
+        const lineBytes = byteLength(rawLine);
+        if (lineBytes > maxLineBytes) throw providerError('Hermes SSE line exceeded maximum size', { maxLineBytes, stage: 'sse.line' });
+        eventBytes += lineBytes;
         if (eventBytes > maxEventBytes) throw providerError('Hermes SSE event exceeded maximum size', { maxEventBytes, stage: 'sse.event' });
         if (rawLine === '') {
           yield* flush();
@@ -124,4 +125,8 @@ function providerError(message: string, details?: Record<string, unknown>): Runt
 
 function errorName(error: unknown): string | undefined {
   return error && typeof error === 'object' && typeof (error as { name?: unknown }).name === 'string' ? (error as { name: string }).name : undefined;
+}
+
+function byteLength(value: string): number {
+  return new TextEncoder().encode(value).byteLength;
 }

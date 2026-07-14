@@ -1,26 +1,32 @@
 {
   "metadata": {
     "runtimeProduct": "hermes-agent",
-    "runtimeVersion": "0.18.2",
+    "targetRuntimeVersion": "current Hermes main contract",
+    "validatedRuntimeVersion": null,
     "protocolVersion": "1",
     "captureDate": "2026-07-14",
     "fixtureSchemaVersion": 1,
     "sanitizerVersion": "synthetic-1",
-    "source": "synthetic"
+    "source": "synthetic",
+    "upstreamRepository": "NousResearch/hermes-agent",
+    "upstreamCommit": "226e8de827a669e8ffa7035b27d70c19e44b1208",
+    "inspectedSourcePath": "gateway/platforms/api_server.py"
   },
   "body": {
-    "messages": [
+    "object": "list",
+    "session_id": "session-1",
+    "data": [
       {
         "id": "message-1",
         "role": "user",
         "content": "hello",
-        "created_at": "2026-01-01T00:00:00.000Z"
+        "timestamp": "2026-01-01T00:00:00.000Z"
       },
       {
         "id": "message-2",
         "role": "assistant",
         "content": "done",
-        "created_at": "2026-01-01T00:00:01.000Z"
+        "timestamp": "2026-01-01T00:00:01.000Z"
       }
     ]
   }
