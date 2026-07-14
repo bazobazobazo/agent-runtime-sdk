@@ -11,7 +11,7 @@ validated by the codec registry.
 |---|---:|---|---|
 | OpenClaw | v3 | supported | fixtures + contract tests |
 | OpenClaw | v4 | supported | fixtures + contract tests |
-| Hermes | HTTP/SSE Runs API | scaffold | fixtures + live bring-up validation |
+| Hermes | HTTP/SSE Runs API | supported | synthetic fixtures + fake server tests + opt-in live validation |
 
 Runtime auto-detection currently supports only OpenClaw and Hermes. Codex and Pi
 remain private placeholders and are not registered probes.
@@ -99,6 +99,12 @@ capabilities and detailed health endpoints. Its capabilities use concrete
 feature keys such as `session_resources`, `tool_progress_events`, and
 `approval_events`; the SDK maps those into the neutral runtime capability
 contract.
+
+Hermes detached SSE buffers are expected to be short-lived. The SDK does not
+assume `Last-Event-ID` replay support unless fixtures prove it; on stream
+disconnect it reconciles through run status and emits only missing terminal
+events. Caller-provided `Idempotency-Key` values are preserved exactly and are
+not replaced by the adapter.
 
 ## Commands
 

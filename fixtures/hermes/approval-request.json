@@ -1,0 +1,18 @@
+{
+  "metadata": {
+    "runtimeProduct": "hermes-agent",
+    "runtimeVersion": "0.18.2",
+    "protocolVersion": "1",
+    "captureDate": "2026-07-14",
+    "fixtureSchemaVersion": 1,
+    "sanitizerVersion": "synthetic-1",
+    "source": "synthetic"
+  },
+  "body": {
+    "event": "approval.required",
+    "run_id": "run-1",
+    "session_id": "session-1",
+    "approval_id": "approval-1",
+    "summary": "Approve tool action"
+  }
+}

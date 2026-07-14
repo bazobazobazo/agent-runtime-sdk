@@ -1,0 +1,4 @@
+{"id":"1","event":"run.started","data":{"run_id":"run-1","session_id":"session-1"}}
+{"id":"2","event":"assistant.delta","data":{"run_id":"run-1","session_id":"session-1","delta":"hello"}}
+{"id":"3","event":"usage.updated","data":{"run_id":"run-1","session_id":"session-1","usage":{"input_tokens":1,"output_tokens":2}}}
+{"id":"4","event":"run.completed","data":{"run_id":"run-1","session_id":"session-1"}}

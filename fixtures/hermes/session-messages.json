@@ -1,0 +1,27 @@
+{
+  "metadata": {
+    "runtimeProduct": "hermes-agent",
+    "runtimeVersion": "0.18.2",
+    "protocolVersion": "1",
+    "captureDate": "2026-07-14",
+    "fixtureSchemaVersion": 1,
+    "sanitizerVersion": "synthetic-1",
+    "source": "synthetic"
+  },
+  "body": {
+    "messages": [
+      {
+        "id": "message-1",
+        "role": "user",
+        "content": "hello",
+        "created_at": "2026-01-01T00:00:00.000Z"
+      },
+      {
+        "id": "message-2",
+        "role": "assistant",
+        "content": "done",
+        "created_at": "2026-01-01T00:00:01.000Z"
+      }
+    ]
+  }
+}

@@ -176,6 +176,13 @@ export type RuntimeRunHandle = {
   applicationRunId: string;
   externalRunId: string;
   status: RuntimeRunStatus;
+  sessionStatePatch?: RuntimeSessionStatePatch;
+  providerState?: Readonly<Record<string, unknown>>;
+};
+
+export type RuntimeSessionStatePatch = {
+  previousResponseId?: string;
+  externalSessionId?: string;
   providerState?: Readonly<Record<string, unknown>>;
 };
 
@@ -206,6 +213,14 @@ export type GetRuntimeRunInput = {
 
 export type CancelRuntimeRunInput = GetRuntimeRunInput;
 
+export type ResolveRuntimeApprovalInput = {
+  applicationRunId: string;
+  externalRunId: string;
+  approvalId: string;
+  decision: 'approve' | 'deny';
+  comment?: string;
+};
+
 export type GetRuntimeHistoryInput = {
   applicationSessionId: string;
   externalSessionId: string;
@@ -220,6 +235,7 @@ export type RuntimeRunSnapshot = {
   status: RuntimeRunStatus;
   output?: string;
   usage?: Readonly<Record<string, number>>;
+  sessionStatePatch?: RuntimeSessionStatePatch;
   error?: {
     code: RuntimeErrorCode;
     message: string;
@@ -363,12 +379,16 @@ export type RuntimeErrorCode =
   | 'AUTHENTICATION_REQUIRED'
   | 'AUTHENTICATION_FAILED'
   | 'AUTHORIZATION_FAILED'
+  | 'PERMISSION_DENIED'
   | 'PAIRING_REQUIRED'
   | 'PROTOCOL_MISMATCH'
   | 'UNSUPPORTED_CAPABILITY'
   | 'INVALID_CONFIGURATION'
   | 'INVALID_REQUEST'
+  | 'NOT_FOUND'
+  | 'CONFLICT'
   | 'RUNTIME_UNAVAILABLE'
+  | 'PROVIDER_UNAVAILABLE'
   | 'RATE_LIMITED'
   | 'TIMEOUT'
   | 'NETWORK'

@@ -1,0 +1,17 @@
+{
+  "metadata": {
+    "runtimeProduct": "hermes-agent",
+    "runtimeVersion": "0.18.2",
+    "protocolVersion": "1",
+    "captureDate": "2026-07-14",
+    "fixtureSchemaVersion": 1,
+    "sanitizerVersion": "synthetic-1",
+    "source": "synthetic"
+  },
+  "body": {
+    "input": "hello",
+    "session_id": "session-1",
+    "instructions": "be brief",
+    "previous_response_id": "resp-previous"
+  }
+}

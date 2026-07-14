@@ -1,0 +1,26 @@
+{
+  "metadata": {
+    "runtimeProduct": "hermes-agent",
+    "runtimeVersion": "0.18.2",
+    "protocolVersion": "1",
+    "captureDate": "2026-07-14",
+    "fixtureSchemaVersion": 1,
+    "sanitizerVersion": "synthetic-1",
+    "source": "synthetic"
+  },
+  "body": {
+    "object": "hermes.api_server.capabilities",
+    "platform": "hermes-agent",
+    "version": "0.18.2",
+    "features": {
+      "run_submission": true,
+      "run_status": true,
+      "run_events_sse": true,
+      "run_stop": true,
+      "run_approval": true,
+      "approval_events": true,
+      "tool_progress_events": true,
+      "session_resources": true
+    }
+  }
+}

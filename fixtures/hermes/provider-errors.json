@@ -1,0 +1,28 @@
+{
+  "metadata": {
+    "runtimeProduct": "hermes-agent",
+    "runtimeVersion": "0.18.2",
+    "protocolVersion": "1",
+    "captureDate": "2026-07-14",
+    "fixtureSchemaVersion": 1,
+    "sanitizerVersion": "synthetic-1",
+    "source": "synthetic"
+  },
+  "errors": [
+    {
+      "status": 401,
+      "body": {
+        "error": "unauthorized"
+      }
+    },
+    {
+      "status": 429,
+      "headers": {
+        "retry-after": "5"
+      },
+      "body": {
+        "error": "rate_limited"
+      }
+    }
+  ]
+}

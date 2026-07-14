@@ -14,7 +14,7 @@ export function mapHermesCapabilities(payload: unknown): RuntimeCapabilities {
     },
     input: {
       text: true,
-      images: Boolean(features.images ?? features.image_input),
+      images: false,
       files: false,
     },
     output: {
@@ -26,8 +26,9 @@ export function mapHermesCapabilities(payload: unknown): RuntimeCapabilities {
     extensions: {
       'hermes.responses_api': Boolean(features.responses_api),
       'hermes.sessions_rest': Boolean(features.sessions ?? features.session_resources),
-      'hermes.jobs': Boolean(features.jobs),
+      'hermes.jobs': false,
       'hermes.long_term_session_key': Boolean(features.session_key_header ?? true),
+      'hermes.session_id_header': Boolean(features.session_id_header ?? true),
     },
   });
 }
