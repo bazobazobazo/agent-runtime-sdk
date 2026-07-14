@@ -1,5 +1,6 @@
 import {
   RuntimeError,
+  resolveSecureLimit,
   type RuntimeErrorCode,
   type RuntimeHttpResponse,
   type RuntimeHttpTransport,
@@ -31,10 +32,23 @@ export class HermesHttpClient {
     private readonly transport: RuntimeHttpTransport,
     private readonly options: HermesHttpClientOptions,
   ) {
-    this.baseUrl = new URL(options.baseUrl.replace(/\/$/, ''));
+    try {
+      this.baseUrl = new URL(options.baseUrl.replace(/\/$/, ''));
+    } catch {
+      throw runtimeError('INVALID_CONFIGURATION', 'Hermes endpoint URL is invalid', false);
+    }
     if (this.baseUrl.protocol !== 'https:' && this.baseUrl.protocol !== 'http:') {
       throw runtimeError('INVALID_CONFIGURATION', 'Hermes endpoint must use HTTP or HTTPS', false);
     }
+    if (this.baseUrl.username || this.baseUrl.password) throw runtimeError('INVALID_CONFIGURATION', 'Hermes endpoint must not contain credentials', false);
+    for (const key of this.baseUrl.searchParams.keys()) {
+      if (/^(token|access_token|api_key|password|secret|authorization|device_token)$/i.test(key)) {
+        throw runtimeError('INVALID_CONFIGURATION', 'Hermes endpoint must not contain credential query parameters', false);
+      }
+    }
+    resolveSecureLimit('maxJsonBodyBytes', options.maxBodyBytes);
+    resolveSecureLimit('maxHttpHeaderBytes', options.maxHeaderBytes);
+    validateTimeout(options.requestTimeoutMs);
   }
 
   get hasCredentials(): boolean {
@@ -50,15 +64,18 @@ export class HermesHttpClient {
     const operation = linkedTimeout(input.signal, input.timeoutMs ?? this.options.requestTimeoutMs);
     this.active.add(operation);
     try {
+      const headers = this.headers(input);
+      validateHeaderSize(headers, resolveSecureLimit('maxHttpHeaderBytes', this.options.maxHeaderBytes), 'request');
+      const body = encodeRequestBody(input.body, resolveSecureLimit('maxJsonBodyBytes', this.options.maxBodyBytes));
       const response = await this.transport.request({
         url: this.url(path).toString(),
         method,
-        headers: this.headers(input),
-        body: input.body === undefined ? undefined : JSON.stringify(input.body),
+        headers,
+        body,
         signal: operation.signal,
       });
       try {
-        validateHeaderSize(response.headers, this.options.maxHeaderBytes ?? 32_000);
+        validateHeaderSize(response.headers, resolveSecureLimit('maxHttpHeaderBytes', this.options.maxHeaderBytes), 'response');
       } catch (error) {
         await closeBody(response.body);
         throw error;
@@ -71,7 +88,7 @@ export class HermesHttpClient {
         await closeBody(response.body);
         throw this.httpError(response.status, `Hermes HTTP ${response.status}`, retryableStatus(response.status), response.headers, 'http');
       }
-      const bytes = await readBytes(response.body, this.options.maxBodyBytes ?? 1_000_000, operation.signal);
+      const bytes = await readBytes(response.body, resolveSecureLimit('maxJsonBodyBytes', this.options.maxBodyBytes), operation.signal);
       if (bytes.byteLength === 0) {
         if (input.allowEmpty) return { value: undefined as T, headers: response.headers, status: response.status };
         throw runtimeError('INVALID_RESPONSE', 'Hermes returned an empty JSON response', false, { status: response.status, stage: 'http.json' });
@@ -98,14 +115,16 @@ export class HermesHttpClient {
     const operation = linkedTimeout(input.signal, input.timeoutMs ?? this.options.requestTimeoutMs);
     this.active.add(operation);
     try {
+      const headers = this.headers({ ...input, headers: { Accept: 'text/event-stream', ...input.headers } });
+      validateHeaderSize(headers, resolveSecureLimit('maxHttpHeaderBytes', this.options.maxHeaderBytes), 'request');
       const response = await this.transport.request({
         url: this.url(path).toString(),
         method: 'GET',
-        headers: this.headers({ ...input, headers: { Accept: 'text/event-stream', ...input.headers } }),
+        headers,
         signal: operation.signal,
       });
       try {
-        validateHeaderSize(response.headers, this.options.maxHeaderBytes ?? 32_000);
+        validateHeaderSize(response.headers, resolveSecureLimit('maxHttpHeaderBytes', this.options.maxHeaderBytes), 'response');
       } catch (error) {
         await closeBody(response.body);
         throw error;
@@ -213,10 +232,27 @@ function header(headers: Readonly<Record<string, string>>, name: string): string
   return found?.[1];
 }
 
-function validateHeaderSize(headers: Readonly<Record<string, string>>, maxBytes: number): void {
+function validateHeaderSize(headers: Readonly<Record<string, string>>, maxBytes: number, direction: 'request' | 'response'): void {
   const encoder = new TextEncoder();
+  for (const [key, value] of Object.entries(headers)) {
+    if (/[^\u0021-\u007E]/.test(key) || /[\u0000-\u001F\u007F]/.test(value)) {
+      throw runtimeError(direction === 'request' ? 'INVALID_REQUEST' : 'INVALID_RESPONSE', `Hermes ${direction} headers contained unsafe characters`, false, { stage: 'headers' });
+    }
+  }
   const size = Object.entries(headers).reduce((total, [key, value]) => total + encoder.encode(key).byteLength + encoder.encode(value).byteLength, 0);
-  if (size > maxBytes) throw runtimeError('PROVIDER_ERROR', 'Hermes response headers exceeded maximum size', false, { maxBytes, stage: 'headers' });
+  if (size > maxBytes) throw runtimeError(direction === 'request' ? 'INVALID_REQUEST' : 'INVALID_RESPONSE', `Hermes ${direction} headers exceeded maximum size`, false, { maxBytes, stage: 'headers' });
+}
+
+function encodeRequestBody(value: unknown, maxBytes: number): string | undefined {
+  if (value === undefined) return undefined;
+  let body: string;
+  try { body = JSON.stringify(value); } catch {
+    throw runtimeError('INVALID_REQUEST', 'Hermes request body could not be serialized', false, { stage: 'request.body' });
+  }
+  if (new TextEncoder().encode(body).byteLength > maxBytes) {
+    throw runtimeError('INVALID_REQUEST', 'Hermes request body exceeded maximum size', false, { maxBytes, stage: 'request.body' });
+  }
+  return body;
 }
 
 async function readBytes(body: AsyncIterable<Uint8Array>, maxBytes: number, signal: AbortSignal): Promise<Uint8Array> {
@@ -237,7 +273,7 @@ async function readBytes(body: AsyncIterable<Uint8Array>, maxBytes: number, sign
         break;
       }
       size += next.value.byteLength;
-      if (size > maxBytes) throw runtimeError('PROVIDER_ERROR', 'Hermes response body exceeded maximum size', false, { maxBytes, stage: 'body' });
+      if (size > maxBytes) throw runtimeError('INVALID_RESPONSE', 'Hermes response body exceeded maximum size', false, { maxBytes, stage: 'body' });
       chunks.push(next.value);
     }
   } finally {
@@ -286,6 +322,7 @@ function abortLinkedBody(body: AsyncIterable<Uint8Array>, operation: LinkedOpera
 type LinkedOperation = { signal: AbortSignal; abort: (reason: unknown) => void; cleanup: () => void };
 
 function linkedTimeout(parent: AbortSignal | undefined, timeoutMs: number | undefined): LinkedOperation {
+  validateTimeout(timeoutMs);
   const controller = new AbortController();
   let timeout: ReturnType<typeof setTimeout> | undefined;
   const onAbort = () => controller.abort(parent?.reason ?? runtimeError('CANCELLED', 'Hermes operation was cancelled', false));
@@ -304,6 +341,13 @@ function linkedTimeout(parent: AbortSignal | undefined, timeoutMs: number | unde
       parent?.removeEventListener('abort', onAbort);
     },
   };
+}
+
+function validateTimeout(value: number | undefined): void {
+  if (value === undefined) return;
+  if (!Number.isSafeInteger(value) || value < 1 || value > 300_000) {
+    throw runtimeError('INVALID_CONFIGURATION', 'Hermes timeout is invalid', false);
+  }
 }
 
 function throwIfAborted(signal: AbortSignal): void {

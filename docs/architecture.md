@@ -56,6 +56,19 @@ a final secret scan before atomic write. The manual GitHub workflow is the only
 CI path allowed to contact a live runtime; ordinary CI uses fake transports.
 See `live-compatibility.md`.
 
+## Security Boundaries and Bounded Resources
+
+Core exports one provider-neutral table of secure defaults and hard ceilings.
+The HTTP, WebSocket, SSE, detection, diagnostic, fixture, and report paths
+resolve their production limits through that contract. Adapter close and caller
+abort propagate through active requests, response iterators, subscriptions,
+reconnect sleeps, and polling loops. OpenClaw uses one bounded dispatcher per
+connection; Hermes uses independent bounded stream/dedupe state per run.
+
+The generic SDK validates URL syntax and credential safety but permits private
+networks. Deployment-aware DNS, metadata-service, proxy, egress, and TLS policy
+belong to the host and infrastructure. See `security-threat-model.md`.
+
 ## Runtime Detection
 
 Runtime detection is provider-neutral and independent from application concerns

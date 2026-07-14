@@ -689,9 +689,11 @@ export declare class OpenClawRequestManager {
     private closedError?;
     private subscriberSequence;
     constructor(connection: RuntimeWebSocketConnection, codec: OpenClawProtocolCodec, options: number | OpenClawRequestManagerOptions);
-    private readonly options;
+    /** Internal test instrumentation; not part of the exported package surface. */
     private get pendingRequestCount();
+    /** Internal test instrumentation; not part of the exported package surface. */
     private get subscriberCount();
+    private readonly options;
     start(): Promise<void>;
     request<T = unknown>(request: OpenClawRpcRequest, signal?: AbortSignal): Promise<T>;
     request<T = unknown>(request: OpenClawRpcRequest, options?: {
@@ -789,6 +791,7 @@ export declare class RuntimeError extends Error {
     constructor(input: RuntimeErrorInput);
 }
 export declare function sanitizeDetails(details: Readonly<Record<string, unknown>>): Readonly<Record<string, unknown>>;
+export declare function sanitizeProviderPayload(value: unknown): unknown;
 export declare function isRuntimeError(error: unknown): error is RuntimeError;
 export declare function toRuntimeError(error: unknown, fallback: Omit<RuntimeErrorInput, 'cause'>): RuntimeError;
 export declare function unsupportedCapability(message: string, details?: Record<string, unknown>): RuntimeError;
@@ -844,6 +847,7 @@ export * from './events.js';
 export * from './fingerprint.js';
 export * from './ports.js';
 export * from './registry.js';
+export * from './security-limits.js';
 export * from './test-ports.js';
 export * from './types.js';
 ```
@@ -937,6 +941,43 @@ export declare class RuntimeRegistry {
     list(): RuntimeAdapterFactory[];
     create(adapterId: string): AgentRuntimeAdapter;
 }
+```
+
+### security-limit-values.d.ts
+
+```ts
+export declare const SECURE_RUNTIME_LIMITS: Readonly<{
+    maxJsonBodyBytes: 1000000;
+    maxHttpHeaderBytes: 32000;
+    maxWebSocketFrameBytes: 1000000;
+    maxSseLineBytes: 64000;
+    maxSseEventBytes: 1000000;
+    maxSsePendingBytes: 1000000;
+    maxRawPayloadDepth: 8;
+    maxRawPayloadKeys: 1000;
+    maxDiagnosticArrayItems: 100;
+    maxDiagnosticStringLength: 4000;
+    maxRedirects: 0;
+    maxEventSubscriberQueue: 256;
+    maxDeduplicationEntries: 1024;
+    maxReconnectAttempts: 2;
+    maxReconciliationMs: 30000;
+    maxErrorDetailBytes: 64000;
+    maxFixtureCandidateBytes: 2000000;
+    maxCompatibilityReportBytes: 2000000;
+}>;
+export type SecureRuntimeLimitName = keyof typeof SECURE_RUNTIME_LIMITS;
+export declare const HARD_RUNTIME_LIMITS: Readonly<Record<SecureRuntimeLimitName, number>>;
+```
+
+### security-limits.d.ts
+
+```ts
+import { type SecureRuntimeLimitName } from './security-limit-values.js';
+export { HARD_RUNTIME_LIMITS, SECURE_RUNTIME_LIMITS, type SecureRuntimeLimitName } from './security-limit-values.js';
+export declare function resolveSecureLimit(name: SecureRuntimeLimitName, value?: number, options?: {
+    allowZero?: boolean;
+}): number;
 ```
 
 ### test-ports.d.ts
@@ -1580,7 +1621,7 @@ export declare class NodeMemorySecretStore implements RuntimeSecretStore {
 ### transports.d.ts
 
 ```ts
-import type { RuntimeHttpRequest, RuntimeHttpResponse, RuntimeHttpTransport, RuntimeWebSocketConnection, RuntimeWebSocketFactory } from '@banzae/agent-runtime-core';
+import { type RuntimeWebSocketConnection, type RuntimeWebSocketFactory, type RuntimeHttpRequest, type RuntimeHttpResponse, type RuntimeHttpTransport } from '@banzae/agent-runtime-core';
 export declare class FetchHttpTransport implements RuntimeHttpTransport {
     request(input: RuntimeHttpRequest): Promise<RuntimeHttpResponse>;
 }

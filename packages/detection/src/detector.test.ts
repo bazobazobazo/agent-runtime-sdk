@@ -116,7 +116,7 @@ describe('runtime auto-detection', () => {
     for (const response of [
       { error: { message: 'auth token invalid token=secret' }, code: 'AUTHENTICATION_FAILED' },
       { error: { message: 'pairing required' }, code: 'PAIRING_REQUIRED' },
-      { payload: 'not-an-object', code: 'PROVIDER_ERROR' },
+      { payload: 'not-an-object', code: 'INVALID_RESPONSE' },
     ]) {
       let connects = 0;
       const connection = new FakeWebSocket([{ type: 'open' }, message({ event: 'connect.challenge', payload: { nonce: 'n' } })]);
@@ -314,6 +314,16 @@ describe('runtime auto-detection', () => {
     await expect(policy.validateRedirect(new URL('https://a.example.test'), new URL('https://b.example.test'))).rejects.toMatchObject({
       code: 'INVALID_CONFIGURATION',
     });
+  });
+
+  it('normalizes malformed URLs while permitting host-policy decisions for private and Unicode targets', async () => {
+    const policy = new DefaultRuntimeNetworkPolicy();
+    await expect(policy.validateTarget(new URL('https://[::1]:8443'))).resolves.toBeUndefined();
+    await expect(policy.validateTarget(new URL('https://127.0.0.1:8443'))).resolves.toBeUndefined();
+    await expect(policy.validateTarget(new URL('https://bücher.example'))).resolves.toBeUndefined();
+    await expect(policy.validateTarget(new URL('https://runtime.example.test/?%74oken=secret'))).rejects.toMatchObject({ code: 'INVALID_CONFIGURATION' });
+    await expect(createRuntimeDetector({ dependencies: deps(), probes: [] }).detect({ target: { endpoint: 'not a url' } }))
+      .rejects.toMatchObject({ code: 'INVALID_CONFIGURATION' });
   });
 
   it('rejects duplicate probe registration and leaves Codex/Pi unregistered', () => {

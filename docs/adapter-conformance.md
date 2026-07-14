@@ -67,8 +67,11 @@ The shared suite compares counters around iterator return and requires zero
 transport resources after completion and close.
 
 Stress coverage remains deterministic: the OpenClaw dispatcher suite exercises
-1,000 sequential RPC responses without iterator growth, and the Hermes suite
-processes 10,000 provider events through a bounded deduplication window.
+10,000 sequential RPC responses, 1,000 reverse-order concurrent responses, and
+1,000 aborts without iterator growth; Hermes processes 10,000 provider events
+through a bounded deduplication window. The detection guardrail performs 1,000
+operations while diagnostic callbacks deliberately fail. These are generous
+quadratic-regression guardrails rather than microbenchmarks.
 
 ## Adding a future adapter
 

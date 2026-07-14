@@ -1,4 +1,4 @@
-import { RuntimeError, type RuntimeWebSocketConnection } from '@banzae/agent-runtime-core';
+import { RuntimeError, resolveSecureLimit, type RuntimeWebSocketConnection } from '@banzae/agent-runtime-core';
 import type { OpenClawFrame, OpenClawProtocolCodec, OpenClawRpcRequest } from '../protocol/types.js';
 
 export type OpenClawEventFilter = {
@@ -29,9 +29,6 @@ type RunSubscriber = {
   closed: boolean;
 };
 
-const DEFAULT_MAX_FRAME_BYTES = 1_000_000;
-const DEFAULT_SUBSCRIBER_QUEUE_SIZE = 256;
-
 export class OpenClawRequestManager {
   private readonly pending = new Map<string, PendingRequest>();
   private readonly subscribers = new Map<string, RunSubscriber>();
@@ -48,19 +45,24 @@ export class OpenClawRequestManager {
     options: number | OpenClawRequestManagerOptions,
   ) {
     this.options = typeof options === 'number' ? { requestTimeoutMs: options } : options;
-    this.maxFrameBytes = this.options.maxFrameBytes ?? DEFAULT_MAX_FRAME_BYTES;
-    this.subscriberQueueSize = this.options.subscriberQueueSize ?? DEFAULT_SUBSCRIBER_QUEUE_SIZE;
+    this.maxFrameBytes = resolveSecureLimit('maxWebSocketFrameBytes', this.options.maxFrameBytes);
+    this.subscriberQueueSize = resolveSecureLimit('maxEventSubscriberQueue', this.options.subscriberQueueSize);
+    if (!Number.isSafeInteger(this.options.requestTimeoutMs) || this.options.requestTimeoutMs < 1 || this.options.requestTimeoutMs > 300_000) {
+      throw new RuntimeError({ code: 'INVALID_CONFIGURATION', retryable: false, adapterId: 'openclaw', message: 'OpenClaw request timeout is invalid' });
+    }
   }
 
-  private readonly options: OpenClawRequestManagerOptions;
-
+  /** Internal test instrumentation; not part of the exported package surface. */
   private get pendingRequestCount(): number {
     return this.pending.size;
   }
 
+  /** Internal test instrumentation; not part of the exported package surface. */
   private get subscriberCount(): number {
     return this.subscribers.size;
   }
+
+  private readonly options: OpenClawRequestManagerOptions;
 
   async start(): Promise<void> {
     if (this.readLoop) return;
@@ -212,7 +214,7 @@ export class OpenClawRequestManager {
               retryable: true,
               adapterId: 'openclaw',
               message: 'OpenClaw WebSocket closed',
-              details: { code: event.code, reason: event.reason },
+              details: { code: event.code },
             }),
           );
           return;
@@ -235,7 +237,7 @@ export class OpenClawRequestManager {
     const size = frameByteLength(data);
     if (size > this.maxFrameBytes) {
       const error = new RuntimeError({
-        code: 'PROVIDER_ERROR',
+        code: 'INVALID_RESPONSE',
         retryable: false,
         adapterId: 'openclaw',
         message: `OpenClaw frame exceeded ${this.maxFrameBytes} bytes`,
@@ -271,14 +273,16 @@ export class OpenClawRequestManager {
       if (!matchesFilter(frame, subscriber.filter)) continue;
       if (subscriber.queue.length >= this.subscriberQueueSize) {
         subscriber.error = new RuntimeError({
-          code: 'PROVIDER_ERROR',
+          code: 'INVALID_RESPONSE',
           retryable: false,
           adapterId: 'openclaw',
           message: `OpenClaw event subscriber queue exceeded ${this.subscriberQueueSize} frames`,
           details: { queueSize: this.subscriberQueueSize },
         });
         subscriber.closed = true;
+        subscriber.queue.length = 0;
         subscriber.notify?.();
+        this.subscribers.delete(subscriber.id);
         continue;
       }
       subscriber.queue.push(frame);
@@ -295,8 +299,10 @@ export class OpenClawRequestManager {
     for (const subscriber of this.subscribers.values()) {
       subscriber.error = error;
       subscriber.closed = true;
+      subscriber.queue.length = 0;
       subscriber.notify?.();
     }
+    this.subscribers.clear();
   }
 
   private cleanupPending(id: string): void {

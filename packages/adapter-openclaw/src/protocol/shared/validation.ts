@@ -1,4 +1,4 @@
-import { RuntimeError } from '@banzae/agent-runtime-core';
+import { RuntimeError, sanitizeProviderPayload } from '@banzae/agent-runtime-core';
 
 export function asRecord(value: unknown, context = 'OpenClaw payload'): Record<string, unknown> {
   if (value && typeof value === 'object' && !Array.isArray(value)) return value as Record<string, unknown>;
@@ -33,7 +33,7 @@ export function validTimestamp(value?: string): string | undefined {
 
 export function protocolError(message: string, details?: Record<string, unknown>): RuntimeError {
   return new RuntimeError({
-    code: 'PROVIDER_ERROR',
+    code: 'INVALID_RESPONSE',
     retryable: false,
     adapterId: 'openclaw',
     message,
@@ -61,17 +61,21 @@ const HOME_PATH_RE = /\/home\/[^\s"',)]+/g;
 export const OPENCLAW_SANITIZER_VERSION = 'openclaw-sanitizer-v2';
 
 export function sanitizeOpenClawPayload(value: unknown): unknown {
+  return sanitizeEnvironment(sanitizeProviderPayload(value));
+}
+
+function sanitizeEnvironment(value: unknown): unknown {
   if (value == null) return value;
   if (typeof value === 'string') {
     return value.replace(HOST_RE, 'runtime.example.test').replace(IPV4_RE, '192.0.2.1').replace(HOME_PATH_RE, '/home/runtime');
   }
   if (typeof value === 'number' || typeof value === 'boolean') return value;
-  if (Array.isArray(value)) return value.slice(0, 100).map(sanitizeOpenClawPayload);
+  if (Array.isArray(value)) return value.map(sanitizeEnvironment);
   if (typeof value === 'object') {
     return Object.fromEntries(
       Object.entries(value as Record<string, unknown>).map(([key, nested]) => [
         key,
-        SENSITIVE_KEY.test(key) || SENSITIVE_SUBSTRING.test(key) ? '[redacted]' : sanitizeOpenClawPayload(nested),
+        SENSITIVE_KEY.test(key) || SENSITIVE_SUBSTRING.test(key) ? '[redacted]' : sanitizeEnvironment(nested),
       ]),
     );
   }

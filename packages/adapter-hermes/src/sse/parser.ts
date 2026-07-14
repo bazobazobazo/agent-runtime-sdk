@@ -1,4 +1,4 @@
-import { RuntimeError } from '@banzae/agent-runtime-core';
+import { RuntimeError, resolveSecureLimit } from '@banzae/agent-runtime-core';
 
 export type SseEvent = {
   id?: string;
@@ -20,9 +20,9 @@ export async function* parseSseStream(
   const options = typeof optionsOrMaxEventBytes === 'number' ? { maxEventBytes: optionsOrMaxEventBytes } : optionsOrMaxEventBytes;
   const decoder = new TextDecoder('utf-8', { fatal: true });
   const iterator = body[Symbol.asyncIterator]();
-  const maxLineBytes = options.maxLineBytes ?? 64_000;
-  const maxEventBytes = options.maxEventBytes ?? 1_000_000;
-  const maxPendingBytes = options.maxPendingBytes ?? 1_000_000;
+  const maxLineBytes = resolveSecureLimit('maxSseLineBytes', options.maxLineBytes);
+  const maxEventBytes = resolveSecureLimit('maxSseEventBytes', options.maxEventBytes);
+  const maxPendingBytes = resolveSecureLimit('maxSsePendingBytes', options.maxPendingBytes);
   let buffer = '';
   let firstChunk = true;
   let eventId: string | undefined;
@@ -93,6 +93,10 @@ export async function* parseSseStream(
     }
     if (buffer) {
       for (const line of buffer.split(/\r?\n/)) {
+        const lineBytes = byteLength(line);
+        if (lineBytes > maxLineBytes) throw providerError('Hermes SSE line exceeded maximum size', { maxLineBytes, stage: 'sse.line' });
+        eventBytes += lineBytes;
+        if (eventBytes > maxEventBytes) throw providerError('Hermes SSE event exceeded maximum size', { maxEventBytes, stage: 'sse.event' });
         if (line === '') {
           yield* flush();
         } else if (!line.startsWith(':')) {

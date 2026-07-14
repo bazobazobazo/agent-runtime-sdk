@@ -123,7 +123,7 @@ export class OpenClawAdapter implements AgentRuntimeAdapter {
         confidence: 0,
         adapterId: this.adapterId,
         evidence: [],
-        warnings: [error instanceof Error ? error.message : String(error)],
+        warnings: [error instanceof RuntimeError ? `${error.code}: OpenClaw probe failed` : 'OpenClaw probe failed'],
         durationMs: this.deps.clock.now().getTime() - started,
       };
     }
@@ -357,8 +357,6 @@ export class OpenClawAdapter implements AgentRuntimeAdapter {
           adapterId: this.adapterId,
           endpoint: normalizeEndpoint(endpoint),
           protocol: codec.protocolVersion,
-          credentialRef: config.credentialRef,
-          options: config.options,
         }),
       };
     } catch (error) {

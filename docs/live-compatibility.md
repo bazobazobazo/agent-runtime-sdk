@@ -79,6 +79,10 @@ metadata, an endpoint fingerprint, runtime and protocol identity, normalized
 capabilities, ordered check results, a required-check summary, and limitations.
 They never contain complete endpoint URLs, query strings, headers, credentials,
 customer prompts, or raw provider payloads.
+Reports and fixture candidates are limited to 2,000,000 serialized bytes by
+default. Inputs are size-checked before parse, output is secret-scanned before
+write, writes use an atomic no-overwrite link, and malformed or excessive
+reports fail closed.
 
 Passing read-only checks proves that the recorded runtime was reachable and
 that its handshake/capabilities/health behavior matched the SDK at the stated

@@ -31,7 +31,6 @@ import {
   protocolError,
   protocolMismatch,
   sanitizeOpenClawPayload,
-  stringArray,
   stringValue,
   validTimestamp,
 } from './validation.js';
@@ -59,8 +58,9 @@ export abstract class MappedOpenClawCodec implements OpenClawProtocolCodec {
 
   parseChallenge(frame: OpenClawFrame): OpenClawChallenge | undefined {
     if (frame.type !== 'event' || frame.event !== this.mappings.connectEvent) return undefined;
-    const payload = optionalRecord(frame.payload);
-    return { nonce: stringValue(payload.nonce), raw: frame };
+    const payload = asRecord(frame.payload, 'OpenClaw challenge payload');
+    const nonce = safeIdentifier(payload.nonce, 'OpenClaw challenge nonce');
+    return { nonce, raw: frame };
   }
 
   createConnectParams(input: OpenClawConnectInput): Record<string, unknown> {
@@ -92,8 +92,8 @@ export abstract class MappedOpenClawCodec implements OpenClawProtocolCodec {
     const protocolValue =
       numberValue(value.protocol) ??
       numberValue(value.protocolVersion) ??
-      numberValue(value.selectedProtocol) ??
-      this.protocolVersion;
+      numberValue(value.selectedProtocol);
+    if (!Number.isSafeInteger(protocolValue)) throw protocolError('OpenClaw hello protocol version was malformed');
     if (protocolValue !== this.protocolVersion) {
       throw protocolMismatch(`OpenClaw selected protocol ${protocolValue}, expected ${this.protocolVersion}`, {
         selectedProtocol: protocolValue,
@@ -104,8 +104,8 @@ export abstract class MappedOpenClawCodec implements OpenClawProtocolCodec {
       protocolVersion: protocolValue,
       runtimeVersion: stringValue(value.serverVersion) ?? stringValue(value.version) ?? stringValue(server.version),
       connectionId: stringValue(value.connectionId) ?? stringValue(server.connId),
-      methods: stringArray(value.methods ?? features.methods ?? auth.methods),
-      events: stringArray(value.events ?? features.events),
+      methods: strictStringArray(value.methods ?? features.methods ?? auth.methods, 'OpenClaw hello methods'),
+      events: strictStringArray(value.events ?? features.events, 'OpenClaw hello events'),
       features,
       raw: payload,
     };
@@ -118,19 +118,30 @@ export abstract class MappedOpenClawCodec implements OpenClawProtocolCodec {
       parsed = asRecord(JSON.parse(text), 'OpenClaw frame');
     } catch (error) {
       if (error instanceof RuntimeError) throw error;
-      throw protocolError('OpenClaw frame was not valid JSON', { cause: String(error) });
+      throw protocolError('OpenClaw frame was not valid JSON', { stage: 'frame.parse' });
     }
 
     if (parsed.type === 'hello-ok') return parsed as OpenClawFrame;
-    if (parsed.type === 'res' && typeof parsed.id === 'string') return parsed as OpenClawFrame;
-    if (parsed.type === 'req' && typeof parsed.id === 'string' && typeof parsed.method === 'string') return parsed as OpenClawFrame;
+    if (parsed.type === 'res') {
+      safeIdentifier(parsed.id, 'OpenClaw response id');
+      return parsed as OpenClawFrame;
+    }
+    if (parsed.type === 'req') {
+      safeIdentifier(parsed.id, 'OpenClaw request id');
+      safeIdentifier(parsed.method, 'OpenClaw request method');
+      return parsed as OpenClawFrame;
+    }
     if (typeof parsed.event === 'string') {
+      const event = safeIdentifier(parsed.event, 'OpenClaw event name');
+      const sequenceValue = parsed.seq ?? parsed.sequence;
+      const sequence = sequenceValue === undefined ? undefined : safeSequence(sequenceValue);
+      const eventIdValue = parsed.id ?? parsed.eventId;
       return {
         type: 'event',
-        event: parsed.event,
+        event,
         payload: parsed.payload,
-        seq: numberValue(parsed.seq ?? parsed.sequence),
-        eventId: stringValue(parsed.id ?? parsed.eventId),
+        seq: sequence,
+        eventId: eventIdValue === undefined ? undefined : safeIdentifier(eventIdValue, 'OpenClaw event id'),
         timestamp: stringValue(parsed.timestamp ?? parsed.createdAt),
       };
     }
@@ -180,7 +191,6 @@ export abstract class MappedOpenClawCodec implements OpenClawProtocolCodec {
 
     const payload = optionalRecord(event.payload);
     const text = stringValue(payload.text ?? payload.delta ?? payload.message ?? payload.content);
-    const status = stringValue(payload.status);
     const occurredAt = metadata.occurredAt ? new Date(metadata.occurredAt) : context.clock.now();
     const provider = {
       adapterId: 'openclaw',
@@ -191,7 +201,7 @@ export abstract class MappedOpenClawCodec implements OpenClawProtocolCodec {
     if (this.mappings.deltaEvents.includes(event.event) && text) {
       return [{ ...eventBase('assistant.delta', context, metadata, occurredAt, provider), type: 'assistant.delta', delta: text }];
     }
-    if (this.mappings.completedEvents.includes(event.event) || metadata.terminal === 'completed' || status === 'completed') {
+    if (this.mappings.completedEvents.includes(event.event)) {
       const events: RuntimeEvent[] = [];
       if (text) {
         events.push({ ...eventBase('assistant.completed', context, metadata, occurredAt, provider), type: 'assistant.completed', text });
@@ -199,19 +209,19 @@ export abstract class MappedOpenClawCodec implements OpenClawProtocolCodec {
       events.push({ ...eventBase('run.completed', context, metadata, occurredAt, provider), type: 'run.completed' });
       return events;
     }
-    if (metadata.terminal === 'failed' || status === 'failed') {
+    if (this.mappings.failedEvents.includes(event.event)) {
       return [
         {
           ...eventBase('run.failed', context, metadata, occurredAt, provider),
           type: 'run.failed',
-          error: { code: 'PROVIDER_ERROR', message: stringValue(payload.error) ?? 'OpenClaw run failed', retryable: false },
+          error: { code: 'PROVIDER_ERROR', message: 'OpenClaw run failed', retryable: false },
         },
       ];
     }
-    if (metadata.terminal === 'cancelled' || status === 'cancelled' || status === 'canceled') {
+    if (this.mappings.cancelledEvents.includes(event.event)) {
       return [{ ...eventBase('run.cancelled', context, metadata, occurredAt, provider), type: 'run.cancelled' }];
     }
-    if (metadata.terminal === 'timeout' || status === 'timeout' || status === 'timed_out') {
+    if (this.mappings.timeoutEvents.includes(event.event)) {
       return [
         {
           ...eventBase('run.failed', context, metadata, occurredAt, provider),
@@ -247,19 +257,28 @@ export abstract class MappedOpenClawCodec implements OpenClawProtocolCodec {
     return {
       externalRunId,
       status: normalizeStatus(value.status),
-      providerState: { adapterId: 'openclaw', protocolVersion: this.protocolVersion, method: this.mappings.runStartMethod, response: value },
+      providerState: { adapterId: 'openclaw', protocolVersion: this.protocolVersion, method: this.mappings.runStartMethod },
     };
   }
 
   parseRunWaitResponse(input: GetRuntimeRunInput, payload: unknown): RuntimeRunSnapshot {
     const response = asRecord(payload, 'OpenClaw run-status response');
+    const providerRunId = response.runId ?? response.run_id ?? response.id;
+    if (providerRunId !== undefined && safeIdentifier(providerRunId, 'OpenClaw run-status run id') !== input.externalRunId) {
+      throw protocolError('OpenClaw run-status response returned another run');
+    }
+    if (typeof response.status !== 'string' || !response.status) throw protocolError('OpenClaw run-status response omitted status');
+    const status = normalizeStatus(response.status);
+    const output = stringValue(response.output ?? response.text ?? response.message);
+    if (status === 'completed' && output === undefined) throw protocolError('OpenClaw completed run omitted output');
+    const usage = response.usage === undefined ? undefined : strictUsage(response.usage);
     return {
       applicationRunId: input.applicationRunId,
       externalRunId: input.externalRunId,
-      status: normalizeStatus(response.status),
-      output: stringValue(response.output ?? response.text ?? response.message),
-      usage: typeof response.usage === 'object' && response.usage ? (response.usage as Record<string, number>) : undefined,
-      providerState: response,
+      status,
+      output,
+      usage,
+      providerState: { adapterId: 'openclaw', protocolVersion: this.protocolVersion, status },
     };
   }
 
@@ -274,24 +293,24 @@ export abstract class MappedOpenClawCodec implements OpenClawProtocolCodec {
     const providerDetails = optionalRecord(providerError.details);
     const providerCode = stringValue(providerError.code);
     const detailCode = stringValue(providerDetails.code);
-    const message = stringValue(providerError.message) ?? (error instanceof Error ? error.message : String(error));
-    const lower = message.toLowerCase();
+    const providerMessage = stringValue(providerError.message) ?? '';
+    const lower = providerMessage.toLowerCase();
     if (providerCode === 'NOT_PAIRED' || detailCode === 'PAIRING_REQUIRED' || lower.includes('pairing required')) {
-      return new RuntimeError({ code: 'PAIRING_REQUIRED', retryable: false, message, adapterId: 'openclaw', details: providerDetails, cause: error });
+      return new RuntimeError({ code: 'PAIRING_REQUIRED', retryable: false, message: 'OpenClaw device pairing is required', adapterId: 'openclaw', details: providerDetails });
     }
     if (lower.includes('permission') || lower.includes('forbidden') || lower.includes('missing scope')) {
-      return new RuntimeError({ code: 'PERMISSION_DENIED', retryable: false, message, adapterId: 'openclaw', details: providerDetails, cause: error });
+      return new RuntimeError({ code: 'PERMISSION_DENIED', retryable: false, message: 'OpenClaw permission was denied', adapterId: 'openclaw', details: providerDetails });
     }
     if (lower.includes('auth') || lower.includes('token') || providerCode === 'AUTHENTICATION_FAILED') {
-      return new RuntimeError({ code: 'AUTHENTICATION_FAILED', retryable: false, message, adapterId: 'openclaw', details: providerDetails, cause: error });
+      return new RuntimeError({ code: 'AUTHENTICATION_FAILED', retryable: false, message: 'OpenClaw authentication failed', adapterId: 'openclaw', details: providerDetails });
     }
     if (lower.includes('protocol') || providerDetails.expectedProtocol !== undefined || detailCode === 'PROTOCOL_MISMATCH') {
-      return new RuntimeError({ code: 'PROTOCOL_MISMATCH', retryable: false, message, adapterId: 'openclaw', details: providerDetails, cause: error });
+      return new RuntimeError({ code: 'PROTOCOL_MISMATCH', retryable: false, message: 'OpenClaw protocol negotiation failed', adapterId: 'openclaw', details: providerDetails });
     }
     if (providerCode === 'INVALID_REQUEST') {
-      return new RuntimeError({ code: 'INVALID_REQUEST', retryable: false, message, adapterId: 'openclaw', details: providerDetails, cause: error });
+      return new RuntimeError({ code: 'INVALID_REQUEST', retryable: false, message: 'OpenClaw rejected the request', adapterId: 'openclaw', details: providerDetails });
     }
-    return new RuntimeError({ code: 'PROVIDER_ERROR', retryable: false, message, adapterId: 'openclaw', details: providerDetails, cause: error });
+    return new RuntimeError({ code: 'PROVIDER_ERROR', retryable: false, message: 'OpenClaw returned a provider error', adapterId: 'openclaw', details: providerDetails });
   }
 
   supportsMethod(method: string, hello: OpenClawHello): boolean {
@@ -411,16 +430,40 @@ function providerEventId(metadata: OpenClawProviderEventMetadata, type: RuntimeE
   return undefined;
 }
 
-function terminalOutcome(mappings: OpenClawProtocolMappings, eventType: string, status?: string): OpenClawProviderEventMetadata['terminal'] {
-  if (status === 'completed') return 'completed';
-  if (status === 'failed' || status === 'error') return 'failed';
-  if (status === 'cancelled' || status === 'canceled') return 'cancelled';
-  if (status === 'timeout' || status === 'timed_out') return 'timeout';
+function terminalOutcome(mappings: OpenClawProtocolMappings, eventType: string, _status?: string): OpenClawProviderEventMetadata['terminal'] {
   if (mappings.completedEvents.includes(eventType)) return 'completed';
   if (mappings.failedEvents.includes(eventType)) return 'failed';
   if (mappings.cancelledEvents.includes(eventType)) return 'cancelled';
   if (mappings.timeoutEvents.includes(eventType)) return 'timeout';
   return undefined;
+}
+
+function safeIdentifier(value: unknown, label: string): string {
+  if (typeof value !== 'string' || !value || value.length > 256 || /[\u0000-\u001F\u007F]/.test(value)) {
+    throw protocolError(`${label} was malformed`);
+  }
+  return value;
+}
+
+function safeSequence(value: unknown): number {
+  if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0) throw protocolError('OpenClaw event sequence was malformed');
+  return value;
+}
+
+function strictStringArray(value: unknown, label: string): string[] {
+  if (value === undefined) return [];
+  if (!Array.isArray(value)) throw protocolError(`${label} was malformed`);
+  return value.map((item) => safeIdentifier(item, label));
+}
+
+function strictUsage(value: unknown): Readonly<Record<string, number>> {
+  const usage = asRecord(value, 'OpenClaw usage');
+  const output: Record<string, number> = {};
+  for (const [key, nested] of Object.entries(usage)) {
+    if (typeof nested !== 'number' || !Number.isFinite(nested) || nested < 0) throw protocolError('OpenClaw usage was malformed');
+    output[key] = nested;
+  }
+  return output;
 }
 
 function isSessionScopedRunEvent(mappings: OpenClawProtocolMappings, eventType: string): boolean {

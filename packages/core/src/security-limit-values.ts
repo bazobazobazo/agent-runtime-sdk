@@ -1,0 +1,43 @@
+export const SECURE_RUNTIME_LIMITS = Object.freeze({
+  maxJsonBodyBytes: 1_000_000,
+  maxHttpHeaderBytes: 32_000,
+  maxWebSocketFrameBytes: 1_000_000,
+  maxSseLineBytes: 64_000,
+  maxSseEventBytes: 1_000_000,
+  maxSsePendingBytes: 1_000_000,
+  maxRawPayloadDepth: 8,
+  maxRawPayloadKeys: 1_000,
+  maxDiagnosticArrayItems: 100,
+  maxDiagnosticStringLength: 4_000,
+  maxRedirects: 0,
+  maxEventSubscriberQueue: 256,
+  maxDeduplicationEntries: 1_024,
+  maxReconnectAttempts: 2,
+  maxReconciliationMs: 30_000,
+  maxErrorDetailBytes: 64_000,
+  maxFixtureCandidateBytes: 2_000_000,
+  maxCompatibilityReportBytes: 2_000_000,
+});
+
+export type SecureRuntimeLimitName = keyof typeof SECURE_RUNTIME_LIMITS;
+
+export const HARD_RUNTIME_LIMITS: Readonly<Record<SecureRuntimeLimitName, number>> = Object.freeze({
+  maxJsonBodyBytes: 16_000_000,
+  maxHttpHeaderBytes: 256_000,
+  maxWebSocketFrameBytes: 16_000_000,
+  maxSseLineBytes: 1_000_000,
+  maxSseEventBytes: 8_000_000,
+  maxSsePendingBytes: 8_000_000,
+  maxRawPayloadDepth: 32,
+  maxRawPayloadKeys: 10_000,
+  maxDiagnosticArrayItems: 10_000,
+  maxDiagnosticStringLength: 64_000,
+  maxRedirects: 0,
+  maxEventSubscriberQueue: 8_192,
+  maxDeduplicationEntries: 100_000,
+  maxReconnectAttempts: 10,
+  maxReconciliationMs: 300_000,
+  maxErrorDetailBytes: 1_000_000,
+  maxFixtureCandidateBytes: 16_000_000,
+  maxCompatibilityReportBytes: 16_000_000,
+});

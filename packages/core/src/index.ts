@@ -6,5 +6,6 @@ export * from './events.js';
 export * from './fingerprint.js';
 export * from './ports.js';
 export * from './registry.js';
+export * from './security-limits.js';
 export * from './test-ports.js';
 export * from './types.js';

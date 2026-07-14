@@ -1,6 +1,7 @@
 import {
   RuntimeError,
   runtimeEventBase,
+  sanitizeProviderPayload,
   type RuntimeAdapterDependencies,
   type RuntimeApprovalDecision,
   type RuntimeEvent,
@@ -156,7 +157,7 @@ function correlate(payload: Record<string, unknown>, context: HermesEventContext
 }
 
 function provider(eventName: string, data: unknown, context: HermesEventContext) {
-  return { adapterId: 'hermes', eventName, raw: context.includeRawProviderPayload ? sanitizePreview(data) : undefined };
+  return { adapterId: 'hermes', eventName, raw: context.includeRawProviderPayload ? sanitizeProviderPayload(data) : undefined };
 }
 
 function warning(context: HermesEventContext, eventName: string | undefined, data: unknown, message: string): RuntimeEvent {
@@ -189,29 +190,6 @@ function validateChoice(value: unknown): HermesApprovalChoice {
     throw invalidResponse('Hermes approval choice was malformed', 'sse.approval');
   }
   return value;
-}
-
-function sanitizePreview(value: unknown): unknown {
-  if (value == null) return value;
-  if (typeof value === 'string') return redact(value);
-  if (typeof value === 'number' || typeof value === 'boolean') return value;
-  if (Array.isArray(value)) return value.slice(0, 20).map(sanitizePreview);
-  if (typeof value === 'object') {
-    return Object.fromEntries(Object.entries(value as Record<string, unknown>).map(([key, nested]) => [
-      key,
-      /(token|authorization|cookie|password|secret|credential|api.?key|session.?key|command|arguments?)/i.test(key)
-        ? '[redacted]'
-        : sanitizePreview(nested),
-    ]));
-  }
-  return String(value);
-}
-
-function redact(value: string): string {
-  return value
-    .replace(/\bAuthorization\s*:\s*Bearer\s+[A-Za-z0-9._~+/=-]+/gi, 'Authorization: Bearer [redacted]')
-    .replace(/\bBearer\s+[A-Za-z0-9._~+/=-]+/gi, 'Bearer [redacted]')
-    .replace(/\b(token|access_token|api_key|password|cookie|secret|authorization|device_token|session_key)=([^&\s]+)/gi, '$1=[redacted]');
 }
 
 function requiredRecord(value: unknown, label: string): Record<string, unknown> {

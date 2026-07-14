@@ -4,6 +4,9 @@ import {
   connectionFingerprint,
   isTerminalEvent,
   normalizeEndpoint,
+  resolveSecureLimit,
+  SECURE_RUNTIME_LIMITS,
+  sanitizeProviderPayload,
   validateInputCapabilities,
   type AgentRuntimeAdapter,
   type CancelRuntimeRunInput,
@@ -94,11 +97,8 @@ type ApprovalState = {
   resolving: boolean;
 };
 
-const DEFAULT_MAX_RECONNECT_ATTEMPTS = 2;
 const DEFAULT_RECONNECT_DELAY_MS = 250;
 const DEFAULT_POLLING_INTERVAL_MS = 1_000;
-const DEFAULT_MAX_RECONCILIATION_MS = 30_000;
-const DEFAULT_MAX_DEDUPLICATION_ENTRIES = 1_024;
 
 export class HermesAdapter implements AgentRuntimeAdapter {
   readonly adapterId = 'hermes';
@@ -114,11 +114,13 @@ export class HermesAdapter implements AgentRuntimeAdapter {
     private readonly deps: RuntimeAdapterDependencies,
     private readonly options: HermesAdapterOptions = {},
   ) {
-    positiveInteger(options.maxReconnectAttempts, 'maxReconnectAttempts', true);
-    positiveInteger(options.reconnectDelayMs, 'reconnectDelayMs', true);
-    positiveInteger(options.pollingIntervalMs, 'pollingIntervalMs');
-    positiveInteger(options.maxReconciliationMs, 'maxReconciliationMs');
-    positiveInteger(options.maxDeduplicationEntries, 'maxDeduplicationEntries');
+    resolveSecureLimit('maxReconnectAttempts', options.maxReconnectAttempts, { allowZero: true });
+    resolveSecureLimit('maxReconciliationMs', options.maxReconciliationMs);
+    resolveSecureLimit('maxDeduplicationEntries', options.maxDeduplicationEntries);
+    positiveInteger(options.reconnectDelayMs, 'reconnectDelayMs', true, 300_000);
+    positiveInteger(options.pollingIntervalMs, 'pollingIntervalMs', false, 300_000);
+    positiveInteger(options.requestTimeoutMs, 'requestTimeoutMs', false, 300_000);
+    positiveInteger(options.runTimeoutMs, 'runTimeoutMs', false, 300_000);
   }
 
   async probe(target: RuntimeTarget, options?: ProbeOptions): Promise<RuntimeProbeResult> {
@@ -179,7 +181,6 @@ export class HermesAdapter implements AgentRuntimeAdapter {
         descriptorFingerprint: await connectionFingerprint(this.deps.crypto, {
           adapterId: this.adapterId,
           endpoint: normalizeEndpoint(this.options.baseUrl ?? toHttpBase(config.target.endpoint)),
-          credentialRef: config.credentialRef ?? this.options.bearerTokenRef,
         }),
       };
       this.connected = next;
@@ -272,13 +273,13 @@ export class HermesAdapter implements AgentRuntimeAdapter {
     options: OperationOptions | undefined,
     operation: StreamOperation,
   ): AsyncIterable<RuntimeEvent> {
-    const dedupe = new BoundedDedupeWindow(this.options.maxDeduplicationEntries ?? DEFAULT_MAX_DEDUPLICATION_ENTRIES);
+    const dedupe = new BoundedDedupeWindow(this.options.maxDeduplicationEntries ?? SECURE_RUNTIME_LIMITS.maxDeduplicationEntries);
     const pendingApprovalIds: string[] = [];
     const pendingToolIds = new Map<string, string[]>();
     const startedAt = this.deps.clock.now().getTime();
-    const maxReconciliationMs = this.options.maxReconciliationMs ?? DEFAULT_MAX_RECONCILIATION_MS;
+    const maxReconciliationMs = this.options.maxReconciliationMs ?? SECURE_RUNTIME_LIMITS.maxReconciliationMs;
     const deadlineAt = startedAt + maxReconciliationMs;
-    const maxReconnectAttempts = this.options.maxReconnectAttempts ?? DEFAULT_MAX_RECONNECT_ATTEMPTS;
+    const maxReconnectAttempts = this.options.maxReconnectAttempts ?? SECURE_RUNTIME_LIMITS.maxReconnectAttempts;
     let reconnectAttempts = 0;
     let lastError: RuntimeError | undefined;
     let observedRun = false;
@@ -736,9 +737,9 @@ function throwIfAborted(signal: AbortSignal): void {
   if (signal.aborted) throw signal.reason instanceof RuntimeError ? signal.reason : runtimeError('CANCELLED', 'Hermes stream was cancelled', false);
 }
 
-function positiveInteger(value: number | undefined, name: string, allowZero = false): void {
+function positiveInteger(value: number | undefined, name: string, allowZero = false, maximum = Number.MAX_SAFE_INTEGER): void {
   if (value === undefined) return;
-  if (!Number.isInteger(value) || value < (allowZero ? 0 : 1)) throw runtimeError('INVALID_CONFIGURATION', `${name} must be ${allowZero ? 'a non-negative' : 'a positive'} integer`, false);
+  if (!Number.isSafeInteger(value) || value < (allowZero ? 0 : 1) || value > maximum) throw runtimeError('INVALID_CONFIGURATION', `${name} must be a safe bounded integer`, false);
 }
 
 function isTerminalStatus(status: RuntimeRunSnapshot['status']): status is 'completed' | 'failed' | 'cancelled' {
@@ -768,21 +769,12 @@ function stringValue(value: unknown): string | undefined {
 }
 
 function safeProviderState(value: unknown): Record<string, unknown> | undefined {
-  const sanitized = sanitize(value);
+  const sanitized = sanitizeProviderPayload(value);
   return sanitized && typeof sanitized === 'object' && !Array.isArray(sanitized) ? sanitized as Record<string, unknown> : undefined;
 }
 
 function approvalKey(externalRunId: string, approvalId: string): string {
   return JSON.stringify([externalRunId, approvalId]);
-}
-
-function sanitize(value: unknown): unknown {
-  if (value == null) return value;
-  if (typeof value === 'string') return value.replace(/\b(Bearer|token|secret|password|api_key|session_key)=?[^&\s]*/gi, '$1=[redacted]');
-  if (typeof value === 'number' || typeof value === 'boolean') return value;
-  if (Array.isArray(value)) return value.slice(0, 20).map(sanitize);
-  if (typeof value === 'object') return Object.fromEntries(Object.entries(value as Record<string, unknown>).map(([key, nested]) => [key, /(token|secret|password|authorization|cookie|api.?key|session.?key|command|arguments?)/i.test(key) ? '[redacted]' : sanitize(nested)]));
-  return String(value);
 }
 
 function isOutcomeUnknown(error: unknown): boolean {
