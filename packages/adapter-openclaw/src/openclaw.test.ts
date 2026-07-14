@@ -2,12 +2,16 @@ import { describe, expect, it } from 'vitest';
 import { readFile } from 'node:fs/promises';
 import {
   RuntimeError,
-  createTestDependencies,
   type RuntimeEvent,
   type RuntimeWebSocketConnection,
   type RuntimeWebSocketEvent,
 } from '@banzae/agent-runtime-core';
-import { OpenClawAdapter, OpenClawProtocolRegistry, OpenClawRequestManager, openClawV3Codec, openClawV4Codec } from './index.js';
+import { createTestDependencies } from '@banzae/agent-runtime-core/testing';
+import { OpenClawAdapter } from './index.js';
+import { OpenClawProtocolRegistry } from './protocol/registry.js';
+import { OpenClawRequestManager } from './transport/request-manager.js';
+import { openClawV3Codec } from './protocol/v3/codec.js';
+import { openClawV4Codec } from './protocol/v4/codec.js';
 import { normalizeOpenClawHistory } from './mapping/transcript.js';
 import { classifyNegotiationFailure } from './protocol/negotiation.js';
 import { sanitizeOpenClawPayload } from './protocol/shared.js';
@@ -214,6 +218,14 @@ describe('OpenClaw protocol scaffolding', () => {
     expect(mapped.code).toBe('PAIRING_REQUIRED');
     expect(mapped.message).toContain('pairing is required');
     expect(mapped.details?.requestId).toBe('pairing-request-1');
+  });
+
+  it('normalizes legacy provider authorization codes to permission denied', () => {
+    const mapped = openClawV4Codec().mapError({
+      code: 'AUTHORIZATION_FAILED',
+      message: 'request rejected',
+    });
+    expect(mapped.code).toBe('PERMISSION_DENIED');
   });
 
   it('normalizes history without exposing provider types', () => {
@@ -564,7 +576,7 @@ describe('OpenClaw run event correlation', () => {
     const withoutRaw = collectRunEvents(disabled.adapter.streamRun(runInput('app-1', 'provider-1', 'session-1')));
     await nextTick();
     disabled.connection.pushMessage(openClawEvent('chat.completed', { runId: 'provider-1', sessionKey: 'session-1', sequence: 1, text: 'done', token: 'secret' }));
-    expect((await withoutRaw)[0]?.provider?.raw).toBeUndefined();
+    expect((await withoutRaw)[0]?.provider?.sanitizedRawPayload).toBeUndefined();
 
     const enabled = createAdapterHarness({ includeRawProviderPayload: true });
     const withRaw = collectRunEvents(enabled.adapter.streamRun(runInput('app-1', 'provider-1', 'session-1')));
@@ -579,7 +591,7 @@ describe('OpenClaw run event correlation', () => {
         nested: { authorization: 'Bearer secret', ok: true },
       }),
     );
-    expect((await withRaw)[0]?.provider?.raw).toMatchObject({
+    expect((await withRaw)[0]?.provider?.sanitizedRawPayload).toMatchObject({
       token: '[redacted]',
       nested: { authorization: '[redacted]', ok: true },
     });
@@ -593,7 +605,7 @@ describe('OpenClaw run event correlation', () => {
   it('maps missing OpenClaw methods and events fail-closed', () => {
     const capabilities = openClawV4Codec().capabilities({ protocolVersion: 4, methods: [], events: [], features: {}, raw: {} });
     expect(capabilities.sessions).toEqual({ create: false, resume: false, history: false, fork: false });
-    expect(capabilities.runs).toEqual({ start: false, status: false, streamText: false, streamTools: false, cancel: false, approvals: false });
+    expect(capabilities.runs).toEqual({ start: false, status: false, stream: false, cancel: false, approvals: false });
     expect(capabilities.input).toEqual({ text: false, images: false, files: false });
     expect(capabilities.output).toMatchObject({ text: false, reasoning: false, tools: false, usage: false });
   });
@@ -690,7 +702,7 @@ function adapterWithConnections(connections: FakeWebSocketConnection[]): OpenCla
     webSockets: {
       async connect() {
         const connection = connections.shift();
-        if (!connection) throw new RuntimeError({ code: 'RUNTIME_UNAVAILABLE', retryable: true, message: 'No fake socket left' });
+        if (!connection) throw new RuntimeError({ code: 'PROVIDER_UNAVAILABLE', retryable: true, message: 'No fake socket left' });
         connection.pushMessage(eventFrame('connect.challenge', { nonce: 'fixture-nonce' }));
         return connection;
       },

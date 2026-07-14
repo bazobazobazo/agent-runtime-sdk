@@ -2,13 +2,15 @@ import { describe, expect, it } from 'vitest';
 import {
   RuntimeError,
   RuntimeRegistry,
-  assertStartRunInput,
-  canonicalJson,
-  createTestDependencies,
-  sanitizeDetails,
+  hasRuntimeErrorCode,
+  isActiveRuntimeRunStatus,
+  isTerminalRuntimeRunStatus,
+  normalizeRuntimeTimestamp,
   supportsCapability,
-  TEXT_RUN_CAPABILITIES,
 } from './index.js';
+import { assertStartRunInput, canonicalJson } from './experimental.js';
+import { sanitizeDetails } from './diagnostics.js';
+import { createTestDependencies, TEXT_RUN_CAPABILITIES } from './testing.js';
 
 describe('core helpers', () => {
   it('redacts sensitive details', () => {
@@ -48,6 +50,20 @@ describe('core helpers', () => {
   it('checks capabilities', () => {
     expect(supportsCapability(TEXT_RUN_CAPABILITIES, 'runs.start')).toBe(true);
     expect(supportsCapability(TEXT_RUN_CAPABILITIES, 'input.files')).toBe(false);
+    expect(supportsCapability(TEXT_RUN_CAPABILITIES, 'runs.stream')).toBe(true);
+  });
+
+  it('normalizes timestamps and run status classification', () => {
+    expect(normalizeRuntimeTimestamp('2026-07-14T12:00:00+02:00')).toBe('2026-07-14T10:00:00.000Z');
+    expect(normalizeRuntimeTimestamp('not-a-date')).toBeUndefined();
+    expect(isTerminalRuntimeRunStatus('completed')).toBe(true);
+    expect(isTerminalRuntimeRunStatus('unknown')).toBe(false);
+    expect(isActiveRuntimeRunStatus('waiting_for_approval')).toBe(true);
+  });
+
+  it('narrows normalized errors by code', () => {
+    const error: unknown = new RuntimeError({ code: 'OUTCOME_UNKNOWN', retryable: true, message: 'uncertain' });
+    expect(hasRuntimeErrorCode(error, 'OUTCOME_UNKNOWN')).toBe(true);
   });
 
   it('requires caller-owned idempotency keys', () => {

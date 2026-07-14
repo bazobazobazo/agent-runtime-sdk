@@ -84,8 +84,11 @@ jobs:
       - name: Live CLI safety tests
         run: pnpm test:live:cli
 
-      - name: Check API snapshot
+      - name: Check deterministic API reports
         run: pnpm api:check
+
+      - name: Compile clean packed-package consumer
+        run: pnpm consumer:check
 
       - name: Check package boundaries
         run: pnpm package:check

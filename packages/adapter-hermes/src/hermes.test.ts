@@ -2,12 +2,12 @@ import { readFile } from 'node:fs/promises';
 import { describe, expect, it, vi } from 'vitest';
 import {
   RuntimeError,
-  createTestDependencies,
   type RuntimeClock,
   type RuntimeHttpRequest,
   type RuntimeHttpResponse,
   type RuntimeHttpTransport,
 } from '@banzae/agent-runtime-core';
+import { createTestDependencies } from '@banzae/agent-runtime-core/testing';
 import { FakeHermesServer } from '../../testing/src/fake-hermes-server.js';
 import { HermesAdapter } from './hermes-adapter.js';
 import { HermesHttpClient } from './http/client.js';
@@ -77,7 +77,7 @@ describe('Hermes contract hardening', () => {
   it('maps every capability fail-closed and independently', () => {
     const empty = mapHermesCapabilities(capabilities({ features: { run_submission: false, run_status: false } , endpoints: {} }));
     expect(empty.sessions).toEqual({ create: false, resume: false, history: false, fork: false });
-    expect(empty.runs).toEqual({ start: false, status: false, streamText: false, streamTools: false, cancel: false, approvals: false });
+    expect(empty.runs).toEqual({ start: false, status: false, stream: false, cancel: false, approvals: false });
     expect(empty.output.usage).toBe(false);
 
     const partial = mapHermesCapabilities(capabilities({
@@ -86,7 +86,7 @@ describe('Hermes contract hardening', () => {
     }));
     expect(partial.runs.start).toBe(true);
     expect(partial.runs.status).toBe(false);
-    expect(partial.runs.streamText).toBe(false);
+    expect(partial.runs.stream).toBe(false);
     expect(partial.sessions.create).toBe(false);
     expect(partial.sessions.history).toBe(false);
 
@@ -94,7 +94,7 @@ describe('Hermes contract hardening', () => {
       features: { reasoning: false, responses_api: false },
       endpoints: {},
     }));
-    expect(missing.runs).toEqual({ start: false, status: false, streamText: false, streamTools: false, cancel: false, approvals: false });
+    expect(missing.runs).toEqual({ start: false, status: false, stream: false, cancel: false, approvals: false });
     expect(missing.extensions).toMatchObject({
       'hermes.long_term_session_key': false,
       'hermes.session_id_header': false,
@@ -124,7 +124,7 @@ describe('Hermes contract hardening', () => {
     const adapter = new HermesAdapter(createTestDependencies({ http: server }), { baseUrl: 'https://hermes.example.test' });
     await adapter.connect({ target: { endpoint: 'https://hermes.example.test' } });
     const mapped = await adapter.capabilities();
-    expect(mapped.runs).toEqual({ start: false, status: false, streamText: false, streamTools: false, cancel: false, approvals: false });
+    expect(mapped.runs).toEqual({ start: false, status: false, stream: false, cancel: false, approvals: false });
     expect(mapped.sessions).toEqual({ create: false, resume: false, history: false, fork: false });
     expect(mapped.output.usage).toBe(false);
     expect(mapped.extensions).toMatchObject({
@@ -163,7 +163,7 @@ describe('Hermes contract hardening', () => {
     server.capabilities = capabilities({ endpoints: { session_create: { method: 'POST', path: '/api/sessions' } } });
     const adapter = new HermesAdapter(createTestDependencies({ http: server }), { baseUrl: 'https://hermes.example.test', sessionMode: 'rest-session' });
     await expect(adapter.connect({ target: { endpoint: 'https://hermes.example.test' } })).rejects.toMatchObject({ code: 'UNSUPPORTED_CAPABILITY' });
-    await expect(adapter.capabilities()).rejects.toMatchObject({ code: 'INVALID_CONFIGURATION' });
+    expect((await adapter.capabilities()).sessions).toEqual({ create: false, resume: false, history: false, fork: false });
   });
 
   it('connects, creates REST sessions, and preserves exact idempotency keys', async () => {
@@ -222,8 +222,8 @@ describe('Hermes contract hardening', () => {
     await adapter.connect({ target: { endpoint: 'https://hermes.example.test' } });
     const iterator = adapter.streamRun({ applicationRunId: 'app', externalRunId: 'run-approval', externalSessionId: 'session-1' })[Symbol.asyncIterator]();
     const event = (await iterator.next()).value;
-    expect(event?.type).toBe('approval.requested');
-    if (event?.type !== 'approval.requested') throw new Error('expected approval event');
+    expect(event?.type).toBe('approval.required');
+    if (event?.type !== 'approval.required') throw new Error('expected approval event');
     await adapter.resolveApproval({ applicationRunId: 'app', externalRunId: 'run-approval', approvalId: event.approvalId, decision });
     expect(server.approvalBodies.at(-1)).toEqual({ choice: expectedChoice });
     await iterator.return?.();
@@ -239,7 +239,7 @@ describe('Hermes contract hardening', () => {
     await adapter.connect({ target: { endpoint: 'https://hermes.example.test' } });
     const iterator = adapter.streamRun({ applicationRunId: 'a', externalRunId: 'run-restricted', externalSessionId: 's' })[Symbol.asyncIterator]();
     const event = (await iterator.next()).value;
-    if (event?.type !== 'approval.requested') throw new Error('expected approval event');
+    if (event?.type !== 'approval.required') throw new Error('expected approval event');
     expect(event.availableDecisions).toEqual([{ action: 'allow', scope: 'once' }, { action: 'deny' }]);
     await expect(adapter.resolveApproval({ applicationRunId: 'a', externalRunId: 'run-restricted', approvalId: event.approvalId, decision: { action: 'allow', scope: 'always' } })).rejects.toMatchObject({ code: 'INVALID_REQUEST' });
     await expect(adapter.resolveApproval({ applicationRunId: 'a', externalRunId: 'run-restricted', approvalId: 'unknown-approval', decision: { action: 'deny' } })).rejects.toMatchObject({ code: 'INVALID_REQUEST' });
@@ -254,7 +254,7 @@ describe('Hermes contract hardening', () => {
     await adapter.connect({ target: { endpoint: 'https://hermes.example.test' } });
     const iterator = adapter.streamRun({ applicationRunId: 'a', externalRunId: 'run-a', externalSessionId: 's' })[Symbol.asyncIterator]();
     const event = (await iterator.next()).value;
-    if (event?.type !== 'approval.requested') throw new Error('expected approval event');
+    if (event?.type !== 'approval.required') throw new Error('expected approval event');
     await expect(adapter.resolveApproval({ applicationRunId: 'a', externalRunId: 'run-a', approvalId: event.approvalId, decision: { action: 'deny' } })).rejects.toMatchObject({ code: 'INVALID_RESPONSE' });
     await iterator.return?.();
 
@@ -420,7 +420,7 @@ describe('Hermes contract hardening', () => {
     } finally {
       close.mockRestore();
     }
-    await expect(adapter.capabilities()).rejects.toMatchObject({ code: 'INVALID_CONFIGURATION' });
+    expect((await adapter.capabilities()).runs).toEqual({ start: false, status: false, stream: false, cancel: false, approvals: false });
     expect(server.requests).toHaveLength(3);
   });
 
@@ -440,7 +440,7 @@ describe('Hermes contract hardening', () => {
     await adapter.connect({ target: { endpoint: 'https://hermes.example.test' } });
     const x = adapter.streamRun({ applicationRunId: 'x', externalRunId: 'run-x', externalSessionId: 's' })[Symbol.asyncIterator]();
     const y = adapter.streamRun({ applicationRunId: 'y', externalRunId: 'run-y', externalSessionId: 's' })[Symbol.asyncIterator]();
-    expect((await x.next()).value?.type).toBe('approval.requested');
+    expect((await x.next()).value?.type).toBe('approval.required');
     const pending = Promise.allSettled([y.next()]);
     await Promise.resolve();
     await adapter.close();
@@ -456,7 +456,7 @@ describe('Hermes contract hardening', () => {
     const adapter = new HermesAdapter(createTestDependencies({ http: server }), { baseUrl: 'https://hermes.example.test', maxReconnectAttempts: 0, pollingIntervalMs: 1, maxReconciliationMs: 10 });
     await adapter.connect({ target: { endpoint: 'https://hermes.example.test' } });
     const one = adapter.streamRun({ applicationRunId: 'one', externalRunId: 'run-one', externalSessionId: 's' })[Symbol.asyncIterator]();
-    expect((await one.next()).value?.type).toBe('approval.requested');
+    expect((await one.next()).value?.type).toBe('approval.required');
     await one.return?.();
     await expect(adapter.connect({ target: { endpoint: 'https://hermes.example.test' } })).resolves.toBeDefined();
     const two = [];
@@ -589,7 +589,7 @@ describe('Hermes contract hardening', () => {
     await adapter.connect({ target: { endpoint: 'https://hermes.example.test' } });
     const iterator = adapter.streamRun({ applicationRunId: 'a', externalRunId: 'run-resolved', externalSessionId: 's' })[Symbol.asyncIterator]();
     const event = (await iterator.next()).value;
-    if (event?.type !== 'approval.requested') throw new Error('expected approval event');
+    if (event?.type !== 'approval.required') throw new Error('expected approval event');
     await expect(adapter.resolveApproval({ applicationRunId: 'a', externalRunId: 'run-resolved', approvalId: event.approvalId, decision: { action: 'deny' } })).rejects.toMatchObject({ code: 'CONFLICT' });
     expect(server.approvalBodies).toHaveLength(1);
     await iterator.return?.();

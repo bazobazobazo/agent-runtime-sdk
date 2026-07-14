@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "description": "Node.js facade and default implementations for Banzae Agent Runtime SDK.",
   "license": "Apache-2.0",
+  "engines": { "node": ">=22.13" },
   "type": "module",
   "exports": {
     ".": {

@@ -68,8 +68,7 @@ export function mapHermesCapabilities(payload: unknown): RuntimeCapabilities {
     runs: {
       start: runStart,
       status: runStatus,
-      streamText: runStream,
-      streamTools,
+      stream: runStream,
       cancel: runCancel,
       approvals: runApprovals,
     },
@@ -80,6 +79,10 @@ export function mapHermesCapabilities(payload: unknown): RuntimeCapabilities {
       tools: streamTools,
       // Pinned Hermes capabilities do not advertise usage independently.
       usage: false,
+    },
+    health: {
+      liveness: endpointIs(endpoints, 'health', 'GET', '/health'),
+      readiness: endpointIs(endpoints, 'health_detailed', 'GET', '/health/detailed'),
     },
     extensions: {
       'hermes.responses_api': features.responses_api === true,

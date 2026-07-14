@@ -17,14 +17,19 @@ runs, schedules, files, authorization, and audit records.
 
 ## Status
 
-Initial scaffold for pre-release review. OpenClaw and Hermes adapters include
+The pre-alpha public API is frozen for `v0.1.0-alpha.1`; it is not a stable 1.0
+or production-final contract. OpenClaw and Hermes adapters include
 protocol foundations, detection, capability mapping, idempotency enforcement,
 SSE parsing and recovery, cancellation, approvals, session history, and
 injectable transport boundaries. Compatibility
 claims are fixture-backed for the pinned targets documented in
 `docs/compatibility.md`, but this SDK should still be treated as an initial
-scaffold until the live OpenClaw and Hermes integration suites are confirmed in
+pre-alpha implementation until the live OpenClaw and Hermes integration suites are confirmed in
 the target release environment.
+
+Public entrypoints, lifecycle rules, identifiers, errors, and API review are
+documented in `docs/public-api.md`. This alpha is ESM-only; the Node package and
+repository tooling require Node.js `>=22.13`.
 
 ## Quick Start
 

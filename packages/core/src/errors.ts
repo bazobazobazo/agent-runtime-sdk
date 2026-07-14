@@ -7,6 +7,11 @@ export interface RuntimeErrorInput {
   retryable: boolean;
   retryAfterMs?: number;
   adapterId?: string;
+  operation?: string;
+  stage?: string;
+  protocolName?: string;
+  protocolVersion?: string;
+  httpStatus?: number;
   details?: Readonly<Record<string, unknown>>;
   cause?: unknown;
 }
@@ -29,6 +34,11 @@ export class RuntimeError extends Error {
   readonly retryable: boolean;
   readonly retryAfterMs?: number;
   readonly adapterId?: string;
+  readonly operation?: string;
+  readonly stage?: string;
+  readonly protocolName?: string;
+  readonly protocolVersion?: string;
+  readonly httpStatus?: number;
   readonly details?: Readonly<Record<string, unknown>>;
   override readonly cause?: unknown;
 
@@ -41,6 +51,11 @@ export class RuntimeError extends Error {
     this.retryable = input.retryable;
     this.retryAfterMs = input.retryAfterMs;
     this.adapterId = input.adapterId;
+    this.operation = input.operation;
+    this.stage = input.stage;
+    this.protocolName = input.protocolName;
+    this.protocolVersion = input.protocolVersion;
+    this.httpStatus = input.httpStatus;
     this.details = input.details ? sanitizeDetails(input.details) : undefined;
     this.cause = safeCause;
   }
@@ -115,6 +130,17 @@ function boundDetails(value: Readonly<Record<string, unknown>>): Readonly<Record
 
 export function isRuntimeError(error: unknown): error is RuntimeError {
   return error instanceof RuntimeError;
+}
+
+export function hasRuntimeErrorCode<C extends import('./types.js').RuntimeErrorCode>(
+  error: unknown,
+  code: C,
+): error is RuntimeError & { readonly code: C } {
+  return isRuntimeError(error) && error.code === code;
+}
+
+export function createRuntimeError(input: RuntimeErrorInput): RuntimeError {
+  return new RuntimeError(input);
 }
 
 export function toRuntimeError(

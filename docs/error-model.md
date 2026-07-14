@@ -18,7 +18,9 @@ complete URLs, stack traces, and unsafe causes are excluded by default.
 | `NOT_FOUND` | no | none | verify external ID and lifecycle |
 | `CONFLICT` | no | known provider state conflict | reconcile state before another action |
 | `RATE_LIMITED` | yes | normally none | honor bounded `retryAfterMs` |
-| `RUNTIME_UNAVAILABLE` / `PROVIDER_UNAVAILABLE` | yes | operation-specific | reconnect/retry within host policy |
+| `PROVIDER_UNAVAILABLE` | yes | operation-specific | reconnect/retry within host policy |
+| `NETWORK_POLICY_REJECTED` | no | none | change the target or host network policy |
+| `DETECTION_FAILED` / `DETECTION_AMBIGUOUS` | no | none | configure explicitly or gather stronger safe evidence |
 | `TIMEOUT` | yes | operation-specific | retry read-only work; inspect mutation semantics |
 | `CANCELLED` | no | operation-specific | caller stopped waiting; reconcile mutations if needed |
 | `OUTCOME_UNKNOWN` | yes with same key | yes | reconcile status; never invent a new idempotency key |
@@ -28,3 +30,8 @@ Authentication, permission, pairing, malformed data, and transport failures are
 never relabeled as protocol mismatch to trigger downgrade. Malformed provider
 payloads use `INVALID_RESPONSE`; confirmed availability failures use
 `PROVIDER_UNAVAILABLE`; bounded wait expiry uses `TIMEOUT`.
+
+Safe structured fields are `operation`, `stage`, `adapterId`, protocol name and
+version, HTTP status, `retryAfterMs`, and bounded sanitized `details`.
+`OUTCOME_UNKNOWN` means acceptance of a side-effecting request cannot be proven;
+reconcile using the same idempotency key and never blindly retry with a new one.

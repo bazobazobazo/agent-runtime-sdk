@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "description": "Conformance helpers for Banzae agent runtime adapters.",
   "license": "Apache-2.0",
+  "engines": { "node": ">=22.13" },
   "type": "module",
   "exports": {
     ".": {

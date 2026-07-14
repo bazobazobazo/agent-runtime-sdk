@@ -11,13 +11,13 @@ export const NO_CAPABILITIES: RuntimeCapabilities = {
   runs: {
     start: false,
     status: false,
-    streamText: false,
-    streamTools: false,
+    stream: false,
     cancel: false,
     approvals: false,
   },
   input: { text: false, images: false, files: false },
   output: { text: false, reasoning: false, tools: false, usage: false },
+  health: { liveness: false, readiness: false },
   extensions: {},
 };
 
@@ -27,13 +27,13 @@ export const TEXT_RUN_CAPABILITIES: RuntimeCapabilities = {
   runs: {
     start: true,
     status: true,
-    streamText: true,
-    streamTools: false,
+    stream: true,
     cancel: true,
     approvals: false,
   },
   input: { text: true, images: false, files: false },
   output: { text: true, reasoning: false, tools: false, usage: false },
+  health: { liveness: true, readiness: false },
   extensions: {},
 };
 
@@ -111,6 +111,7 @@ export function mergeCapabilities(
     runs: { ...base.runs, ...patch.runs },
     input: { ...base.input, ...patch.input },
     output: { ...base.output, ...patch.output },
+    health: { ...base.health, ...patch.health },
     extensions: { ...base.extensions, ...patch.extensions },
   };
 }

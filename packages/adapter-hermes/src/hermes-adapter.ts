@@ -1,13 +1,9 @@
 import {
   RuntimeError,
-  assertStartRunInput,
-  connectionFingerprint,
+  NO_CAPABILITIES,
   isTerminalEvent,
-  normalizeEndpoint,
   resolveSecureLimit,
   SECURE_RUNTIME_LIMITS,
-  sanitizeProviderPayload,
-  validateInputCapabilities,
   type AgentRuntimeAdapter,
   type CancelRuntimeRunInput,
   type ConnectOptions,
@@ -18,13 +14,16 @@ import {
   type ProbeOptions,
   type ResolveRuntimeApprovalInput,
   type RuntimeAdapterDependencies,
+  type RuntimeAdapterLifecycleState,
   type RuntimeApprovalDecision,
+  type RuntimeApprovalResolution,
   type RuntimeCapabilities,
   type RuntimeConnectionConfig,
   type RuntimeConnectionInfo,
   type RuntimeErrorCode,
   type RuntimeEvent,
   type RuntimeHealth,
+  type RuntimeHistoryPage,
   type RuntimeMessage,
   type RuntimeProbeResult,
   type RuntimeRunHandle,
@@ -35,6 +34,13 @@ import {
   type StartRuntimeRunInput,
   type StreamRuntimeRunInput,
 } from '@banzae/agent-runtime-core';
+import {
+  assertStartRunInput,
+  connectionFingerprint,
+  normalizeEndpoint,
+  validateInputCapabilities,
+} from '@banzae/agent-runtime-core/experimental';
+import { sanitizeProviderPayload } from '@banzae/agent-runtime-core/diagnostics';
 import { BoundedDedupeWindow } from './dedupe.js';
 import { HermesHttpClient } from './http/client.js';
 import { isHermesCapabilities, mapHermesCapabilities, validateHermesCapabilities } from './mapping/capabilities.js';
@@ -103,6 +109,11 @@ const DEFAULT_POLLING_INTERVAL_MS = 1_000;
 export class HermesAdapter implements AgentRuntimeAdapter {
   readonly adapterId = 'hermes';
   readonly adapterVersion = '0.1.0';
+  private state: RuntimeAdapterLifecycleState = 'created';
+
+  get lifecycleState(): RuntimeAdapterLifecycleState {
+    return this.state;
+  }
 
   private connected?: ConnectedHermes;
   private closed = false;
@@ -158,6 +169,13 @@ export class HermesAdapter implements AgentRuntimeAdapter {
   }
 
   async connect(config: RuntimeConnectionConfig, options?: ConnectOptions): Promise<RuntimeConnectionInfo> {
+    if (this.connected && this.state === 'connected' && !options?.forceReconnect) {
+      return {
+        descriptor: this.descriptor(this.connected),
+        connectedAt: this.deps.clock.now().toISOString(),
+        warnings: [],
+      };
+    }
     if (this.activeStreams.size > 0) throw runtimeError('INVALID_CONFIGURATION', 'Hermes cannot reconnect while streams are active', false);
     const token = await resolveBearerToken(this.deps, config, this.options);
     const client = new HermesHttpClient(this.deps.http, {
@@ -166,6 +184,7 @@ export class HermesAdapter implements AgentRuntimeAdapter {
       requestTimeoutMs: options?.timeoutMs ?? this.options.requestTimeoutMs,
     });
     const previous = this.connected;
+    this.state = 'connecting';
     this.connected = undefined;
     await previous?.client.close();
     try {
@@ -185,20 +204,42 @@ export class HermesAdapter implements AgentRuntimeAdapter {
       };
       this.connected = next;
       this.closed = false;
+      this.state = 'connected';
       return { descriptor: this.descriptor(next), connectedAt: this.deps.clock.now().toISOString(), warnings: [] };
     } catch (error) {
       await client.close();
+      this.state = 'closed';
       throw normalizeAdapterError(error, 'connect');
     }
   }
 
   async health(options?: OperationOptions): Promise<RuntimeHealth> {
+    if (!this.connected || this.closed) {
+      return {
+        status: 'unavailable',
+        checkedAt: this.deps.clock.now().toISOString(),
+        warnings: ['adapter is not connected'],
+        checks: [
+          { name: 'liveness', kind: 'liveness', status: 'unavailable' },
+          { name: 'readiness', kind: 'readiness', status: 'unavailable' },
+        ],
+      };
+    }
     const connected = this.requireConnected();
     try {
       const liveness = validateHealth((await connected.client.json<unknown>('GET', '/health', { signal: options?.signal })).value);
       try {
         const detailed = validateDetailedHealth((await connected.client.json<unknown>('GET', '/health/detailed', { signal: options?.signal })).value);
-        return { status: healthStatus(detailed.status), checkedAt: this.deps.clock.now().toISOString(), descriptor: this.descriptor(connected), warnings: [], details: { status: detailed.status, version: detailed.version } };
+        return {
+          status: healthStatus(detailed.status),
+          checkedAt: this.deps.clock.now().toISOString(),
+          descriptor: this.descriptor(connected),
+          warnings: [],
+          checks: [
+            { name: 'liveness', kind: 'liveness', status: healthStatus(liveness.status) },
+            { name: 'readiness', kind: 'readiness', status: healthStatus(detailed.status) },
+          ],
+        };
       } catch (error) {
         if (shouldRethrowHealthError(error)) throw error;
         return { status: healthStatus(liveness.status), checkedAt: this.deps.clock.now().toISOString(), descriptor: this.descriptor(connected), warnings: ['detailed health unavailable'] };
@@ -210,7 +251,7 @@ export class HermesAdapter implements AgentRuntimeAdapter {
   }
 
   async capabilities(): Promise<RuntimeCapabilities> {
-    return this.requireConnected().capabilities;
+    return this.connected && !this.closed ? this.connected.capabilities : NO_CAPABILITIES;
   }
 
   async ensureSession(input: EnsureSessionInput, options?: OperationOptions): Promise<RuntimeSession> {
@@ -259,7 +300,7 @@ export class HermesAdapter implements AgentRuntimeAdapter {
 
   streamRun(input: StreamRuntimeRunInput, options?: OperationOptions): AsyncIterable<RuntimeEvent> {
     const connected = this.requireConnected();
-    if (!connected.capabilities.runs.streamText) throw unsupported('Hermes run event streaming is unavailable');
+    if (!connected.capabilities.runs.stream) throw unsupported('Hermes run event streaming is unavailable');
     const operation = createStreamOperation(options?.signal, options?.timeoutMs);
     const inner = this.iterateRunStream(connected, input, options, operation)[Symbol.asyncIterator]();
     const tracked = trackStream(inner, operation, () => this.activeStreams.delete(operation));
@@ -299,7 +340,7 @@ export class HermesAdapter implements AgentRuntimeAdapter {
             const key = eventDedupeKey(sse.id, sse.event, data);
             if (dedupe.seen(key)) continue;
             for (const event of mapHermesSseEvent(sse.event, data, this.eventContext(input, pendingApprovalIds, pendingToolIds))) {
-              if (event.type === 'approval.requested') {
+              if (event.type === 'approval.required') {
                 this.approvals.set(approvalKey(input.externalRunId, event.approvalId), {
                   externalRunId: input.externalRunId,
                   choices: new Set(event.availableDecisions.map(toHermesChoice)),
@@ -424,7 +465,7 @@ export class HermesAdapter implements AgentRuntimeAdapter {
     }
   }
 
-  async resolveApproval(input: ResolveRuntimeApprovalInput, options?: OperationOptions): Promise<void> {
+  async resolveApproval(input: ResolveRuntimeApprovalInput, options?: OperationOptions): Promise<RuntimeApprovalResolution> {
     const connected = this.requireConnected();
     if (!connected.capabilities.runs.approvals) throw unsupported('Hermes approval resolution is unavailable');
     validateIdentifier(input.externalRunId, 'run id');
@@ -444,6 +485,13 @@ export class HermesAdapter implements AgentRuntimeAdapter {
         body: { choice },
       })).value, input.externalRunId, choice);
       this.approvals.delete(key);
+      return {
+        approvalId: input.approvalId,
+        applicationRunId: input.applicationRunId,
+        externalRunId: input.externalRunId,
+        decision: input.decision,
+        resolvedAt: this.deps.clock.now().toISOString(),
+      };
     } catch (error) {
       if (error instanceof RuntimeError && error.code === 'CONFLICT') this.approvals.delete(key);
       else state.resolving = false;
@@ -451,19 +499,23 @@ export class HermesAdapter implements AgentRuntimeAdapter {
     }
   }
 
-  async getHistory(input: GetRuntimeHistoryInput, options?: OperationOptions): Promise<RuntimeMessage[]> {
+  async getHistory(input: GetRuntimeHistoryInput, options?: OperationOptions): Promise<RuntimeHistoryPage> {
     const connected = this.requireConnected();
     if (!connected.capabilities.sessions.history) throw unsupported('Hermes session message history is unavailable');
-    return validateSessionMessagesResponse((await connected.client.json<unknown>('GET', `/api/sessions/${encodeURIComponent(input.externalSessionId)}/messages`, { signal: options?.signal, timeoutMs: options?.timeoutMs })).value, input.externalSessionId).messages;
+    return {
+      messages: validateSessionMessagesResponse((await connected.client.json<unknown>('GET', `/api/sessions/${encodeURIComponent(input.externalSessionId)}/messages`, { signal: options?.signal, timeoutMs: options?.timeoutMs })).value, input.externalSessionId).messages,
+    };
   }
 
   async close(): Promise<void> {
     if (this.closing) return this.closing;
+    this.state = 'closing';
     this.closing = this.closeResources();
     try {
       await this.closing;
     } finally {
       this.closing = undefined;
+      this.state = 'closed';
     }
   }
 
@@ -478,6 +530,7 @@ export class HermesAdapter implements AgentRuntimeAdapter {
       protocolVersion: '1',
       endpointFingerprint: connected.descriptorFingerprint,
       capabilities: connected.capabilities,
+      observedAt: this.deps.clock.now().toISOString(),
     };
   }
 
@@ -564,11 +617,17 @@ function safeIdentifier(value: unknown): string | undefined {
 }
 
 async function resolveBearerToken(deps: RuntimeAdapterDependencies, config: RuntimeConnectionConfig, options: HermesAdapterOptions): Promise<string | undefined> {
-  if (options.bearerToken) return options.bearerToken;
   if (config.auth?.kind === 'bearer' || config.auth?.kind === 'token') return config.auth.token;
-  const ref = config.credentialRef ?? options.bearerTokenRef;
-  if (!ref) return undefined;
-  const secret = await deps.secrets.get(ref);
+  const ref = config.credentialRef;
+  if (ref) {
+    const secret = await deps.secrets.get(ref);
+    if (!secret) throw runtimeError('AUTHENTICATION_REQUIRED', 'Hermes credential reference could not be resolved', false);
+    return typeof secret.value === 'string' ? secret.value : new TextDecoder().decode(secret.value);
+  }
+  if (options.bearerToken) return options.bearerToken;
+  const defaultRef = options.bearerTokenRef;
+  if (!defaultRef) return undefined;
+  const secret = await deps.secrets.get(defaultRef);
   if (!secret) throw runtimeError('AUTHENTICATION_REQUIRED', 'Hermes credential reference could not be resolved', false);
   return typeof secret.value === 'string' ? secret.value : new TextDecoder().decode(secret.value);
 }
@@ -706,7 +765,7 @@ function normalizeStreamError(error: unknown, signal: AbortSignal): RuntimeError
 }
 
 function isRetryable(error: RuntimeError): boolean {
-  return error.retryable && ['NETWORK', 'TIMEOUT', 'RATE_LIMITED', 'RUNTIME_UNAVAILABLE', 'PROVIDER_UNAVAILABLE'].includes(error.code);
+  return error.retryable && ['NETWORK', 'TIMEOUT', 'RATE_LIMITED', 'PROVIDER_UNAVAILABLE'].includes(error.code);
 }
 
 function retryDelay(error: RuntimeError | undefined, fallback: number): number {
@@ -715,7 +774,7 @@ function retryDelay(error: RuntimeError | undefined, fallback: number): number {
 
 function reconciliationError(observedRun: boolean, lastError: RuntimeError | undefined, maxMs: number): RuntimeError {
   if (observedRun) return runtimeError('TIMEOUT', 'Hermes run did not reach a terminal state before reconciliation expired', true, { maxReconciliationMs: maxMs });
-  if (lastError?.code === 'PROVIDER_UNAVAILABLE' || lastError?.code === 'RUNTIME_UNAVAILABLE' || lastError?.code === 'RATE_LIMITED') return lastError;
+  if (lastError?.code === 'PROVIDER_UNAVAILABLE' || lastError?.code === 'RATE_LIMITED') return lastError;
   return runtimeError('OUTCOME_UNKNOWN', 'Hermes run state could not be reconciled', true, { maxReconciliationMs: maxMs });
 }
 
@@ -778,7 +837,7 @@ function approvalKey(externalRunId: string, approvalId: string): string {
 }
 
 function isOutcomeUnknown(error: unknown): boolean {
-  return error instanceof RuntimeError && ['NETWORK', 'TIMEOUT', 'RUNTIME_UNAVAILABLE', 'PROVIDER_UNAVAILABLE'].includes(error.code);
+  return error instanceof RuntimeError && ['NETWORK', 'TIMEOUT', 'PROVIDER_UNAVAILABLE'].includes(error.code);
 }
 
 function unsupported(message: string): RuntimeError {

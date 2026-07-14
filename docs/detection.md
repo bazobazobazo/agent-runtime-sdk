@@ -61,7 +61,7 @@ been removed until redirect handling is implemented.
 ## Fingerprints And Cache
 
 Detection fingerprints include the normalized endpoint, adapter hint,
-credential reference identifier, transport hint, and detector schema version.
+transport hint, and detector schema version.
 They never include credential values, tokens, passwords, cookies, signatures, or
 device tokens.
 
@@ -111,7 +111,7 @@ values, or runtime descriptors.
 
 Hermes HTTP 401 is classified as `AUTHENTICATION_REQUIRED` when no credentials
 were supplied and `AUTHENTICATION_FAILED` when credentials were supplied. HTTP
-403 is classified as `AUTHORIZATION_FAILED`. Raw response bodies and
+403 is classified as `PERMISSION_DENIED`. Raw response bodies and
 provider-supplied messages are not exposed in public detection errors.
 
 ## Example

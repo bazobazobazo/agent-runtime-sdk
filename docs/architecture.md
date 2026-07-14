@@ -25,6 +25,11 @@ worker crashes.
 
 Codex and Pi directories are private placeholders only.
 
+All adapters follow the shared lifecycle `created`, `connecting`, `connected`,
+`closing`, and `closed`. Explicit export maps separate normal application APIs
+from `/experimental`, `/diagnostics`, and `/testing` surfaces. See
+`public-api.md`.
+
 ## Shared Adapter Conformance
 
 The testing package exports runner-independent conformance cases that use only

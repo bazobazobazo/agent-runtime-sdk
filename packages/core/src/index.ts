@@ -1,11 +1,27 @@
-export * from './adapter.js';
-export * from './async.js';
-export * from './capabilities.js';
-export * from './errors.js';
-export * from './events.js';
-export * from './fingerprint.js';
+export type { AgentRuntimeAdapter, RuntimeAdapterFactory } from './adapter.js';
+export {
+  NO_CAPABILITIES,
+  supportsCapability,
+  requireCapability,
+} from './capabilities.js';
+export { noopLogger, systemClock, IncrementingIdGenerator } from './defaults.js';
+export {
+  RuntimeError,
+  createRuntimeError,
+  hasRuntimeErrorCode,
+  invalidConfiguration,
+  isRuntimeError,
+  toRuntimeError,
+  unsupportedCapability,
+  type RuntimeErrorInput,
+} from './errors.js';
+export {
+  isActiveRuntimeRunStatus,
+  isTerminalEvent,
+  isTerminalRuntimeRunStatus,
+} from './events.js';
 export * from './ports.js';
-export * from './registry.js';
+export { RuntimeRegistry } from './registry.js';
 export * from './security-limits.js';
-export * from './test-ports.js';
+export { normalizeRuntimeTimestamp } from './time.js';
 export * from './types.js';

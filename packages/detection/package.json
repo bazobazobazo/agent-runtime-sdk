@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "description": "Safe runtime detection for Banzae agent runtimes.",
   "license": "Apache-2.0",
+  "engines": { "node": ">=22.13" },
   "type": "module",
   "exports": {
     ".": {

@@ -14,3 +14,8 @@ expiration, adapter, protocol name, and protocol version are still valid.
 Detection aborts HTTP requests, response iterators, WebSocket connections, and
 event iterators on caller cancellation, overall timeout, or per-probe timeout.
 Redirects are not supported.
+
+The package root is the only supported entrypoint. Probe registry internals,
+provider frames, parser helpers, and raw payloads are not public API. Inline
+authentication takes precedence over a credential reference; credentials never
+enter fingerprints or descriptors.

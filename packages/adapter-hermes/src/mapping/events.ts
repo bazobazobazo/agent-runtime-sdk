@@ -1,11 +1,11 @@
 import {
   RuntimeError,
-  runtimeEventBase,
-  sanitizeProviderPayload,
   type RuntimeAdapterDependencies,
   type RuntimeApprovalDecision,
   type RuntimeEvent,
 } from '@banzae/agent-runtime-core';
+import { runtimeEventBase } from '@banzae/agent-runtime-core/experimental';
+import { sanitizeProviderPayload } from '@banzae/agent-runtime-core/diagnostics';
 import {
   validateApprovalRequest,
   validateTerminalEvent,
@@ -86,7 +86,7 @@ export function mapHermesSseEvent(eventName: string | undefined, data: unknown, 
       context.pendingApprovalIds?.push(approvalId);
       return [{
         ...base,
-        type: 'approval.requested',
+        type: 'approval.required',
         approvalId,
         description: approval.description,
         availableDecisions: approval.choices.map(fromHermesChoice),
@@ -157,7 +157,13 @@ function correlate(payload: Record<string, unknown>, context: HermesEventContext
 }
 
 function provider(eventName: string, data: unknown, context: HermesEventContext) {
-  return { adapterId: 'hermes', eventName, raw: context.includeRawProviderPayload ? sanitizeProviderPayload(data) : undefined };
+  return {
+    adapterId: 'hermes',
+    eventName,
+    sanitizedRawPayload: context.includeRawProviderPayload
+      ? sanitizeProviderPayload(data)
+      : undefined,
+  };
 }
 
 function warning(context: HermesEventContext, eventName: string | undefined, data: unknown, message: string): RuntimeEvent {

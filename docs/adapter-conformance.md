@@ -30,7 +30,7 @@ Jest, Node test, or another runner.
 
 ## Shared categories
 
-- connection and descriptor separation;
+- shared lifecycle state, repeated connect/close, and descriptor separation;
 - fail-closed capability reporting;
 - session ID idempotency and isolation;
 - text run creation and exact caller idempotency keys;

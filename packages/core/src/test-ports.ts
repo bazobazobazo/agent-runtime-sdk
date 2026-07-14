@@ -79,7 +79,7 @@ export class IncrementingIdGenerator implements RuntimeIdGenerator {
 export const unavailableHttpTransport: RuntimeHttpTransport = {
   async request(input: RuntimeHttpRequest) {
     throw new RuntimeError({
-      code: 'RUNTIME_UNAVAILABLE',
+      code: 'PROVIDER_UNAVAILABLE',
       retryable: true,
       message: 'No RuntimeHttpTransport configured',
       details: { url: input.url, method: input.method },
@@ -90,7 +90,7 @@ export const unavailableHttpTransport: RuntimeHttpTransport = {
 export const unavailableWebSocketFactory: RuntimeWebSocketFactory = {
   async connect() {
     throw new RuntimeError({
-      code: 'RUNTIME_UNAVAILABLE',
+      code: 'PROVIDER_UNAVAILABLE',
       retryable: true,
       message: 'No RuntimeWebSocketFactory configured',
     });

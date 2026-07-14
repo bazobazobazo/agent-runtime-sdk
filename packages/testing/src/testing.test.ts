@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { TEXT_RUN_CAPABILITIES } from '@banzae/agent-runtime-core';
+import { TEXT_RUN_CAPABILITIES } from '@banzae/agent-runtime-core/testing';
 import { FakeRuntimeAdapter, createRuntimeAdapterConformanceSuite, smokeAdapterContract } from './index.js';
 
 describe('testing package', () => {

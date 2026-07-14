@@ -1,12 +1,7 @@
 import {
   RuntimeError,
-  assertStartRunInput,
-  connectionFingerprint,
+  NO_CAPABILITIES,
   isTerminalEvent,
-  normalizeEndpoint,
-  runtimeEventBase,
-  validateInputCapabilities,
-  withDeadline,
   type AgentRuntimeAdapter,
   type CancelRuntimeRunInput,
   type ConnectOptions,
@@ -16,11 +11,13 @@ import {
   type OperationOptions,
   type ProbeOptions,
   type RuntimeAdapterDependencies,
+  type RuntimeAdapterLifecycleState,
   type RuntimeCapabilities,
   type RuntimeConnectionConfig,
   type RuntimeConnectionInfo,
   type RuntimeEvent,
   type RuntimeHealth,
+  type RuntimeHistoryPage,
   type RuntimeMessage,
   type RuntimeProbeResult,
   type RuntimeRunHandle,
@@ -31,6 +28,14 @@ import {
   type StreamRuntimeRunInput,
   type RuntimeWebSocketConnection,
 } from '@banzae/agent-runtime-core';
+import {
+  assertStartRunInput,
+  connectionFingerprint,
+  normalizeEndpoint,
+  runtimeEventBase,
+  validateInputCapabilities,
+  withDeadline,
+} from '@banzae/agent-runtime-core/experimental';
 import { OpenClawRequestManager } from './transport/request-manager.js';
 import { OpenClawProtocolRegistry } from './protocol/registry.js';
 import { classifyNegotiationFailure } from './protocol/negotiation.js';
@@ -75,6 +80,11 @@ type StoredOpenClawDeviceIdentity = {
 export class OpenClawAdapter implements AgentRuntimeAdapter {
   readonly adapterId = 'openclaw';
   readonly adapterVersion = '0.1.0';
+  private state: RuntimeAdapterLifecycleState = 'created';
+
+  get lifecycleState(): RuntimeAdapterLifecycleState {
+    return this.state;
+  }
 
   private readonly registry = new OpenClawProtocolRegistry();
   private connected?: ConnectedState;
@@ -140,7 +150,15 @@ export class OpenClawAdapter implements AgentRuntimeAdapter {
     }
 
     await this.close();
+    this.state = 'connecting';
     this.target = config.target;
+    let resolvedConfig: RuntimeConnectionConfig;
+    try {
+      resolvedConfig = await resolveOpenClawConnectionConfig(this.deps, config);
+    } catch (error) {
+      this.state = 'closed';
+      throw error;
+    }
     const endpoint = toWebSocketEndpoint(config.target.endpoint);
     const versions = protocolVersionsFromOptions(config.options) ?? this.registry.preferredVersions();
     const failures: RuntimeError[] = [];
@@ -148,8 +166,9 @@ export class OpenClawAdapter implements AgentRuntimeAdapter {
     for (const version of versions) {
       const codec = this.registry.require(version);
       try {
-        const state = await this.connectWithCodec(endpoint, codec, config, options);
+        const state = await this.connectWithCodec(endpoint, codec, resolvedConfig, options);
         this.connected = state;
+        this.state = 'connected';
         return {
           descriptor: this.descriptor(state),
           connectedAt: this.deps.clock.now().toISOString(),
@@ -159,10 +178,14 @@ export class OpenClawAdapter implements AgentRuntimeAdapter {
       } catch (error) {
         const mapped = codec.mapError(error);
         failures.push(mapped);
-        if (classifyNegotiationFailure(mapped) !== 'try-next-protocol') throw mapped;
+        if (classifyNegotiationFailure(mapped) !== 'try-next-protocol') {
+          this.state = 'closed';
+          throw mapped;
+        }
       }
     }
 
+    this.state = 'closed';
     throw new RuntimeError({
       code: 'PROTOCOL_MISMATCH',
       retryable: false,
@@ -181,22 +204,15 @@ export class OpenClawAdapter implements AgentRuntimeAdapter {
       checkedAt: this.deps.clock.now().toISOString(),
       descriptor: this.descriptor(this.connected),
       warnings: [],
-      details: {
-        runtimeProduct: 'openclaw',
-        protocolVersion: this.connected.codec.protocolVersion,
-        methodAvailability: {
-          sessionsCreate: this.connected.codec.supportsMethod('sessions.create', this.connected.hello),
-          chatSend: this.connected.codec.supportsMethod('chat.send', this.connected.hello),
-          agentWait: this.connected.codec.supportsMethod('agent.wait', this.connected.hello),
-          chatHistory: this.connected.codec.supportsMethod('chat.history', this.connected.hello),
-          chatAbort: this.connected.codec.supportsMethod('chat.abort', this.connected.hello),
-        },
-      },
+      checks: [
+        { name: 'gateway', kind: 'transport', status: 'healthy' },
+        { name: 'liveness', kind: 'liveness', status: 'healthy' },
+      ],
     };
   }
 
   async capabilities(): Promise<RuntimeCapabilities> {
-    return this.connected?.codec.capabilities(this.connected.hello) ?? this.registry.require(this.registry.preferredVersions()[0] ?? 4).capabilities();
+    return this.connected?.codec.capabilities(this.connected.hello) ?? NO_CAPABILITIES;
   }
 
   async ensureSession(input: EnsureSessionInput, options?: OperationOptions): Promise<RuntimeSession> {
@@ -249,7 +265,7 @@ export class OpenClawAdapter implements AgentRuntimeAdapter {
 
   streamRun(input: StreamRuntimeRunInput): AsyncIterable<RuntimeEvent> {
     const state = this.requireConnected();
-    if (!state.codec.capabilities(state.hello).runs.streamText) throw unsupported('OpenClaw run streaming is unavailable');
+    if (!state.codec.capabilities(state.hello).runs.stream) throw unsupported('OpenClaw run streaming is unavailable');
     return new OpenClawRunEventStream(state, this.deps, input, this.options.includeRawProviderPayload ?? false);
   }
 
@@ -269,19 +285,22 @@ export class OpenClawAdapter implements AgentRuntimeAdapter {
     state.codec.parseCancelResponse(response);
   }
 
-  async getHistory(input: GetRuntimeHistoryInput, options?: OperationOptions): Promise<RuntimeMessage[]> {
+  async getHistory(input: GetRuntimeHistoryInput, options?: OperationOptions): Promise<RuntimeHistoryPage> {
     const state = this.requireConnected();
     if (!state.codec.capabilities(state.hello).sessions.history) throw unsupported('OpenClaw session history is unavailable');
     const payload = await state.dispatcher.request(state.codec.buildHistory(input), { signal: options?.signal });
-    return normalizeOpenClawHistory(payload);
+    return { messages: normalizeOpenClawHistory(payload) };
   }
 
   async close(): Promise<void> {
+    if (this.state === 'closing') return;
+    this.state = 'closing';
     const dispatcher = this.connected?.dispatcher;
     const connection = this.connected?.connection;
     this.connected = undefined;
     await dispatcher?.close().catch(() => undefined);
     await connection?.close().catch(() => undefined);
+    this.state = 'closed';
   }
 
   private async connectWithCodec(
@@ -376,6 +395,7 @@ export class OpenClawAdapter implements AgentRuntimeAdapter {
       protocolVersion: String(state.codec.protocolVersion),
       endpointFingerprint: state.descriptorFingerprint,
       capabilities: state.codec.capabilities(state.hello),
+      observedAt: this.deps.clock.now().toISOString(),
     };
   }
 
@@ -520,6 +540,27 @@ export function createOpenClawAdapterFactory(options?: OpenClawAdapterOptions) {
     adapterId: 'openclaw',
     create: (dependencies: RuntimeAdapterDependencies) => new OpenClawAdapter(dependencies, options),
   };
+}
+
+async function resolveOpenClawConnectionConfig(
+  dependencies: RuntimeAdapterDependencies,
+  config: RuntimeConnectionConfig,
+): Promise<RuntimeConnectionConfig> {
+  if (config.auth || !config.credentialRef) return config;
+  const secret = await dependencies.secrets.get(config.credentialRef);
+  if (!secret) {
+    throw new RuntimeError({
+      code: 'AUTHENTICATION_REQUIRED',
+      retryable: false,
+      adapterId: 'openclaw',
+      message: 'OpenClaw credential reference could not be resolved',
+      operation: 'connect',
+    });
+  }
+  const token = typeof secret.value === 'string'
+    ? secret.value
+    : new TextDecoder().decode(secret.value);
+  return { ...config, auth: { kind: 'token', token } };
 }
 
 class OpenClawRunEventStream implements AsyncIterableIterator<RuntimeEvent> {

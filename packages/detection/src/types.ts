@@ -29,7 +29,7 @@ export type RuntimeDetectionOptions = {
 };
 
 export type PersistedRuntimeDetection = {
-  schemaVersion?: number;
+  schemaVersion: number;
   adapterId: string;
   runtimeProduct: string;
   runtimeVersion?: string;

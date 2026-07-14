@@ -1,7 +1,6 @@
 import {
   RuntimeError,
   NO_CAPABILITIES,
-  runtimeEventBase,
   type CancelRuntimeRunInput,
   type EnsureSessionInput,
   type GetRuntimeHistoryInput,
@@ -11,6 +10,7 @@ import {
   type RuntimeRunSnapshot,
   type StartRuntimeRunInput,
 } from '@banzae/agent-runtime-core';
+import { runtimeEventBase } from '@banzae/agent-runtime-core/experimental';
 import type {
   OpenClawCancelResult,
   OpenClawChallenge,
@@ -195,7 +195,7 @@ export abstract class MappedOpenClawCodec implements OpenClawProtocolCodec {
     const provider = {
       adapterId: 'openclaw',
       eventName: event.event,
-      ...(context.includeRawProviderPayload ? { raw: sanitizeOpenClawPayload(event.payload) } : {}),
+      ...(context.includeRawProviderPayload ? { sanitizedRawPayload: sanitizeOpenClawPayload(event.payload) } : {}),
     };
 
     if (this.mappings.deltaEvents.includes(event.event) && text) {
@@ -298,7 +298,7 @@ export abstract class MappedOpenClawCodec implements OpenClawProtocolCodec {
     if (providerCode === 'NOT_PAIRED' || detailCode === 'PAIRING_REQUIRED' || lower.includes('pairing required')) {
       return new RuntimeError({ code: 'PAIRING_REQUIRED', retryable: false, message: 'OpenClaw device pairing is required', adapterId: 'openclaw', details: providerDetails });
     }
-    if (lower.includes('permission') || lower.includes('forbidden') || lower.includes('missing scope')) {
+    if (providerCode === 'AUTHORIZATION_FAILED' || providerCode === 'PERMISSION_DENIED' || detailCode === 'AUTHORIZATION_FAILED' || detailCode === 'PERMISSION_DENIED' || lower.includes('permission') || lower.includes('forbidden') || lower.includes('missing scope')) {
       return new RuntimeError({ code: 'PERMISSION_DENIED', retryable: false, message: 'OpenClaw permission was denied', adapterId: 'openclaw', details: providerDetails });
     }
     if (lower.includes('auth') || lower.includes('token') || providerCode === 'AUTHENTICATION_FAILED') {
@@ -334,8 +334,7 @@ export abstract class MappedOpenClawCodec implements OpenClawProtocolCodec {
       runs: {
         start: runStart,
         status: methods.has(this.mappings.runWaitMethod),
-        streamText: runStream,
-        streamTools: false,
+        stream: runStream,
         cancel: methods.has(this.mappings.cancelMethod) || methods.has('sessions.abort'),
         approvals: false,
       },
@@ -345,6 +344,10 @@ export abstract class MappedOpenClawCodec implements OpenClawProtocolCodec {
         reasoning: false,
         tools: false,
         usage: false,
+      },
+      health: {
+        liveness: true,
+        readiness: methods.has('health') || methods.has('status'),
       },
       extensions: {
         'openclaw.cron': methods.has('cron.add') || methods.has('cron.list'),

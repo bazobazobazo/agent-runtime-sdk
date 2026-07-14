@@ -1,17 +1,24 @@
 import {
-  TEXT_RUN_CAPABILITIES,
-  assertStartRunInput,
-  runtimeEventBase,
-  validateInputCapabilities,
+  NO_CAPABILITIES,
+  RuntimeError,
   type AgentRuntimeAdapter,
   type RuntimeCapabilities,
+  type RuntimeAdapterLifecycleState,
   type RuntimeEvent,
   type StartRuntimeRunInput,
 } from '@banzae/agent-runtime-core';
+import { TEXT_RUN_CAPABILITIES } from '@banzae/agent-runtime-core/testing';
+import {
+  assertStartRunInput,
+  runtimeEventBase,
+  validateInputCapabilities,
+} from '@banzae/agent-runtime-core/experimental';
 
 export class FakeRuntimeAdapter implements AgentRuntimeAdapter {
   readonly adapterId = 'fake';
   readonly adapterVersion = '0.1.0';
+  private state: RuntimeAdapterLifecycleState = 'created';
+  get lifecycleState(): RuntimeAdapterLifecycleState { return this.state; }
   private closed = false;
   private readonly caps: RuntimeCapabilities;
 
@@ -35,6 +42,8 @@ export class FakeRuntimeAdapter implements AgentRuntimeAdapter {
   }
 
   async connect() {
+    this.state = 'connected';
+    this.closed = false;
     return {
       descriptor: {
         schemaVersion: 1 as const,
@@ -51,18 +60,24 @@ export class FakeRuntimeAdapter implements AgentRuntimeAdapter {
   }
 
   async health() {
-    return { status: 'healthy' as const, checkedAt: new Date().toISOString(), warnings: [] };
+    return {
+      status: this.state === 'connected' ? 'healthy' as const : 'unavailable' as const,
+      checkedAt: new Date().toISOString(),
+      warnings: this.state === 'connected' ? [] : ['not connected'],
+    };
   }
 
   async capabilities() {
-    return this.caps;
+    return this.state === 'connected' ? this.caps : NO_CAPABILITIES;
   }
 
   async ensureSession(input: { applicationSessionId: string }) {
+    this.assertConnected();
     return { applicationSessionId: input.applicationSessionId, externalSessionId: input.applicationSessionId, created: true };
   }
 
   async startRun(input: StartRuntimeRunInput) {
+    this.assertConnected();
     assertStartRunInput(input);
     validateInputCapabilities(this.caps, input.input);
     return { applicationRunId: input.applicationRunId, externalRunId: `fake:${input.applicationRunId}`, status: 'running' as const };
@@ -95,20 +110,33 @@ export class FakeRuntimeAdapter implements AgentRuntimeAdapter {
   }
 
   async getRun(input: { applicationRunId: string; externalRunId: string }) {
+    this.assertConnected();
     return { applicationRunId: input.applicationRunId, externalRunId: input.externalRunId, status: 'completed' as const, output: 'ok' };
   }
 
   async cancelRun() {}
 
   async getHistory() {
-    return [{ role: 'assistant' as const, content: 'ok' }];
+    return { messages: [{ role: 'assistant' as const, content: 'ok' }] };
   }
 
   async close() {
+    this.state = 'closing';
     this.closed = true;
+    this.state = 'closed';
   }
 
   isClosed(): boolean {
     return this.closed;
+  }
+
+  private assertConnected(): void {
+    if (this.state !== 'connected') {
+      throw new RuntimeError({
+        code: 'INVALID_CONFIGURATION',
+        retryable: false,
+        message: 'Fake adapter is not connected',
+      });
+    }
   }
 }

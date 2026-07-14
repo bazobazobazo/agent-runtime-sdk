@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { createTestDependencies } from '@banzae/agent-runtime-core';
-import { OpenClawAdapter, openClawV3Codec, openClawV4Codec } from '../../adapter-openclaw/src/index.js';
+import { createTestDependencies } from '@banzae/agent-runtime-core/testing';
+import { OpenClawAdapter } from '../../adapter-openclaw/src/index.js';
+import { openClawV3Codec } from '../../adapter-openclaw/src/protocol/v3/codec.js';
+import { openClawV4Codec } from '../../adapter-openclaw/src/protocol/v4/codec.js';
 import { HermesAdapter } from '../../adapter-hermes/src/index.js';
 import { FakeHermesServer } from './fake-hermes-server.js';
 import { FakeOpenClawV3Server, FakeOpenClawV4Server } from './fake-openclaw-server.js';

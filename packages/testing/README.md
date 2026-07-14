@@ -67,3 +67,7 @@ atomic report writes, and the protected manual workflow described in
 
 See `docs/adapter-conformance.md` for the complete contract and adapter-author
 workflow.
+
+This entire package is testing-only. Fake controllers and synthetic fixtures do
+not prove compatibility with a live runtime, and private controller state is not
+part of the supported surface.
