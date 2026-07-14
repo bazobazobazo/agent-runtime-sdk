@@ -55,9 +55,10 @@ function validReport() {
     capabilities: {
       schemaVersion: 1,
       sessions: { create: false, resume: false, history: false, fork: false },
-      runs: { start: false, status: false, streamText: false, streamTools: false, cancel: false, approvals: false },
+      runs: { start: false, status: false, stream: false, cancel: false, approvals: false },
       input: { text: false, images: false, files: false },
       output: { text: false, reasoning: false, tools: false, usage: false },
+      health: { liveness: false, readiness: false },
       extensions: {},
     },
     checks: [],

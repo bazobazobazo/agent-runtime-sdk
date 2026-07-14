@@ -1596,6 +1596,14 @@
     {
       "package": "@banzae/agent-runtime-testing",
       "entrypoint": ".",
+      "name": "assertNoLiveReportSecrets",
+      "kind": "FunctionDeclaration",
+      "classification": "testing-only",
+      "signature": "(value: unknown, markers?: readonly string[]) => void"
+    },
+    {
+      "package": "@banzae/agent-runtime-testing",
+      "entrypoint": ".",
       "name": "assertResourcesReleased",
       "kind": "FunctionDeclaration",
       "classification": "testing-only",
@@ -1632,6 +1640,14 @@
       "kind": "FunctionDeclaration",
       "classification": "testing-only",
       "signature": "(previous: LiveCompatibilityReport, current: LiveCompatibilityReport) => LiveCompatibilityDiff"
+    },
+    {
+      "package": "@banzae/agent-runtime-testing",
+      "entrypoint": ".",
+      "name": "createLiveFixtureCandidate",
+      "kind": "FunctionDeclaration",
+      "classification": "testing-only",
+      "signature": "(input: { report: LiveCompatibilityReport; payload: unknown; }) => LiveFixtureCandidate"
     },
     {
       "package": "@banzae/agent-runtime-testing",
@@ -1732,10 +1748,42 @@
     {
       "package": "@banzae/agent-runtime-testing",
       "entrypoint": ".",
+      "name": "formatLiveCompatibilityReport",
+      "kind": "FunctionDeclaration",
+      "classification": "testing-only",
+      "signature": "(report: LiveCompatibilityReport) => string"
+    },
+    {
+      "package": "@banzae/agent-runtime-testing",
+      "entrypoint": ".",
+      "name": "LIVE_COMPATIBILITY_PREFIX",
+      "kind": "VariableDeclaration",
+      "classification": "testing-only",
+      "signature": "\"banzae-sdk-compat-\""
+    },
+    {
+      "package": "@banzae/agent-runtime-testing",
+      "entrypoint": ".",
       "name": "LIVE_COMPATIBILITY_PROMPT",
       "kind": "VariableDeclaration",
       "classification": "testing-only",
       "signature": "\"Reply with exactly: BANZAE_RUNTIME_COMPATIBILITY_OK\""
+    },
+    {
+      "package": "@banzae/agent-runtime-testing",
+      "entrypoint": ".",
+      "name": "LIVE_COMPATIBILITY_REPORT_SCHEMA_VERSION",
+      "kind": "VariableDeclaration",
+      "classification": "testing-only",
+      "signature": "1"
+    },
+    {
+      "package": "@banzae/agent-runtime-testing",
+      "entrypoint": ".",
+      "name": "LIVE_FIXTURE_SANITIZER_VERSION",
+      "kind": "VariableDeclaration",
+      "classification": "testing-only",
+      "signature": "\"live-compatibility-v1\""
     },
     {
       "package": "@banzae/agent-runtime-testing",
@@ -1748,10 +1796,42 @@
     {
       "package": "@banzae/agent-runtime-testing",
       "entrypoint": ".",
+      "name": "LiveCompatibilityCheck",
+      "kind": "TypeAliasDeclaration",
+      "classification": "testing-only",
+      "signature": "LiveCompatibilityCheck"
+    },
+    {
+      "package": "@banzae/agent-runtime-testing",
+      "entrypoint": ".",
+      "name": "LiveCompatibilityCheckContext",
+      "kind": "TypeAliasDeclaration",
+      "classification": "testing-only",
+      "signature": "LiveCompatibilityCheckContext"
+    },
+    {
+      "package": "@banzae/agent-runtime-testing",
+      "entrypoint": ".",
+      "name": "LiveCompatibilityDiff",
+      "kind": "TypeAliasDeclaration",
+      "classification": "testing-only",
+      "signature": "LiveCompatibilityDiff"
+    },
+    {
+      "package": "@banzae/agent-runtime-testing",
+      "entrypoint": ".",
       "name": "LiveCompatibilityReport",
       "kind": "TypeAliasDeclaration",
       "classification": "testing-only",
       "signature": "LiveCompatibilityReport"
+    },
+    {
+      "package": "@banzae/agent-runtime-testing",
+      "entrypoint": ".",
+      "name": "LiveCompatibilityReportMetadata",
+      "kind": "TypeAliasDeclaration",
+      "classification": "testing-only",
+      "signature": "LiveCompatibilityReportMetadata"
     },
     {
       "package": "@banzae/agent-runtime-testing",
@@ -1764,6 +1844,22 @@
     {
       "package": "@banzae/agent-runtime-testing",
       "entrypoint": ".",
+      "name": "LiveEnvironmentConfig",
+      "kind": "TypeAliasDeclaration",
+      "classification": "testing-only",
+      "signature": "LiveEnvironmentConfig"
+    },
+    {
+      "package": "@banzae/agent-runtime-testing",
+      "entrypoint": ".",
+      "name": "LiveFixtureCandidate",
+      "kind": "TypeAliasDeclaration",
+      "classification": "testing-only",
+      "signature": "LiveFixtureCandidate"
+    },
+    {
+      "package": "@banzae/agent-runtime-testing",
+      "entrypoint": ".",
       "name": "LiveMutationPolicy",
       "kind": "TypeAliasDeclaration",
       "classification": "testing-only",
@@ -1772,10 +1868,34 @@
     {
       "package": "@banzae/agent-runtime-testing",
       "entrypoint": ".",
+      "name": "LiveProvider",
+      "kind": "TypeAliasDeclaration",
+      "classification": "testing-only",
+      "signature": "LiveProvider"
+    },
+    {
+      "package": "@banzae/agent-runtime-testing",
+      "entrypoint": ".",
+      "name": "parseLiveEnvironment",
+      "kind": "FunctionDeclaration",
+      "classification": "testing-only",
+      "signature": "(provider: LiveProvider, environment: Readonly<Record<string, string | undefined>>) => LiveEnvironmentConfig"
+    },
+    {
+      "package": "@banzae/agent-runtime-testing",
+      "entrypoint": ".",
       "name": "runLiveCompatibility",
       "kind": "FunctionDeclaration",
       "classification": "testing-only",
       "signature": "(options: RunLiveCompatibilityOptions) => Promise<LiveCompatibilityReport>"
+    },
+    {
+      "package": "@banzae/agent-runtime-testing",
+      "entrypoint": ".",
+      "name": "RunLiveCompatibilityOptions",
+      "kind": "TypeAliasDeclaration",
+      "classification": "testing-only",
+      "signature": "RunLiveCompatibilityOptions"
     },
     {
       "package": "@banzae/agent-runtime-testing",
@@ -1844,6 +1964,14 @@
     {
       "package": "@banzae/agent-runtime-testing",
       "entrypoint": ".",
+      "name": "sanitizeLiveValue",
+      "kind": "FunctionDeclaration",
+      "classification": "testing-only",
+      "signature": "(value: unknown, options?: { replaceIdentifiers?: boolean; }) => unknown"
+    },
+    {
+      "package": "@banzae/agent-runtime-testing",
+      "entrypoint": ".",
       "name": "smokeAdapterContract",
       "kind": "FunctionDeclaration",
       "classification": "testing-only",
@@ -1856,6 +1984,22 @@
       "kind": "FunctionDeclaration",
       "classification": "testing-only",
       "signature": "(value: unknown) => asserts value is LiveCompatibilityReport"
+    },
+    {
+      "package": "@banzae/agent-runtime-testing",
+      "entrypoint": ".",
+      "name": "validateLiveEndpoint",
+      "kind": "FunctionDeclaration",
+      "classification": "testing-only",
+      "signature": "(endpoint: string, provider: LiveProvider) => void"
+    },
+    {
+      "package": "@banzae/agent-runtime-testing",
+      "entrypoint": ".",
+      "name": "validateLiveFixtureCandidate",
+      "kind": "FunctionDeclaration",
+      "classification": "testing-only",
+      "signature": "(value: unknown) => asserts value is LiveFixtureCandidate"
     }
   ]
 }

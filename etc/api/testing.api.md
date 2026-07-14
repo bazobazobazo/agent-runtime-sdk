@@ -4,6 +4,8 @@
 
 - **AdapterTestHarness** — testing-only — `TypeAliasDeclaration`
   - `AdapterTestHarness`
+- **assertNoLiveReportSecrets** — testing-only — `FunctionDeclaration`
+  - `(value: unknown, markers?: readonly string[]) => void`
 - **assertResourcesReleased** — testing-only — `FunctionDeclaration`
   - `(snapshot: RuntimeConformanceResourceSnapshot | undefined) => void`
 - **assertRuntimeError** — testing-only — `FunctionDeclaration`
@@ -14,6 +16,8 @@
   - `(stream: AsyncIterable<RuntimeEvent>, maximum?: number) => Promise<RuntimeEvent[]>`
 - **compareLiveCompatibilityReports** — testing-only — `FunctionDeclaration`
   - `(previous: LiveCompatibilityReport, current: LiveCompatibilityReport) => LiveCompatibilityDiff`
+- **createLiveFixtureCandidate** — testing-only — `FunctionDeclaration`
+  - `(input: { report: LiveCompatibilityReport; payload: unknown; }) => LiveFixtureCandidate`
 - **createRuntimeAdapterConformanceSuite** — testing-only — `FunctionDeclaration`
   - `<TTarget extends RuntimeConformanceTarget>(config: RuntimeAdapterConformanceConfig<TTarget>) => RuntimeAdapterConformanceSuite`
 - **createSecretMarker** — testing-only — `FunctionDeclaration`
@@ -38,18 +42,44 @@
   - `typeof FakeOpenClawV4Server`
 - **FakeRuntimeAdapter** — testing-only — `ClassDeclaration`
   - `typeof FakeRuntimeAdapter`
+- **formatLiveCompatibilityReport** — testing-only — `FunctionDeclaration`
+  - `(report: LiveCompatibilityReport) => string`
+- **LIVE_COMPATIBILITY_PREFIX** — testing-only — `VariableDeclaration`
+  - `"banzae-sdk-compat-"`
 - **LIVE_COMPATIBILITY_PROMPT** — testing-only — `VariableDeclaration`
   - `"Reply with exactly: BANZAE_RUNTIME_COMPATIBILITY_OK"`
+- **LIVE_COMPATIBILITY_REPORT_SCHEMA_VERSION** — testing-only — `VariableDeclaration`
+  - `1`
+- **LIVE_FIXTURE_SANITIZER_VERSION** — testing-only — `VariableDeclaration`
+  - `"live-compatibility-v1"`
 - **LiveCheckResult** — testing-only — `TypeAliasDeclaration`
   - `LiveCheckResult`
+- **LiveCompatibilityCheck** — testing-only — `TypeAliasDeclaration`
+  - `LiveCompatibilityCheck`
+- **LiveCompatibilityCheckContext** — testing-only — `TypeAliasDeclaration`
+  - `LiveCompatibilityCheckContext`
+- **LiveCompatibilityDiff** — testing-only — `TypeAliasDeclaration`
+  - `LiveCompatibilityDiff`
 - **LiveCompatibilityReport** — testing-only — `TypeAliasDeclaration`
   - `LiveCompatibilityReport`
+- **LiveCompatibilityReportMetadata** — testing-only — `TypeAliasDeclaration`
+  - `LiveCompatibilityReportMetadata`
 - **LiveCompatibilityTarget** — testing-only — `TypeAliasDeclaration`
   - `LiveCompatibilityTarget`
+- **LiveEnvironmentConfig** — testing-only — `TypeAliasDeclaration`
+  - `LiveEnvironmentConfig`
+- **LiveFixtureCandidate** — testing-only — `TypeAliasDeclaration`
+  - `LiveFixtureCandidate`
 - **LiveMutationPolicy** — testing-only — `TypeAliasDeclaration`
   - `LiveMutationPolicy`
+- **LiveProvider** — testing-only — `TypeAliasDeclaration`
+  - `LiveProvider`
+- **parseLiveEnvironment** — testing-only — `FunctionDeclaration`
+  - `(provider: LiveProvider, environment: Readonly<Record<string, string | undefined>>) => LiveEnvironmentConfig`
 - **runLiveCompatibility** — testing-only — `FunctionDeclaration`
   - `(options: RunLiveCompatibilityOptions) => Promise<LiveCompatibilityReport>`
+- **RunLiveCompatibilityOptions** — testing-only — `TypeAliasDeclaration`
+  - `RunLiveCompatibilityOptions`
 - **RuntimeAdapterConformanceConfig** — testing-only — `TypeAliasDeclaration`
   - `RuntimeAdapterConformanceConfig<TTarget>`
 - **RuntimeAdapterConformanceScenarios** — testing-only — `TypeAliasDeclaration`
@@ -66,7 +96,13 @@
   - `RuntimeConformanceResourceSnapshot`
 - **RuntimeConformanceTarget** — testing-only — `TypeAliasDeclaration`
   - `RuntimeConformanceTarget`
+- **sanitizeLiveValue** — testing-only — `FunctionDeclaration`
+  - `(value: unknown, options?: { replaceIdentifiers?: boolean; }) => unknown`
 - **smokeAdapterContract** — testing-only — `FunctionDeclaration`
   - `(harness: AdapterTestHarness) => Promise<void>`
 - **validateLiveCompatibilityReport** — testing-only — `FunctionDeclaration`
   - `(value: unknown) => asserts value is LiveCompatibilityReport`
+- **validateLiveEndpoint** — testing-only — `FunctionDeclaration`
+  - `(endpoint: string, provider: LiveProvider) => void`
+- **validateLiveFixtureCandidate** — testing-only — `FunctionDeclaration`
+  - `(value: unknown) => asserts value is LiveFixtureCandidate`
