@@ -51,5 +51,19 @@ Fake servers are testing-only. They contain synthetic values and prove SDK
 behavior against controlled protocol evidence; they do not prove compatibility
 with a live runtime release.
 
+## Live compatibility utilities
+
+The package exports `runLiveCompatibility()`, the versioned
+`LiveCompatibilityReport` schema, environment/mutation gate parsing, recursive
+sanitization, fixture-candidate validation, and safe report comparison. The
+runner accepts public `AgentRuntimeAdapter` instances and ordered checks, links
+per-check and overall cancellation, records required versus optional outcomes,
+and closes the adapter in `finally`.
+
+These exports are safe building blocks; they do not contact a runtime by
+themselves. The repository's Node CLI provides credential-reference resolution,
+atomic report writes, and the protected manual workflow described in
+`docs/live-compatibility.md`.
+
 See `docs/adapter-conformance.md` for the complete contract and adapter-author
 workflow.

@@ -40,6 +40,22 @@ public operation. Provider-specific suites remain responsible for codec
 negotiation, device state, sequence gaps, Hermes recovery timing, and other
 wire-only contracts. See `adapter-conformance.md`.
 
+## Live Compatibility Harness
+
+The testing package also exports a provider-neutral live check runner, report
+schema, recursive sanitizer, fixture-candidate model, and report comparison
+API. Node CLI composition resolves environment-backed credential references,
+constructs the registered adapter, and executes ordered checks under linked
+per-check and overall abort controllers. The adapter is closed in `finally`,
+including when a required check fails or times out.
+
+Read-only connection, capability, and health checks are the default. Controlled
+session, run, cancellation, and approval operations require independent
+mutation gates. Reports contain endpoint fingerprints instead of URLs and pass
+a final secret scan before atomic write. The manual GitHub workflow is the only
+CI path allowed to contact a live runtime; ordinary CI uses fake transports.
+See `live-compatibility.md`.
+
 ## Runtime Detection
 
 Runtime detection is provider-neutral and independent from application concerns

@@ -1,0 +1,119 @@
+name: Live runtime compatibility
+
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: Runtime target
+        required: true
+        type: choice
+        options:
+          - openclaw
+          - hermes
+          - both
+      allow_mutation:
+        description: Allow dedicated compatibility mutations
+        required: true
+        default: false
+        type: boolean
+      allow_chat_run:
+        description: Allow one fixed text-only compatibility run
+        required: true
+        default: false
+        type: boolean
+      allow_cancellation:
+        description: Allow a confirmed safe cancellation scenario
+        required: true
+        default: false
+        type: boolean
+      allow_approval:
+        description: Allow a configured safe approval scenario
+        required: true
+        default: false
+        type: boolean
+      capture_fixture_candidates:
+        description: Stage sanitized fixture candidates for manual review
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: live-compatibility-${{ inputs.target }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    name: Live compatibility (${{ inputs.target }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: live-compatibility
+    env:
+      RUNTIME_LIVE_ENABLED: 'true'
+      OPENCLAW_ENDPOINT: ${{ secrets.OPENCLAW_ENDPOINT }}
+      OPENCLAW_CREDENTIAL_REF: env:OPENCLAW_GATEWAY_TOKEN
+      OPENCLAW_GATEWAY_TOKEN: ${{ secrets.OPENCLAW_GATEWAY_TOKEN }}
+      OPENCLAW_PROTOCOL: ${{ vars.OPENCLAW_PROTOCOL || 'auto' }}
+      HERMES_ENDPOINT: ${{ secrets.HERMES_ENDPOINT }}
+      HERMES_CREDENTIAL_REF: env:HERMES_API_TOKEN
+      HERMES_API_TOKEN: ${{ secrets.HERMES_API_TOKEN }}
+      LIVE_ALLOW_MUTATION: ${{ inputs.allow_mutation }}
+      LIVE_ALLOW_CHAT_RUN: ${{ inputs.allow_chat_run }}
+      LIVE_ALLOW_CANCELLATION: ${{ inputs.allow_cancellation }}
+      LIVE_CANCELLATION_SCENARIO_CONFIRMED: ${{ inputs.allow_cancellation }}
+      LIVE_ALLOW_APPROVAL: ${{ inputs.allow_approval }}
+      LIVE_APPROVAL_SCENARIO: ${{ vars.LIVE_APPROVAL_SCENARIO }}
+      LIVE_CAPTURE_FIXTURES: ${{ inputs.capture_fixture_candidates }}
+      LIVE_OUTPUT_DIR: artifacts/live-compatibility
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.x
+
+      - name: Enable pinned pnpm
+        run: |
+          corepack enable
+          corepack prepare pnpm@11.10.0 --activate
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build live harness
+        run: pnpm build
+
+      - name: Run live compatibility
+        run: node ./scripts/live-compatibility.mjs ${{ inputs.target }} --json
+
+      - name: Validate fixture candidates
+        if: ${{ inputs.capture_fixture_candidates }}
+        run: pnpm live:fixtures
+
+      - name: Upload sanitized reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: live-compatibility-${{ inputs.target }}
+          path: artifacts/live-compatibility/*.json
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Upload fixture candidates
+        if: ${{ inputs.capture_fixture_candidates }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: live-fixture-candidates-${{ inputs.target }}
+          path: artifacts/live-compatibility/fixture-candidates/*.candidate.json
+          if-no-files-found: error
+          retention-days: 3
+
+      - name: Cleanup runtime state
+        if: always()
+        run: |
+          find .runtime-state -type f -delete 2>/dev/null || true
