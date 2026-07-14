@@ -1,0 +1,15 @@
+{
+  "metadata": {
+    "runtimeProduct": "openclaw",
+    "runtimeVersion": "2026.6.11",
+    "protocolVersion": 4,
+    "captureDate": "2026-07-14",
+    "fixtureSchemaVersion": 1,
+    "sanitizerVersion": "openclaw-sanitizer-v2",
+    "source": "synthetic"
+  },
+  "payload": {
+    "runId": "provider-run-1",
+    "status": "running"
+  }
+}

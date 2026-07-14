@@ -1,0 +1,14 @@
+{
+  "metadata": {
+    "runtimeProduct": "openclaw",
+    "runtimeVersion": "2026.4.22",
+    "protocolVersion": 3,
+    "captureDate": "2026-07-14",
+    "fixtureSchemaVersion": 1,
+    "sanitizerVersion": "openclaw-sanitizer-v2",
+    "source": "synthetic"
+  },
+  "payload": {
+    "messages": [{ "id": "msg-1", "role": "assistant", "content": [{ "text": "hello" }] }]
+  }
+}

@@ -271,14 +271,33 @@ export declare function createOpenClawAdapterFactory(options?: OpenClawAdapterOp
 };
 ```
 
+### protocol/negotiation.d.ts
+
+```ts
+import type { RuntimeError } from '@banzae/agent-runtime-core';
+export type OpenClawNegotiationDecision = 'try-next-protocol' | 'fail-closed';
+export declare function classifyNegotiationFailure(error: RuntimeError): OpenClawNegotiationDecision;
+```
+
 ### protocol/registry.d.ts
 
 ```ts
 import type { OpenClawProtocolCodec } from './types.js';
+export declare const OPENCLAW_SUPPORTED_PROTOCOLS: readonly [{
+    readonly protocolName: "openclaw-gateway-v4";
+    readonly protocolVersion: 4;
+    readonly status: "supported";
+}, {
+    readonly protocolName: "openclaw-gateway-v3";
+    readonly protocolVersion: 3;
+    readonly status: "supported";
+}];
 export declare class OpenClawProtocolRegistry {
     private readonly codecs;
     register(codec: OpenClawProtocolCodec): void;
+    supportedVersions(): number[];
     preferredVersions(): number[];
+    get(version: number): OpenClawProtocolCodec | undefined;
     require(version: number): OpenClawProtocolCodec;
 }
 ```
@@ -286,11 +305,35 @@ export declare class OpenClawProtocolRegistry {
 ### protocol/shared.d.ts
 
 ```ts
-import { RuntimeError, type CancelRuntimeRunInput, type EnsureSessionInput, type GetRuntimeHistoryInput, type GetRuntimeRunInput, type RuntimeCapabilities, type RuntimeEvent, type StartRuntimeRunInput } from '@banzae/agent-runtime-core';
-import type { OpenClawConnectInput, OpenClawFrame, OpenClawHello, OpenClawProviderEventMetadata, OpenClawProtocolCodec, OpenClawRpcRequest, OpenClawRunContext } from './types.js';
-export declare abstract class BaseOpenClawCodec implements OpenClawProtocolCodec {
+export { MappedOpenClawCodec as BaseOpenClawCodec, type OpenClawProtocolMappings } from './shared/base-codec.js';
+export { OPENCLAW_SANITIZER_VERSION, asRecord, booleanValue, numberValue, optionalRecord, protocolError, protocolMismatch, sanitizeOpenClawPayload, stringArray, stringValue, validTimestamp, } from './shared/validation.js';
+```
+
+### protocol/shared/base-codec.d.ts
+
+```ts
+import { RuntimeError, type CancelRuntimeRunInput, type EnsureSessionInput, type GetRuntimeHistoryInput, type GetRuntimeRunInput, type RuntimeCapabilities, type RuntimeEvent, type RuntimeRunSnapshot, type StartRuntimeRunInput } from '@banzae/agent-runtime-core';
+import type { OpenClawCancelResult, OpenClawChallenge, OpenClawConnectInput, OpenClawFrame, OpenClawHello, OpenClawProviderEventMetadata, OpenClawProtocolCodec, OpenClawRpcRequest, OpenClawRunContext, OpenClawRunStartResult } from '../types.js';
+export type OpenClawProtocolMappings = {
+    connectEvent: string;
+    connectMethod: string;
+    sessionCreateMethod: string;
+    runStartMethod: string;
+    runWaitMethod: string;
+    historyMethod: string;
+    cancelMethod: string;
+    deltaEvents: readonly string[];
+    completedEvents: readonly string[];
+    failedEvents: readonly string[];
+    cancelledEvents: readonly string[];
+    timeoutEvents: readonly string[];
+    diagnosticEvents: readonly string[];
+};
+export declare abstract class MappedOpenClawCodec implements OpenClawProtocolCodec {
     abstract readonly protocolVersion: number;
     abstract readonly protocolName: `openclaw-gateway-v${number}`;
+    protected abstract readonly mappings: OpenClawProtocolMappings;
+    parseChallenge(frame: OpenClawFrame): OpenClawChallenge | undefined;
     createConnectParams(input: OpenClawConnectInput): Record<string, unknown>;
     parseHello(payload: unknown): OpenClawHello;
     parseFrame(input: string | Uint8Array): OpenClawFrame;
@@ -301,6 +344,9 @@ export declare abstract class BaseOpenClawCodec implements OpenClawProtocolCodec
     mapProviderEvent(event: Extract<OpenClawFrame, {
         type: 'event';
     }>, context: OpenClawRunContext): RuntimeEvent[];
+    parseRunStartResponse(payload: unknown): OpenClawRunStartResult;
+    parseRunWaitResponse(input: GetRuntimeRunInput, payload: unknown): RuntimeRunSnapshot;
+    parseCancelResponse(payload: unknown): OpenClawCancelResult;
     mapError(error: unknown): RuntimeError;
     supportsMethod(method: string, hello: OpenClawHello): boolean;
     capabilities(hello?: OpenClawHello): RuntimeCapabilities;
@@ -310,16 +356,29 @@ export declare abstract class BaseOpenClawCodec implements OpenClawProtocolCodec
     buildHistory(input: GetRuntimeHistoryInput): OpenClawRpcRequest;
     buildCancel(input: CancelRuntimeRunInput): OpenClawRpcRequest;
 }
-export declare function asRecord(value: unknown): Record<string, unknown>;
+```
+
+### protocol/shared/validation.d.ts
+
+```ts
+import { RuntimeError } from '@banzae/agent-runtime-core';
+export declare function asRecord(value: unknown, context?: string): Record<string, unknown>;
+export declare function optionalRecord(value: unknown): Record<string, unknown>;
 export declare function stringValue(value: unknown): string | undefined;
 export declare function numberValue(value: unknown): number | undefined;
+export declare function booleanValue(value: unknown): boolean | undefined;
 export declare function stringArray(value: unknown): string[];
+export declare function validTimestamp(value?: string): string | undefined;
+export declare function protocolError(message: string, details?: Record<string, unknown>): RuntimeError;
+export declare function protocolMismatch(message: string, details?: Record<string, unknown>): RuntimeError;
+export declare const OPENCLAW_SANITIZER_VERSION = "openclaw-sanitizer-v2";
+export declare function sanitizeOpenClawPayload(value: unknown): unknown;
 ```
 
 ### protocol/types.d.ts
 
 ```ts
-import type { CancelRuntimeRunInput, EnsureSessionInput, GetRuntimeHistoryInput, GetRuntimeRunInput, RuntimeAdapterDependencies, RuntimeCapabilities, RuntimeEvent, StartRuntimeRunInput } from '@banzae/agent-runtime-core';
+import type { CancelRuntimeRunInput, EnsureSessionInput, GetRuntimeHistoryInput, GetRuntimeRunInput, RuntimeAdapterDependencies, RuntimeCapabilities, RuntimeEvent, RuntimeRunSnapshot, StartRuntimeRunInput } from '@banzae/agent-runtime-core';
 import type { RuntimeError } from '@banzae/agent-runtime-core';
 export type OpenClawFrame = {
     type: 'event';
@@ -385,6 +444,28 @@ export type OpenClawHello = {
     features: Record<string, unknown>;
     raw: unknown;
 };
+export type OpenClawChallenge = {
+    nonce?: string;
+    raw: unknown;
+};
+export type OpenClawRunStartResult = {
+    externalRunId: string;
+    status: RuntimeRunSnapshot['status'];
+    providerState: Readonly<Record<string, unknown>>;
+};
+export type OpenClawCancelResult = {
+    accepted: boolean;
+    raw: unknown;
+};
+export type OpenClawProtocolFixtureMetadata = {
+    runtimeProduct: 'openclaw';
+    runtimeVersion: string;
+    protocolVersion: number;
+    captureDate: string;
+    fixtureSchemaVersion: number;
+    sanitizerVersion: string;
+    source: 'synthetic' | 'sanitized-live-capture' | 'upstream-reference';
+};
 export type OpenClawRunContext = {
     applicationRunId: string;
     externalRunId: string;
@@ -405,6 +486,7 @@ export type OpenClawProviderEventMetadata = {
 export interface OpenClawProtocolCodec {
     readonly protocolVersion: number;
     readonly protocolName: `openclaw-gateway-v${number}`;
+    parseChallenge(frame: OpenClawFrame): OpenClawChallenge | undefined;
     createConnectParams(input: OpenClawConnectInput): Record<string, unknown>;
     parseHello(payload: unknown): OpenClawHello;
     parseFrame(input: string | Uint8Array): OpenClawFrame;
@@ -415,6 +497,9 @@ export interface OpenClawProtocolCodec {
     mapProviderEvent(event: Extract<OpenClawFrame, {
         type: 'event';
     }>, context: OpenClawRunContext): RuntimeEvent[];
+    parseRunStartResponse(payload: unknown): OpenClawRunStartResult;
+    parseRunWaitResponse(input: GetRuntimeRunInput, payload: unknown): RuntimeRunSnapshot;
+    parseCancelResponse(payload: unknown): OpenClawCancelResult;
     mapError(error: unknown): RuntimeError;
     supportsMethod(method: string, hello: OpenClawHello): boolean;
     capabilities(hello?: OpenClawHello): RuntimeCapabilities;
@@ -433,8 +518,16 @@ import { BaseOpenClawCodec } from '../shared.js';
 export declare class OpenClawV3Codec extends BaseOpenClawCodec {
     readonly protocolVersion = 3;
     readonly protocolName: "openclaw-gateway-v3";
+    protected readonly mappings: import("../shared.js").OpenClawProtocolMappings;
 }
 export declare function openClawV3Codec(): OpenClawV3Codec;
+```
+
+### protocol/v3/mappings.d.ts
+
+```ts
+import type { OpenClawProtocolMappings } from '../shared.js';
+export declare const openClawV3Mappings: OpenClawProtocolMappings;
 ```
 
 ### protocol/v4/codec.d.ts
@@ -444,8 +537,16 @@ import { BaseOpenClawCodec } from '../shared.js';
 export declare class OpenClawV4Codec extends BaseOpenClawCodec {
     readonly protocolVersion = 4;
     readonly protocolName: "openclaw-gateway-v4";
+    protected readonly mappings: import("../shared.js").OpenClawProtocolMappings;
 }
 export declare function openClawV4Codec(): OpenClawV4Codec;
+```
+
+### protocol/v4/mappings.d.ts
+
+```ts
+import type { OpenClawProtocolMappings } from '../shared.js';
+export declare const openClawV4Mappings: OpenClawProtocolMappings;
 ```
 
 ### transport/request-manager.d.ts

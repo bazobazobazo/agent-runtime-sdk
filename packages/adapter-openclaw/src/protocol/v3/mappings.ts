@@ -1,0 +1,17 @@
+import type { OpenClawProtocolMappings } from '../shared.js';
+
+export const openClawV3Mappings: OpenClawProtocolMappings = {
+  connectEvent: 'connect.challenge',
+  connectMethod: 'connect',
+  sessionCreateMethod: 'sessions.create',
+  runStartMethod: 'chat.send',
+  runWaitMethod: 'agent.wait',
+  historyMethod: 'chat.history',
+  cancelMethod: 'chat.abort',
+  deltaEvents: ['chat.delta', 'assistant.delta', 'run.delta'],
+  completedEvents: ['chat.completed', 'assistant.completed', 'run.completed'],
+  failedEvents: ['chat.failed', 'run.failed', 'agent.failed'],
+  cancelledEvents: ['chat.cancelled', 'chat.canceled', 'run.cancelled'],
+  timeoutEvents: ['chat.timeout', 'run.timeout'],
+  diagnosticEvents: ['chat.warning', 'run.warning', 'transport.warning'],
+};

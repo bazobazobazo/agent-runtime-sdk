@@ -1,6 +1,11 @@
 import { RuntimeError } from '@banzae/agent-runtime-core';
 import type { OpenClawProtocolCodec } from './types.js';
 
+export const OPENCLAW_SUPPORTED_PROTOCOLS = [
+  { protocolName: 'openclaw-gateway-v4', protocolVersion: 4, status: 'supported' },
+  { protocolName: 'openclaw-gateway-v3', protocolVersion: 3, status: 'supported' },
+] as const;
+
 export class OpenClawProtocolRegistry {
   private readonly codecs = new Map<number, OpenClawProtocolCodec>();
 
@@ -11,8 +16,16 @@ export class OpenClawProtocolRegistry {
     this.codecs.set(codec.protocolVersion, codec);
   }
 
+  supportedVersions(): number[] {
+    return [...this.codecs.keys()].sort((a, b) => a - b);
+  }
+
   preferredVersions(): number[] {
     return [...this.codecs.keys()].sort((a, b) => b - a);
+  }
+
+  get(version: number): OpenClawProtocolCodec | undefined {
+    return this.codecs.get(version);
   }
 
   require(version: number): OpenClawProtocolCodec {

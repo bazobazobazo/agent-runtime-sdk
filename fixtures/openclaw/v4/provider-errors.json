@@ -1,0 +1,15 @@
+{
+  "metadata": {
+    "runtimeProduct": "openclaw",
+    "runtimeVersion": "2026.6.11",
+    "protocolVersion": 4,
+    "captureDate": "2026-07-14",
+    "fixtureSchemaVersion": 1,
+    "sanitizerVersion": "openclaw-sanitizer-v2",
+    "source": "synthetic"
+  },
+  "errors": [
+    { "code": "AUTHENTICATION_FAILED", "message": "authentication failed" },
+    { "code": "INVALID_REQUEST", "message": "protocol mismatch", "details": { "expectedProtocol": 4 } }
+  ]
+}

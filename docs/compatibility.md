@@ -4,22 +4,28 @@ Protocol support is explicit and fixture-backed. Fixture coverage protects the
 wire-format mapping, but it is not a substitute for confirming the live
 integration suite in the target release environment.
 
-| Adapter | Protocol | Initial status |
-|---|---:|---|
-| OpenClaw | 3 | fixture-backed; live flow validated during bring-up |
-| OpenClaw | 4 | fixture-backed; live write flow validated during bring-up |
-| Hermes | HTTP/SSE Runs API | fixture-backed; live flow validated during bring-up |
+The SDK supports OpenClaw wire protocol versions explicitly registered and
+validated by the codec registry.
 
-Unknown OpenClaw protocol versions fail closed with `PROTOCOL_MISMATCH`.
+| SDK adapter | Wire protocol | Status | Validation |
+|---|---:|---|---|
+| OpenClaw | v3 | supported | fixtures + contract tests |
+| OpenClaw | v4 | supported | fixtures + contract tests |
+| Hermes | HTTP/SSE Runs API | scaffold | fixtures + live bring-up validation |
 
-Do not advertise support for protocol versions that are not in the codec
-registry and compatibility matrix.
+Unknown OpenClaw protocol versions fail closed with `PROTOCOL_MISMATCH`. Do not
+advertise support for protocol versions that are not in the codec registry and
+compatibility matrix.
+
+OpenClaw runtime product version, OpenClaw wire protocol version, SDK adapter
+version, and fixture capture version are separate values. A runtime product
+upgrade may or may not change the gateway wire protocol.
 
 ## Fixture-backed validation
 
 Fixture-backed validation means every claimed runtime/protocol combination has:
 
-1. a short live handshake or capabilities capture from a real runtime;
+1. version-owned request, response, event, and error fixtures;
 2. sanitization that removes tokens, authorization headers, cookies, private
    hostnames, signatures, and user data;
 3. a replayable fixture committed under `fixtures/`;
@@ -47,6 +53,19 @@ stream. A missing sequence range emits a `transport.gap` event before continuing
 with later events. Callers must treat that stream as requiring reconciliation and
 fetch provider history, for example through `getHistory()`, before presenting or
 persisting a complete transcript claim.
+
+## OpenClaw Codec Registry
+
+The OpenClaw adapter registers exact numeric protocol codecs. The default
+preferred order is:
+
+1. v4
+2. v3
+
+Automatic negotiation opens a fresh socket for each protocol attempt. The SDK
+downgrades only after a confirmed protocol mismatch. It does not downgrade on
+authentication failure, device-pairing requirements, authorization failure,
+malformed frames, malformed hello responses, or transport failures.
 
 ## Live targets used during SDK bring-up
 
