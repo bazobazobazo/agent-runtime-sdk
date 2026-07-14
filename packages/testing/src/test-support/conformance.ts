@@ -1,11 +1,14 @@
 import {
-  createTestDependencies,
   type RuntimeCapabilities,
   type RuntimeConnectionConfig,
 } from '@banzae/agent-runtime-core';
 import type { RuntimeRunHandle, RuntimeSession } from '@banzae/agent-runtime-core';
-import { HermesAdapter, mapHermesCapabilities } from '../../../adapter-hermes/src/index.js';
-import { OpenClawAdapter, openClawV3Codec, openClawV4Codec } from '../../../adapter-openclaw/src/index.js';
+import { createTestDependencies } from '@banzae/agent-runtime-core/testing';
+import { HermesAdapter } from '../../../adapter-hermes/src/index.js';
+import { mapHermesCapabilities } from '../../../adapter-hermes/src/mapping/capabilities.js';
+import { OpenClawAdapter } from '../../../adapter-openclaw/src/index.js';
+import { openClawV3Codec } from '../../../adapter-openclaw/src/protocol/v3/codec.js';
+import { openClawV4Codec } from '../../../adapter-openclaw/src/protocol/v4/codec.js';
 import {
   createRuntimeAdapterConformanceSuite,
   type RuntimeConformanceTarget,
@@ -160,9 +163,10 @@ function openClawCapabilities(protocol: 3 | 4): RuntimeCapabilities {
   return {
     schemaVersion: 1,
     sessions: { create: true, resume: true, history: true, fork: false },
-    runs: { start: true, status: true, streamText: true, streamTools: false, cancel: true, approvals: false },
+    runs: { start: true, status: true, stream: true, cancel: true, approvals: false },
     input: { text: true, images: false, files: false },
     output: { text: true, reasoning: false, tools: false, usage: false },
+    health: { liveness: true, readiness: false },
     extensions: { 'openclaw.cron': false, 'openclaw.channels': false, 'openclaw.protocol': protocol },
   };
 }

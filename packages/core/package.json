@@ -3,11 +3,24 @@
   "version": "0.1.0",
   "description": "Provider-neutral contracts for Banzae agent runtime adapters.",
   "license": "Apache-2.0",
+  "engines": { "node": ">=22.13" },
   "type": "module",
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
+    },
+    "./testing": {
+      "types": "./dist/testing.d.ts",
+      "import": "./dist/testing.js"
+    },
+    "./experimental": {
+      "types": "./dist/experimental.d.ts",
+      "import": "./dist/experimental.js"
+    },
+    "./diagnostics": {
+      "types": "./dist/diagnostics.d.ts",
+      "import": "./dist/diagnostics.js"
     }
   },
   "files": ["dist", "README.md"],

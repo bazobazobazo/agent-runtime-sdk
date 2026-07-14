@@ -1,4 +1,16 @@
+export type ApplicationSessionId = string;
+export type ExternalSessionId = string;
+export type ApplicationRunId = string;
+export type ExternalRunId = string;
+export type NormalizedEventId = string;
+export type ProviderEventId = string;
+export type RuntimeApprovalId = string;
+export type RuntimeIdempotencyKey = string;
+export type RuntimeEndpointFingerprint = string;
+export type RuntimeCredentialReference = string;
+
 export type RuntimeTarget = {
+  /** Absolute runtime endpoint. Strings are normalized and validated before network use. */
   endpoint: string;
   authHint?: 'bearer' | 'token' | 'password' | 'device' | 'none';
   adapterHint?: string;
@@ -8,7 +20,7 @@ export type RuntimeTarget = {
 
 export type RuntimeConnectionConfig = {
   target: RuntimeTarget;
-  credentialRef?: string;
+  credentialRef?: RuntimeCredentialReference;
   auth?: RuntimeAuthInput;
   requestedCapabilities?: RuntimeCapabilityName[];
   options?: Readonly<Record<string, unknown>>;
@@ -22,8 +34,10 @@ export type RuntimeDescriptor = {
   runtimeVersion?: string;
   protocolName: string;
   protocolVersion?: string;
-  endpointFingerprint?: string;
+  endpointFingerprint?: RuntimeEndpointFingerprint;
   capabilities: RuntimeCapabilities;
+  /** ISO-8601 UTC observation time supplied by the SDK clock. */
+  observedAt?: string;
 };
 
 export type RuntimeCapabilities = {
@@ -37,8 +51,7 @@ export type RuntimeCapabilities = {
   runs: {
     start: boolean;
     status: boolean;
-    streamText: boolean;
-    streamTools: boolean;
+    stream: boolean;
     cancel: boolean;
     approvals: boolean;
   };
@@ -53,8 +66,18 @@ export type RuntimeCapabilities = {
     tools: boolean;
     usage: boolean;
   };
-  extensions: Readonly<Record<string, boolean | string | number>>;
+  health: {
+    liveness: boolean;
+    readiness: boolean;
+  };
+  extensions: RuntimeCapabilityExtensions;
 };
+
+/** Provider extensions are namespaced and remain outside the common model. */
+export type RuntimeCapabilityExtensionValue = boolean | string | number;
+export type RuntimeCapabilityExtensions = Readonly<
+  Record<`${string}.${string}`, RuntimeCapabilityExtensionValue>
+>;
 
 export type RuntimeCapabilityName =
   | 'sessions.create'
@@ -63,8 +86,7 @@ export type RuntimeCapabilityName =
   | 'sessions.fork'
   | 'runs.start'
   | 'runs.status'
-  | 'runs.streamText'
-  | 'runs.streamTools'
+  | 'runs.stream'
   | 'runs.cancel'
   | 'runs.approvals'
   | 'input.text'
@@ -73,7 +95,16 @@ export type RuntimeCapabilityName =
   | 'output.text'
   | 'output.reasoning'
   | 'output.tools'
-  | 'output.usage';
+  | 'output.usage'
+  | 'health.liveness'
+  | 'health.readiness';
+
+export type RuntimeAdapterLifecycleState =
+  | 'created'
+  | 'connecting'
+  | 'connected'
+  | 'closing'
+  | 'closed';
 
 export type RuntimeAuthInput =
   | { kind: 'bearer'; token: string }
@@ -109,7 +140,14 @@ export type RuntimeHealth = {
   latencyMs?: number;
   descriptor?: RuntimeDescriptor;
   warnings: string[];
-  details?: Readonly<Record<string, unknown>>;
+  checks?: readonly RuntimeHealthCheck[];
+};
+
+export type RuntimeHealthCheck = {
+  name: string;
+  status: 'healthy' | 'degraded' | 'unavailable';
+  kind: 'transport' | 'liveness' | 'readiness' | 'authentication' | 'component';
+  message?: string;
 };
 
 export type RuntimeProbeResult = {
@@ -128,15 +166,15 @@ export type RuntimeProbeResult = {
 };
 
 export type EnsureSessionInput = {
-  applicationSessionId: string;
+  applicationSessionId: ApplicationSessionId;
   title?: string;
   metadata?: Readonly<Record<string, string>>;
   providerState?: Readonly<Record<string, unknown>>;
 };
 
 export type RuntimeSession = {
-  applicationSessionId: string;
-  externalSessionId: string;
+  applicationSessionId: ApplicationSessionId;
+  externalSessionId: ExternalSessionId;
   providerState?: Readonly<Record<string, unknown>>;
   created: boolean;
 };
@@ -151,19 +189,23 @@ export type RuntimeAttachment =
       kind: 'image';
       mimeType: string;
       name?: string;
+      /** Declared bytes; adapters also validate inline data.byteLength. */
+      byteSize?: number;
       data: Uint8Array;
     }
   | {
       kind: 'file';
       mimeType: string;
       name: string;
+      /** Declared bytes for referenced or inline content. */
+      byteSize?: number;
       data?: Uint8Array;
       uri?: string;
     };
 
 export type StartRuntimeRunInput = {
-  applicationRunId: string;
-  idempotencyKey: string;
+  applicationRunId: ApplicationRunId;
+  idempotencyKey: RuntimeIdempotencyKey;
   session: RuntimeSession;
   input: RuntimeUserInput;
   instructions?: string;
@@ -173,8 +215,8 @@ export type StartRuntimeRunInput = {
 };
 
 export type RuntimeRunHandle = {
-  applicationRunId: string;
-  externalRunId: string;
+  applicationRunId: ApplicationRunId;
+  externalRunId: ExternalRunId;
   status: RuntimeRunStatus;
   sessionStatePatch?: RuntimeSessionStatePatch;
   providerState?: Readonly<Record<string, unknown>>;
@@ -182,7 +224,7 @@ export type RuntimeRunHandle = {
 
 export type RuntimeSessionStatePatch = {
   previousResponseId?: string;
-  externalSessionId?: string;
+  externalSessionId?: ExternalSessionId;
   providerState?: Readonly<Record<string, unknown>>;
 };
 
@@ -197,17 +239,17 @@ export type RuntimeRunStatus =
   | 'unknown';
 
 export type StreamRuntimeRunInput = {
-  applicationRunId: string;
-  externalRunId: string;
-  externalSessionId: string;
+  applicationRunId: ApplicationRunId;
+  externalRunId: ExternalRunId;
+  externalSessionId: ExternalSessionId;
   cursor?: string;
   providerState?: Readonly<Record<string, unknown>>;
 };
 
 export type GetRuntimeRunInput = {
-  applicationRunId: string;
-  externalRunId: string;
-  externalSessionId?: string;
+  applicationRunId: ApplicationRunId;
+  externalRunId: ExternalRunId;
+  externalSessionId?: ExternalSessionId;
   providerState?: Readonly<Record<string, unknown>>;
 };
 
@@ -223,34 +265,41 @@ export type RuntimeApprovalDecision =
     };
 
 export type ResolveRuntimeApprovalInput = {
-  applicationRunId: string;
-  externalRunId: string;
-  approvalId: string;
+  applicationRunId: ApplicationRunId;
+  externalRunId: ExternalRunId;
+  approvalId: RuntimeApprovalId;
   decision: RuntimeApprovalDecision;
   comment?: string;
 };
 
 export type GetRuntimeHistoryInput = {
-  applicationSessionId: string;
-  externalSessionId: string;
+  applicationSessionId: ApplicationSessionId;
+  externalSessionId: ExternalSessionId;
   limit?: number;
   cursor?: string;
   providerState?: Readonly<Record<string, unknown>>;
 };
 
 export type RuntimeRunSnapshot = {
-  applicationRunId: string;
-  externalRunId: string;
+  applicationRunId: ApplicationRunId;
+  externalRunId: ExternalRunId;
   status: RuntimeRunStatus;
-  output?: string;
-  usage?: Readonly<Record<string, number>>;
+  output?: RuntimeRunOutput;
+  usage?: RuntimeUsage;
   sessionStatePatch?: RuntimeSessionStatePatch;
-  error?: {
-    code: RuntimeErrorCode;
-    message: string;
-    retryable: boolean;
-  };
+  error?: RuntimeRunFailure;
   providerState?: Readonly<Record<string, unknown>>;
+};
+
+export type RuntimeUsage = Readonly<Record<string, number>>;
+
+/** Normalized text output for the alpha Runs contract. */
+export type RuntimeRunOutput = string;
+
+export type RuntimeRunFailure = {
+  code: RuntimeErrorCode;
+  message: string;
+  retryable: boolean;
 };
 
 export type RuntimeMessage = {
@@ -267,6 +316,13 @@ export type RuntimeMessage = {
   metadata?: Readonly<Record<string, unknown>>;
 };
 
+export type RuntimeHistoryMessage = RuntimeMessage;
+
+export type RuntimeHistoryPage = {
+  messages: readonly RuntimeHistoryMessage[];
+  nextCursor?: string;
+};
+
 export type RuntimeEventName =
   | 'run.queued'
   | 'run.started'
@@ -276,7 +332,7 @@ export type RuntimeEventName =
   | 'tool.started'
   | 'tool.updated'
   | 'tool.completed'
-  | 'approval.requested'
+  | 'approval.required'
   | 'approval.resolved'
   | 'usage.updated'
   | 'run.completed'
@@ -287,16 +343,18 @@ export type RuntimeEventName =
 
 export type RuntimeEventBase = {
   schemaVersion: 1;
-  eventId: string;
+  eventId: NormalizedEventId;
   sequence?: number;
   occurredAt: string;
-  applicationRunId: string;
-  externalRunId: string;
-  externalSessionId: string;
+  applicationRunId: ApplicationRunId;
+  externalRunId: ExternalRunId;
+  externalSessionId: ExternalSessionId;
   provider?: {
     adapterId: string;
     eventName?: string;
-    raw?: unknown;
+    providerEventId?: ProviderEventId;
+    /** Sanitized, bounded, opt-in data. Shape is unstable across alpha releases. */
+    sanitizedRawPayload?: unknown;
   };
   duplicate?: boolean;
 };
@@ -330,11 +388,34 @@ export type ToolCompletedEvent = RuntimeEventBase & {
   toolCallId: string;
   result?: unknown;
 };
-export type ApprovalRequestedEvent = RuntimeEventBase & {
-  type: 'approval.requested';
+export type ApprovalRequiredEvent = RuntimeEventBase & {
+  type: 'approval.required';
   approvalId: string;
   description: string;
   availableDecisions: readonly RuntimeApprovalDecision[];
+  toolName?: string;
+  expiresAt?: string;
+  sanitizedArgumentPreview?: unknown;
+};
+
+export type RuntimeApprovalRequest = Pick<
+  ApprovalRequiredEvent,
+  | 'approvalId'
+  | 'applicationRunId'
+  | 'externalRunId'
+  | 'description'
+  | 'availableDecisions'
+  | 'toolName'
+  | 'expiresAt'
+  | 'sanitizedArgumentPreview'
+>;
+
+export type RuntimeApprovalResolution = {
+  approvalId: string;
+  applicationRunId: string;
+  externalRunId: string;
+  decision: RuntimeApprovalDecision;
+  resolvedAt: string;
 };
 export type ApprovalResolvedEvent = RuntimeEventBase & {
   type: 'approval.resolved';
@@ -383,7 +464,7 @@ export type RuntimeEvent =
   | ToolStartedEvent
   | ToolUpdatedEvent
   | ToolCompletedEvent
-  | ApprovalRequestedEvent
+  | ApprovalRequiredEvent
   | ApprovalResolvedEvent
   | UsageUpdatedEvent
   | RunCompletedEvent
@@ -397,7 +478,6 @@ export type RuntimeErrorCode =
   | 'DETECTION_AMBIGUOUS'
   | 'AUTHENTICATION_REQUIRED'
   | 'AUTHENTICATION_FAILED'
-  | 'AUTHORIZATION_FAILED'
   | 'PERMISSION_DENIED'
   | 'PAIRING_REQUIRED'
   | 'PROTOCOL_MISMATCH'
@@ -407,7 +487,6 @@ export type RuntimeErrorCode =
   | 'INVALID_RESPONSE'
   | 'NOT_FOUND'
   | 'CONFLICT'
-  | 'RUNTIME_UNAVAILABLE'
   | 'PROVIDER_UNAVAILABLE'
   | 'RATE_LIMITED'
   | 'TIMEOUT'
@@ -415,6 +494,7 @@ export type RuntimeErrorCode =
   | 'CANCELLED'
   | 'PROVIDER_ERROR'
   | 'OUTCOME_UNKNOWN'
+  | 'NETWORK_POLICY_REJECTED'
   | 'INTERNAL';
 
 export type RuntimeHttpRequest = {

@@ -3,10 +3,10 @@ import fc from 'fast-check';
 import {
   HARD_RUNTIME_LIMITS,
   RuntimeError,
-  createTestDependencies,
   resolveSecureLimit,
-  sanitizeProviderPayload,
 } from '@banzae/agent-runtime-core';
+import { sanitizeProviderPayload } from '@banzae/agent-runtime-core/diagnostics';
+import { createTestDependencies } from '@banzae/agent-runtime-core/testing';
 import { openClawV3Codec } from '../../adapter-openclaw/src/protocol/v3/codec.js';
 import { openClawV4Codec } from '../../adapter-openclaw/src/protocol/v4/codec.js';
 import { DefaultRuntimeNetworkPolicy, detectionFingerprint } from '../../detection/src/security.js';
@@ -143,7 +143,7 @@ describe('bounded protocol property tests', () => {
       fc.string({ minLength: 1, maxLength: 40 }),
       async (key, value) => {
         await expect(policy.validateTarget(new URL(`https://runtime.example.test/?${key.toUpperCase()}=${encodeURIComponent(value)}`)))
-          .rejects.toMatchObject({ code: 'INVALID_CONFIGURATION' });
+          .rejects.toMatchObject({ code: 'NETWORK_POLICY_REJECTED' });
       },
     ), propertyOptions);
   });

@@ -1,0 +1,2005 @@
+{
+  "schemaVersion": 1,
+  "exports": [
+    {
+      "package": "@banzae/agent-runtime-core",
+      "entrypoint": ".",
+      "name": "AgentRuntimeAdapter",
+      "kind": "InterfaceDeclaration",
+      "classification": "stable-for-alpha",
+      "signature": "AgentRuntimeAdapter"
+    },
+    {
+      "package": "@banzae/agent-runtime-core",
+      "entrypoint": ".",
+      "name": "ApplicationRunId",
+      "kind": "TypeAliasDeclaration",
+      "classification": "stable-for-alpha",
+      "signature": "string"
+    },
+    {
+      "package": "@banzae/agent-runtime-core",
+      "entrypoint": ".",
+      "name": "ApplicationSessionId",
+      "kind": "TypeAliasDeclaration",
+      "classification": "stable-for-alpha",
+      "signature": "string"
+    },
+    {
+      "package": "@banzae/agent-runtime-core",
+      "entrypoint": ".",
+      "name": "ApprovalRequiredEvent",
+      "kind": "TypeAliasDeclaration",
+      "classification": "stable-for-alpha",
+      "signature": "ApprovalRequiredEvent"
+    },
+    {
+      "package": "@banzae/agent-runtime-core",
+      "entrypoint": ".",
+      "name": "ApprovalResolvedEvent",
+      "kind": "TypeAliasDeclaration",
+      "classification": "stable-for-alpha",
+      "signature": "ApprovalResolvedEvent"
+    },
+    {
+      "package": "@banzae/agent-runtime-core",
+      "entrypoint": ".",
+      "name": "AssistantCompletedEvent",
+      "kind": "TypeAliasDeclaration",
+      "classification": "stable-for-alpha",
+      "signature": "AssistantCompletedEvent"
+    },
+    {
+      "package": "@banzae/agent-runtime-core",
+      "entrypoint": ".",
+      "name": "AssistantDeltaEvent",
+      "kind": "TypeAliasDeclaration",
+      "classification": "stable-for-alpha",
+      "signature": "AssistantDeltaEvent"
+    },
+    {
+      "package": "@banzae/agent-runtime-core",
+      "entrypoint": ".",
+      "name": "CancelRuntimeRunInput",
+      "kind": "TypeAliasDeclaration",
+      "classification": "stable-for-alpha",
+      "signature": "GetRuntimeRunInput"
+    },
+    {
+      "package": "@banzae/agent-runtime-core",
+      "entrypoint": ".",
+      "name": "ConnectOptions",
+      "kind": "TypeAliasDeclaration",
+      "classification": "stable-for-alpha",
+      "signature": "ConnectOptions"
+    },
+    {
+      "package": "@banzae/agent-runtime-core",
+      "entrypoint": ".",
+      "name": "createRuntimeError",
+      "kind": "FunctionDeclaration",
+      "classification": "stable-for-alpha",
+      "signature": "(input: RuntimeErrorInput) => RuntimeError"
+    },
+    {
+      "package": "@banzae/agent-runtime-core",
+      "entrypoint": ".",
+      "name": "EnsureSessionInput",
+      "kind": "TypeAliasDeclaration",
+      "classification": "stable-for-alpha",
+      "signature": "EnsureSessionInput"
+    },
+    {
+      "package": "@banzae/agent-runtime-core",
+      "entrypoint": ".",
+      "name": "ExternalRunId",
+      "kind": "TypeAliasDeclaration",
+      "classification": "stable-for-alpha",
+      "signature": "string"
+    },
+    {
+      "package": "@banzae/agent-runtime-core",
+      "entrypoint": ".",
+      "name": "ExternalSessionId",
+      "kind": "TypeAliasDeclaration",
+      "classification": "stable-for-alpha",
+      "signature": "string"
+    },
+    {
+      "package": "@banzae/agent-runtime-core",
+      "entrypoint": ".",
+      "name": "GetRuntimeHistoryInput",
+      "kind": "TypeAliasDeclaration",
+      "classification": "stable-for-alpha",
+      "signature": "GetRuntimeHistoryInput"
+    },
+    {
+      "package": "@banzae/agent-runtime-core",
+      "entrypoint": ".",
+      "name": "GetRuntimeRunInput",
+      "kind": "TypeAliasDeclaration",
+      "classification": "stable-for-alpha",
+      "signature": "GetRuntimeRunInput"
+    },
+    {
+      "package": "@banzae/agent-runtime-core",
+      "entrypoint": ".",
+      "name": "HARD_RUNTIME_LIMITS",
+      "kind": "VariableDeclaration",
+      "classification": "stable-for-alpha",
+      "signature": "Readonly<Record<\"maxJsonBodyBytes\" | \"maxHttpHeaderBytes\" | \"maxWebSocketFrameBytes\" | \"maxSseLineBytes\" | \"maxSseEventBytes\" | \"maxSsePendingBytes\" | \"maxRawPayloadDepth\" | \"maxRawPayloadKeys\" | \"maxDiagnosticArrayItems\" | \"maxDiagnosticStringLength\" | \"maxRedirects\" | \"maxEventSubscriberQueue\" | \"maxDeduplicationEntries\" | \"maxReconnectAttempts\" | \"maxReconciliationMs\" | \"maxErrorDetailBytes\" | \"maxFixtureCandidateBytes\" | \"maxCompatibilityReportBytes\", number>>"
+    },
+    {
+      "package": "@banzae/agent-runtime-core",
+      "entrypoint": ".",
+      "name": "hasRuntimeErrorCode",
+      "kind": "FunctionDeclaration",
+      "classification": "stable-for-alpha",
+      "signature": "<C extends import(\"./types.js\").RuntimeErrorCode>(error: unknown, code: C) => error is RuntimeError & { readonly code: C; }"
+    },
+    {
+      "package": "@banzae/agent-runtime-core",
+      "entrypoint": ".",
+      "name": "IncrementingIdGenerator",
+      "kind": "ClassDeclaration",
+      "classification": "stable-for-alpha",
+      "signature": "typeof IncrementingIdGenerator"
+    },
+    {
+      "package": "@banzae/agent-runtime-core",
+      "entrypoint": ".",
+      "name": "invalidConfiguration",
+      "kind": "FunctionDeclaration",
+      "classification": "stable-for-alpha",
+      "signature": "(message: string, details?: Record<string, unknown>) => RuntimeError"
+    },
+    {
+      "package": "@banzae/agent-runtime-core",
+      "entrypoint": ".",
+      "name": "isActiveRuntimeRunStatus",
+      "kind": "FunctionDeclaration",
+      "classification": "stable-for-alpha",
+      "signature": "(status: import(\"./types.js\").RuntimeRunStatus) => boolean"
+    },
+    {
+      "package": "@banzae/agent-runtime-core",
+      "entrypoint": ".",
+      "name": "isRuntimeError",
+      "kind": "FunctionDeclaration",
+      "classification": "stable-for-alpha",
+      "signature": "(error: unknown) => error is RuntimeError"
+    },
+    {
+      "package": "@banzae/agent-runtime-core",
+      "entrypoint": ".",
+      "name": "isTerminalEvent",
+      "kind": "FunctionDeclaration",
+      "classification": "stable-for-alpha",
+      "signature": "(event: RuntimeEvent) => boolean"
+    },
+    {
+      "package": "@banzae/agent-runtime-core",
+      "entrypoint": ".",
+      "name": "isTerminalRuntimeRunStatus",
+      "kind": "FunctionDeclaration",
+      "classification": "stable-for-alpha",
+      "signature": "(status: import(\"./types.js\").RuntimeRunStatus) => boolean"
+    },
+    {
+      "package": "@banzae/agent-runtime-core",
+      "entrypoint": ".",
+      "name": "NO_CAPABILITIES",
+      "kind": "VariableDeclaration",
+      "classification": "stable-for-alpha",
+      "signature": "RuntimeCapabilities"
+    },
+    {
+      "package": "@banzae/agent-runtime-core",
+      "entrypoint": ".",
+      "name": "noopLogger",
+      "kind": "VariableDeclaration",
+      "classification": "stable-for-alpha",
+      "signature": "RuntimeLogger"
+    },
+    {
+      "package": "@banzae/agent-runtime-core",
+      "entrypoint": ".",
+      "name": "NormalizedEventId",
+      "kind": "TypeAliasDeclaration",
+      "classification": "stable-for-alpha",
+      "signature": "string"
+    },
+    {
+      "package": "@banzae/agent-runtime-core",
+      "entrypoint": ".",
+      "name": "normalizeRuntimeTimestamp",
+      "kind": "FunctionDeclaration",
+      "classification": "stable-for-alpha",
+      "signature": "(value: unknown) => string | undefined"
+    },
+    {
+      "package": "@banzae/agent-runtime-core",
+      "entrypoint": ".",
+      "name": "OperationOptions",
+      "kind": "TypeAliasDeclaration",
+      "classification": "stable-for-alpha",
+      "signature": "OperationOptions"
+    },
+    {
+      "package": "@banzae/agent-runtime-core",
+      "entrypoint": ".",
+      "name": "ProbeOptions",
+      "kind": "TypeAliasDeclaration",
+      "classification": "stable-for-alpha",
+      "signature": "ProbeOptions"
+    },
+    {
+      "package": "@banzae/agent-runtime-core",
+      "entrypoint": ".",
+      "name": "ProviderEventId",
+      "kind": "TypeAliasDeclaration",
+      "classification": "stable-for-alpha",
+      "signature": "string"
+    },
+    {
+      "package": "@banzae/agent-runtime-core",
+      "entrypoint": ".",
+      "name": "ReasoningDeltaEvent",
+      "kind": "TypeAliasDeclaration",
+      "classification": "stable-for-alpha",
+      "signature": "ReasoningDeltaEvent"
+    },
+    {
+      "package": "@banzae/agent-runtime-core",
+      "entrypoint": ".",
+      "name": "requireCapability",
+      "kind": "FunctionDeclaration",
+      "classification": "stable-for-alpha",
+      "signature": "(capabilities: RuntimeCapabilities, capability: RuntimeCapabilityName) => void"
+    },
+    {
+      "package": "@banzae/agent-runtime-core",
+      "entrypoint": ".",
+      "name": "ResolveRuntimeApprovalInput",
+      "kind": "TypeAliasDeclaration",
+      "classification": "stable-for-alpha",
+      "signature": "ResolveRuntimeApprovalInput"
+    },
+    {
+      "package": "@banzae/agent-runtime-core",
+      "entrypoint": ".",
+      "name": "resolveSecureLimit",
+      "kind": "FunctionDeclaration",
+      "classification": "stable-for-alpha",
+      "signature": "(name: SecureRuntimeLimitName, value?: number, options?: { allowZero?: boolean; }) => number"
+    },
+    {
+      "package": "@banzae/agent-runtime-core",
+      "entrypoint": ".",
+      "name": "RunCancelledEvent",
+      "kind": "TypeAliasDeclaration",
+      "classification": "stable-for-alpha",
+      "signature": "RunCancelledEvent"
+    },
+    {
+      "package": "@banzae/agent-runtime-core",
+      "entrypoint": ".",
+      "name": "RunCompletedEvent",
+      "kind": "TypeAliasDeclaration",
+      "classification": "stable-for-alpha",
+      "signature": "RunCompletedEvent"
+    },
+    {
+      "package": "@banzae/agent-runtime-core",
+      "entrypoint": ".",
+      "name": "RunFailedEvent",
+      "kind": "TypeAliasDeclaration",
+      "classification": "stable-for-alpha",
+      "signature": "RunFailedEvent"
+    },
+    {
+      "package": "@banzae/agent-runtime-core",
+      "entrypoint": ".",
+      "name": "RuntimeAdapterDependencies",
+      "kind": "TypeAliasDeclaration",
+      "classification": "stable-for-alpha",
+      "signature": "RuntimeAdapterDependencies"
+    },
+    {
+      "package": "@banzae/agent-runtime-core",
+      "entrypoint": ".",
+      "name": "RuntimeAdapterFactory",
+      "kind": "InterfaceDeclaration",
+      "classification": "stable-for-alpha",
+      "signature": "RuntimeAdapterFactory"
+    },
+    {
+      "package": "@banzae/agent-runtime-core",
+      "entrypoint": ".",
+      "name": "RuntimeAdapterLifecycleState",
+      "kind": "TypeAliasDeclaration",
+      "classification": "stable-for-alpha",
+      "signature": "RuntimeAdapterLifecycleState"
+    },
+    {
+      "package": "@banzae/agent-runtime-core",
+      "entrypoint": ".",
+      "name": "RuntimeApprovalDecision",
+      "kind": "TypeAliasDeclaration",
+      "classification": "stable-for-alpha",
+      "signature": "RuntimeApprovalDecision"
+    },
+    {
+      "package": "@banzae/agent-runtime-core",
+      "entrypoint": ".",
+      "name": "RuntimeApprovalId",
+      "kind": "TypeAliasDeclaration",
+      "classification": "stable-for-alpha",
+      "signature": "string"
+    },
+    {
+      "package": "@banzae/agent-runtime-core",
+      "entrypoint": ".",
+      "name": "RuntimeApprovalRequest",
+      "kind": "TypeAliasDeclaration",
+      "classification": "stable-for-alpha",
+      "signature": "RuntimeApprovalRequest"
+    },
+    {
+      "package": "@banzae/agent-runtime-core",
+      "entrypoint": ".",
+      "name": "RuntimeApprovalResolution",
+      "kind": "TypeAliasDeclaration",
+      "classification": "stable-for-alpha",
+      "signature": "RuntimeApprovalResolution"
+    },
+    {
+      "package": "@banzae/agent-runtime-core",
+      "entrypoint": ".",
+      "name": "RuntimeAttachment",
+      "kind": "TypeAliasDeclaration",
+      "classification": "stable-for-alpha",
+      "signature": "RuntimeAttachment"
+    },
+    {
+      "package": "@banzae/agent-runtime-core",
+      "entrypoint": ".",
+      "name": "RuntimeAuthInput",
+      "kind": "TypeAliasDeclaration",
+      "classification": "stable-for-alpha",
+      "signature": "RuntimeAuthInput"
+    },
+    {
+      "package": "@banzae/agent-runtime-core",
+      "entrypoint": ".",
+      "name": "RuntimeCapabilities",
+      "kind": "TypeAliasDeclaration",
+      "classification": "stable-for-alpha",
+      "signature": "RuntimeCapabilities"
+    },
+    {
+      "package": "@banzae/agent-runtime-core",
+      "entrypoint": ".",
+      "name": "RuntimeCapabilityExtensions",
+      "kind": "TypeAliasDeclaration",
+      "classification": "stable-for-alpha",
+      "signature": "Readonly<Record<`${string}.${string}`, RuntimeCapabilityExtensionValue>>"
+    },
+    {
+      "package": "@banzae/agent-runtime-core",
+      "entrypoint": ".",
+      "name": "RuntimeCapabilityExtensionValue",
+      "kind": "TypeAliasDeclaration",
+      "classification": "stable-for-alpha",
+      "signature": "RuntimeCapabilityExtensionValue"
+    },
+    {
+      "package": "@banzae/agent-runtime-core",
+      "entrypoint": ".",
+      "name": "RuntimeCapabilityName",
+      "kind": "TypeAliasDeclaration",
+      "classification": "stable-for-alpha",
+      "signature": "RuntimeCapabilityName"
+    },
+    {
+      "package": "@banzae/agent-runtime-core",
+      "entrypoint": ".",
+      "name": "RuntimeClock",
+      "kind": "InterfaceDeclaration",
+      "classification": "stable-for-alpha",
+      "signature": "RuntimeClock"
+    },
+    {
+      "package": "@banzae/agent-runtime-core",
+      "entrypoint": ".",
+      "name": "RuntimeConnectionConfig",
+      "kind": "TypeAliasDeclaration",
+      "classification": "stable-for-alpha",
+      "signature": "RuntimeConnectionConfig"
+    },
+    {
+      "package": "@banzae/agent-runtime-core",
+      "entrypoint": ".",
+      "name": "RuntimeConnectionInfo",
+      "kind": "TypeAliasDeclaration",
+      "classification": "stable-for-alpha",
+      "signature": "RuntimeConnectionInfo"
+    },
+    {
+      "package": "@banzae/agent-runtime-core",
+      "entrypoint": ".",
+      "name": "RuntimeCredentialReference",
+      "kind": "TypeAliasDeclaration",
+      "classification": "stable-for-alpha",
+      "signature": "string"
+    },
+    {
+      "package": "@banzae/agent-runtime-core",
+      "entrypoint": ".",
+      "name": "RuntimeCrypto",
+      "kind": "InterfaceDeclaration",
+      "classification": "stable-for-alpha",
+      "signature": "RuntimeCrypto"
+    },
+    {
+      "package": "@banzae/agent-runtime-core",
+      "entrypoint": ".",
+      "name": "RuntimeDescriptor",
+      "kind": "TypeAliasDeclaration",
+      "classification": "stable-for-alpha",
+      "signature": "RuntimeDescriptor"
+    },
+    {
+      "package": "@banzae/agent-runtime-core",
+      "entrypoint": ".",
+      "name": "RuntimeEndpointFingerprint",
+      "kind": "TypeAliasDeclaration",
+      "classification": "stable-for-alpha",
+      "signature": "string"
+    },
+    {
+      "package": "@banzae/agent-runtime-core",
+      "entrypoint": ".",
+      "name": "RuntimeError",
+      "kind": "ClassDeclaration",
+      "classification": "stable-for-alpha",
+      "signature": "typeof RuntimeError"
+    },
+    {
+      "package": "@banzae/agent-runtime-core",
+      "entrypoint": ".",
+      "name": "RuntimeErrorCode",
+      "kind": "TypeAliasDeclaration",
+      "classification": "stable-for-alpha",
+      "signature": "RuntimeErrorCode"
+    },
+    {
+      "package": "@banzae/agent-runtime-core",
+      "entrypoint": ".",
+      "name": "RuntimeErrorInput",
+      "kind": "InterfaceDeclaration",
+      "classification": "stable-for-alpha",
+      "signature": "RuntimeErrorInput"
+    },
+    {
+      "package": "@banzae/agent-runtime-core",
+      "entrypoint": ".",
+      "name": "RuntimeEvent",
+      "kind": "TypeAliasDeclaration",
+      "classification": "stable-for-alpha",
+      "signature": "RuntimeEvent"
+    },
+    {
+      "package": "@banzae/agent-runtime-core",
+      "entrypoint": ".",
+      "name": "RuntimeEventBase",
+      "kind": "TypeAliasDeclaration",
+      "classification": "stable-for-alpha",
+      "signature": "RuntimeEventBase"
+    },
+    {
+      "package": "@banzae/agent-runtime-core",
+      "entrypoint": ".",
+      "name": "RuntimeEventName",
+      "kind": "TypeAliasDeclaration",
+      "classification": "stable-for-alpha",
+      "signature": "RuntimeEventName"
+    },
+    {
+      "package": "@banzae/agent-runtime-core",
+      "entrypoint": ".",
+      "name": "RuntimeHealth",
+      "kind": "TypeAliasDeclaration",
+      "classification": "stable-for-alpha",
+      "signature": "RuntimeHealth"
+    },
+    {
+      "package": "@banzae/agent-runtime-core",
+      "entrypoint": ".",
+      "name": "RuntimeHealthCheck",
+      "kind": "TypeAliasDeclaration",
+      "classification": "stable-for-alpha",
+      "signature": "RuntimeHealthCheck"
+    },
+    {
+      "package": "@banzae/agent-runtime-core",
+      "entrypoint": ".",
+      "name": "RuntimeHistoryMessage",
+      "kind": "TypeAliasDeclaration",
+      "classification": "stable-for-alpha",
+      "signature": "RuntimeMessage"
+    },
+    {
+      "package": "@banzae/agent-runtime-core",
+      "entrypoint": ".",
+      "name": "RuntimeHistoryPage",
+      "kind": "TypeAliasDeclaration",
+      "classification": "stable-for-alpha",
+      "signature": "RuntimeHistoryPage"
+    },
+    {
+      "package": "@banzae/agent-runtime-core",
+      "entrypoint": ".",
+      "name": "RuntimeHttpRequest",
+      "kind": "TypeAliasDeclaration",
+      "classification": "stable-for-alpha",
+      "signature": "RuntimeHttpRequest"
+    },
+    {
+      "package": "@banzae/agent-runtime-core",
+      "entrypoint": ".",
+      "name": "RuntimeHttpResponse",
+      "kind": "TypeAliasDeclaration",
+      "classification": "stable-for-alpha",
+      "signature": "RuntimeHttpResponse"
+    },
+    {
+      "package": "@banzae/agent-runtime-core",
+      "entrypoint": ".",
+      "name": "RuntimeHttpTransport",
+      "kind": "InterfaceDeclaration",
+      "classification": "stable-for-alpha",
+      "signature": "RuntimeHttpTransport"
+    },
+    {
+      "package": "@banzae/agent-runtime-core",
+      "entrypoint": ".",
+      "name": "RuntimeIdempotencyKey",
+      "kind": "TypeAliasDeclaration",
+      "classification": "stable-for-alpha",
+      "signature": "string"
+    },
+    {
+      "package": "@banzae/agent-runtime-core",
+      "entrypoint": ".",
+      "name": "RuntimeIdGenerator",
+      "kind": "InterfaceDeclaration",
+      "classification": "stable-for-alpha",
+      "signature": "RuntimeIdGenerator"
+    },
+    {
+      "package": "@banzae/agent-runtime-core",
+      "entrypoint": ".",
+      "name": "RuntimeLockManager",
+      "kind": "InterfaceDeclaration",
+      "classification": "stable-for-alpha",
+      "signature": "RuntimeLockManager"
+    },
+    {
+      "package": "@banzae/agent-runtime-core",
+      "entrypoint": ".",
+      "name": "RuntimeLogger",
+      "kind": "InterfaceDeclaration",
+      "classification": "stable-for-alpha",
+      "signature": "RuntimeLogger"
+    },
+    {
+      "package": "@banzae/agent-runtime-core",
+      "entrypoint": ".",
+      "name": "RuntimeMessage",
+      "kind": "TypeAliasDeclaration",
+      "classification": "stable-for-alpha",
+      "signature": "RuntimeMessage"
+    },
+    {
+      "package": "@banzae/agent-runtime-core",
+      "entrypoint": ".",
+      "name": "RuntimeProbeResult",
+      "kind": "TypeAliasDeclaration",
+      "classification": "stable-for-alpha",
+      "signature": "RuntimeProbeResult"
+    },
+    {
+      "package": "@banzae/agent-runtime-core",
+      "entrypoint": ".",
+      "name": "RuntimeQueuedEvent",
+      "kind": "TypeAliasDeclaration",
+      "classification": "stable-for-alpha",
+      "signature": "RuntimeQueuedEvent"
+    },
+    {
+      "package": "@banzae/agent-runtime-core",
+      "entrypoint": ".",
+      "name": "RuntimeRegistry",
+      "kind": "ClassDeclaration",
+      "classification": "stable-for-alpha",
+      "signature": "typeof RuntimeRegistry"
+    },
+    {
+      "package": "@banzae/agent-runtime-core",
+      "entrypoint": ".",
+      "name": "RuntimeRunFailure",
+      "kind": "TypeAliasDeclaration",
+      "classification": "stable-for-alpha",
+      "signature": "RuntimeRunFailure"
+    },
+    {
+      "package": "@banzae/agent-runtime-core",
+      "entrypoint": ".",
+      "name": "RuntimeRunHandle",
+      "kind": "TypeAliasDeclaration",
+      "classification": "stable-for-alpha",
+      "signature": "RuntimeRunHandle"
+    },
+    {
+      "package": "@banzae/agent-runtime-core",
+      "entrypoint": ".",
+      "name": "RuntimeRunOutput",
+      "kind": "TypeAliasDeclaration",
+      "classification": "stable-for-alpha",
+      "signature": "string"
+    },
+    {
+      "package": "@banzae/agent-runtime-core",
+      "entrypoint": ".",
+      "name": "RuntimeRunSnapshot",
+      "kind": "TypeAliasDeclaration",
+      "classification": "stable-for-alpha",
+      "signature": "RuntimeRunSnapshot"
+    },
+    {
+      "package": "@banzae/agent-runtime-core",
+      "entrypoint": ".",
+      "name": "RuntimeRunStatus",
+      "kind": "TypeAliasDeclaration",
+      "classification": "stable-for-alpha",
+      "signature": "RuntimeRunStatus"
+    },
+    {
+      "package": "@banzae/agent-runtime-core",
+      "entrypoint": ".",
+      "name": "RuntimeSecret",
+      "kind": "TypeAliasDeclaration",
+      "classification": "stable-for-alpha",
+      "signature": "RuntimeSecret"
+    },
+    {
+      "package": "@banzae/agent-runtime-core",
+      "entrypoint": ".",
+      "name": "RuntimeSecretStore",
+      "kind": "InterfaceDeclaration",
+      "classification": "stable-for-alpha",
+      "signature": "RuntimeSecretStore"
+    },
+    {
+      "package": "@banzae/agent-runtime-core",
+      "entrypoint": ".",
+      "name": "RuntimeSession",
+      "kind": "TypeAliasDeclaration",
+      "classification": "stable-for-alpha",
+      "signature": "RuntimeSession"
+    },
+    {
+      "package": "@banzae/agent-runtime-core",
+      "entrypoint": ".",
+      "name": "RuntimeSessionStatePatch",
+      "kind": "TypeAliasDeclaration",
+      "classification": "stable-for-alpha",
+      "signature": "RuntimeSessionStatePatch"
+    },
+    {
+      "package": "@banzae/agent-runtime-core",
+      "entrypoint": ".",
+      "name": "RuntimeStartedEvent",
+      "kind": "TypeAliasDeclaration",
+      "classification": "stable-for-alpha",
+      "signature": "RuntimeStartedEvent"
+    },
+    {
+      "package": "@banzae/agent-runtime-core",
+      "entrypoint": ".",
+      "name": "RuntimeStateStore",
+      "kind": "InterfaceDeclaration",
+      "classification": "stable-for-alpha",
+      "signature": "RuntimeStateStore"
+    },
+    {
+      "package": "@banzae/agent-runtime-core",
+      "entrypoint": ".",
+      "name": "RuntimeTarget",
+      "kind": "TypeAliasDeclaration",
+      "classification": "stable-for-alpha",
+      "signature": "RuntimeTarget"
+    },
+    {
+      "package": "@banzae/agent-runtime-core",
+      "entrypoint": ".",
+      "name": "RuntimeUsage",
+      "kind": "TypeAliasDeclaration",
+      "classification": "stable-for-alpha",
+      "signature": "Readonly<Record<string, number>>"
+    },
+    {
+      "package": "@banzae/agent-runtime-core",
+      "entrypoint": ".",
+      "name": "RuntimeUserInput",
+      "kind": "TypeAliasDeclaration",
+      "classification": "stable-for-alpha",
+      "signature": "RuntimeUserInput"
+    },
+    {
+      "package": "@banzae/agent-runtime-core",
+      "entrypoint": ".",
+      "name": "RuntimeWebSocketConnection",
+      "kind": "InterfaceDeclaration",
+      "classification": "stable-for-alpha",
+      "signature": "RuntimeWebSocketConnection"
+    },
+    {
+      "package": "@banzae/agent-runtime-core",
+      "entrypoint": ".",
+      "name": "RuntimeWebSocketEvent",
+      "kind": "TypeAliasDeclaration",
+      "classification": "stable-for-alpha",
+      "signature": "RuntimeWebSocketEvent"
+    },
+    {
+      "package": "@banzae/agent-runtime-core",
+      "entrypoint": ".",
+      "name": "RuntimeWebSocketFactory",
+      "kind": "InterfaceDeclaration",
+      "classification": "stable-for-alpha",
+      "signature": "RuntimeWebSocketFactory"
+    },
+    {
+      "package": "@banzae/agent-runtime-core",
+      "entrypoint": ".",
+      "name": "SECURE_RUNTIME_LIMITS",
+      "kind": "VariableDeclaration",
+      "classification": "stable-for-alpha",
+      "signature": "Readonly<{ maxJsonBodyBytes: 1000000; maxHttpHeaderBytes: 32000; maxWebSocketFrameBytes: 1000000; maxSseLineBytes: 64000; maxSseEventBytes: 1000000; maxSsePendingBytes: 1000000; maxRawPayloadDepth: 8; maxRawPayloadKeys: 1000; maxDiagnosticArrayItems: 100; maxDiagnosticStringLength: 4000; maxRedirects: 0; maxEventSubscriberQueue: 256; maxDeduplicationEntries: 1024; maxReconnectAttempts: 2; maxReconciliationMs: 30000; maxErrorDetailBytes: 64000; maxFixtureCandidateBytes: 2000000; maxCompatibilityReportBytes: 2000000; }>"
+    },
+    {
+      "package": "@banzae/agent-runtime-core",
+      "entrypoint": ".",
+      "name": "SecureRuntimeLimitName",
+      "kind": "TypeAliasDeclaration",
+      "classification": "stable-for-alpha",
+      "signature": "\"maxJsonBodyBytes\" | \"maxHttpHeaderBytes\" | \"maxWebSocketFrameBytes\" | \"maxSseLineBytes\" | \"maxSseEventBytes\" | \"maxSsePendingBytes\" | \"maxRawPayloadDepth\" | \"maxRawPayloadKeys\" | \"maxDiagnosticArrayItems\" | \"maxDiagnosticStringLength\" | \"maxRedirects\" | \"maxEventSubscriberQueue\" | \"maxDeduplicationEntries\" | \"maxReconnectAttempts\" | \"maxReconciliationMs\" | \"maxErrorDetailBytes\" | \"maxFixtureCandidateBytes\" | \"maxCompatibilityReportBytes\""
+    },
+    {
+      "package": "@banzae/agent-runtime-core",
+      "entrypoint": ".",
+      "name": "StartRuntimeRunInput",
+      "kind": "TypeAliasDeclaration",
+      "classification": "stable-for-alpha",
+      "signature": "StartRuntimeRunInput"
+    },
+    {
+      "package": "@banzae/agent-runtime-core",
+      "entrypoint": ".",
+      "name": "StreamRuntimeRunInput",
+      "kind": "TypeAliasDeclaration",
+      "classification": "stable-for-alpha",
+      "signature": "StreamRuntimeRunInput"
+    },
+    {
+      "package": "@banzae/agent-runtime-core",
+      "entrypoint": ".",
+      "name": "supportsCapability",
+      "kind": "FunctionDeclaration",
+      "classification": "stable-for-alpha",
+      "signature": "(capabilities: RuntimeCapabilities, capability: RuntimeCapabilityName) => boolean"
+    },
+    {
+      "package": "@banzae/agent-runtime-core",
+      "entrypoint": ".",
+      "name": "systemClock",
+      "kind": "VariableDeclaration",
+      "classification": "stable-for-alpha",
+      "signature": "RuntimeClock"
+    },
+    {
+      "package": "@banzae/agent-runtime-core",
+      "entrypoint": ".",
+      "name": "ToolCompletedEvent",
+      "kind": "TypeAliasDeclaration",
+      "classification": "stable-for-alpha",
+      "signature": "ToolCompletedEvent"
+    },
+    {
+      "package": "@banzae/agent-runtime-core",
+      "entrypoint": ".",
+      "name": "ToolStartedEvent",
+      "kind": "TypeAliasDeclaration",
+      "classification": "stable-for-alpha",
+      "signature": "ToolStartedEvent"
+    },
+    {
+      "package": "@banzae/agent-runtime-core",
+      "entrypoint": ".",
+      "name": "ToolUpdatedEvent",
+      "kind": "TypeAliasDeclaration",
+      "classification": "stable-for-alpha",
+      "signature": "ToolUpdatedEvent"
+    },
+    {
+      "package": "@banzae/agent-runtime-core",
+      "entrypoint": ".",
+      "name": "toRuntimeError",
+      "kind": "FunctionDeclaration",
+      "classification": "stable-for-alpha",
+      "signature": "(error: unknown, fallback: Omit<RuntimeErrorInput, \"cause\">) => RuntimeError"
+    },
+    {
+      "package": "@banzae/agent-runtime-core",
+      "entrypoint": ".",
+      "name": "TransportGapEvent",
+      "kind": "TypeAliasDeclaration",
+      "classification": "stable-for-alpha",
+      "signature": "TransportGapEvent"
+    },
+    {
+      "package": "@banzae/agent-runtime-core",
+      "entrypoint": ".",
+      "name": "TransportWarningEvent",
+      "kind": "TypeAliasDeclaration",
+      "classification": "stable-for-alpha",
+      "signature": "TransportWarningEvent"
+    },
+    {
+      "package": "@banzae/agent-runtime-core",
+      "entrypoint": ".",
+      "name": "unsupportedCapability",
+      "kind": "FunctionDeclaration",
+      "classification": "stable-for-alpha",
+      "signature": "(message: string, details?: Record<string, unknown>) => RuntimeError"
+    },
+    {
+      "package": "@banzae/agent-runtime-core",
+      "entrypoint": ".",
+      "name": "UsageUpdatedEvent",
+      "kind": "TypeAliasDeclaration",
+      "classification": "stable-for-alpha",
+      "signature": "UsageUpdatedEvent"
+    },
+    {
+      "package": "@banzae/agent-runtime-core",
+      "entrypoint": "./diagnostics",
+      "name": "sanitizeDetails",
+      "kind": "FunctionDeclaration",
+      "classification": "advanced-diagnostics",
+      "signature": "(details: Readonly<Record<string, unknown>>) => Readonly<Record<string, unknown>>"
+    },
+    {
+      "package": "@banzae/agent-runtime-core",
+      "entrypoint": "./diagnostics",
+      "name": "sanitizeProviderPayload",
+      "kind": "FunctionDeclaration",
+      "classification": "advanced-diagnostics",
+      "signature": "(value: unknown) => unknown"
+    },
+    {
+      "package": "@banzae/agent-runtime-core",
+      "entrypoint": "./experimental",
+      "name": "assertStartRunInput",
+      "kind": "FunctionDeclaration",
+      "classification": "experimental",
+      "signature": "(input: { idempotencyKey: string; applicationRunId: string; }) => void"
+    },
+    {
+      "package": "@banzae/agent-runtime-core",
+      "entrypoint": "./experimental",
+      "name": "canonicalJson",
+      "kind": "FunctionDeclaration",
+      "classification": "experimental",
+      "signature": "(value: unknown) => string"
+    },
+    {
+      "package": "@banzae/agent-runtime-core",
+      "entrypoint": "./experimental",
+      "name": "collectBytes",
+      "kind": "FunctionDeclaration",
+      "classification": "experimental",
+      "signature": "(body: AsyncIterable<Uint8Array>, maxBytes?: number) => Promise<Uint8Array>"
+    },
+    {
+      "package": "@banzae/agent-runtime-core",
+      "entrypoint": "./experimental",
+      "name": "connectionFingerprint",
+      "kind": "FunctionDeclaration",
+      "classification": "experimental",
+      "signature": "(crypto: RuntimeCrypto, input: Readonly<Record<string, unknown>>) => Promise<string>"
+    },
+    {
+      "package": "@banzae/agent-runtime-core",
+      "entrypoint": "./experimental",
+      "name": "emptyAsyncIterable",
+      "kind": "FunctionDeclaration",
+      "classification": "experimental",
+      "signature": "<T>() => AsyncIterable<T>"
+    },
+    {
+      "package": "@banzae/agent-runtime-core",
+      "entrypoint": "./experimental",
+      "name": "failedEventFromError",
+      "kind": "FunctionDeclaration",
+      "classification": "experimental",
+      "signature": "(base: RuntimeEventBase, error: RuntimeError) => RuntimeEvent"
+    },
+    {
+      "package": "@banzae/agent-runtime-core",
+      "entrypoint": "./experimental",
+      "name": "mergeCapabilities",
+      "kind": "FunctionDeclaration",
+      "classification": "experimental",
+      "signature": "(base: RuntimeCapabilities, patch: Partial<RuntimeCapabilities>) => RuntimeCapabilities"
+    },
+    {
+      "package": "@banzae/agent-runtime-core",
+      "entrypoint": "./experimental",
+      "name": "normalizeEndpoint",
+      "kind": "FunctionDeclaration",
+      "classification": "experimental",
+      "signature": "(endpoint: string) => string"
+    },
+    {
+      "package": "@banzae/agent-runtime-core",
+      "entrypoint": "./experimental",
+      "name": "readJsonBody",
+      "kind": "FunctionDeclaration",
+      "classification": "experimental",
+      "signature": "(body: AsyncIterable<Uint8Array>, maxBytes?: number) => Promise<unknown>"
+    },
+    {
+      "package": "@banzae/agent-runtime-core",
+      "entrypoint": "./experimental",
+      "name": "runtimeEventBase",
+      "kind": "FunctionDeclaration",
+      "classification": "experimental",
+      "signature": "(input: { ids: { id(): string; }; now: Date; type: RuntimeEventName; applicationRunId: string; externalRunId: string; externalSessionId: string; sequence?: number; provider?: RuntimeEventBase[\"provider\"]; }) => RuntimeEventBase"
+    },
+    {
+      "package": "@banzae/agent-runtime-core",
+      "entrypoint": "./experimental",
+      "name": "runWithConcurrencyLimit",
+      "kind": "FunctionDeclaration",
+      "classification": "experimental",
+      "signature": "<T, R>(items: readonly T[], limit: number, work: (item: T) => Promise<R>) => Promise<R[]>"
+    },
+    {
+      "package": "@banzae/agent-runtime-core",
+      "entrypoint": "./experimental",
+      "name": "SequenceTracker",
+      "kind": "ClassDeclaration",
+      "classification": "experimental",
+      "signature": "typeof SequenceTracker"
+    },
+    {
+      "package": "@banzae/agent-runtime-core",
+      "entrypoint": "./experimental",
+      "name": "validateInputCapabilities",
+      "kind": "FunctionDeclaration",
+      "classification": "experimental",
+      "signature": "(capabilities: RuntimeCapabilities, input: RuntimeUserInput) => void"
+    },
+    {
+      "package": "@banzae/agent-runtime-core",
+      "entrypoint": "./experimental",
+      "name": "withDeadline",
+      "kind": "FunctionDeclaration",
+      "classification": "experimental",
+      "signature": "<T>(work: Promise<T>, timeoutMs: number, signal?: AbortSignal) => Promise<T>"
+    },
+    {
+      "package": "@banzae/agent-runtime-core",
+      "entrypoint": "./testing",
+      "name": "createTestDependencies",
+      "kind": "FunctionDeclaration",
+      "classification": "testing-only",
+      "signature": "(overrides?: Partial<RuntimeAdapterDependencies>) => RuntimeAdapterDependencies"
+    },
+    {
+      "package": "@banzae/agent-runtime-core",
+      "entrypoint": "./testing",
+      "name": "deterministicCrypto",
+      "kind": "VariableDeclaration",
+      "classification": "testing-only",
+      "signature": "RuntimeCrypto"
+    },
+    {
+      "package": "@banzae/agent-runtime-core",
+      "entrypoint": "./testing",
+      "name": "IncrementingIdGenerator",
+      "kind": "ClassDeclaration",
+      "classification": "testing-only",
+      "signature": "typeof IncrementingIdGenerator"
+    },
+    {
+      "package": "@banzae/agent-runtime-core",
+      "entrypoint": "./testing",
+      "name": "MemorySecretStore",
+      "kind": "ClassDeclaration",
+      "classification": "testing-only",
+      "signature": "typeof MemorySecretStore"
+    },
+    {
+      "package": "@banzae/agent-runtime-core",
+      "entrypoint": "./testing",
+      "name": "MemoryStateStore",
+      "kind": "ClassDeclaration",
+      "classification": "testing-only",
+      "signature": "typeof MemoryStateStore"
+    },
+    {
+      "package": "@banzae/agent-runtime-core",
+      "entrypoint": "./testing",
+      "name": "noopLogger",
+      "kind": "VariableDeclaration",
+      "classification": "testing-only",
+      "signature": "RuntimeLogger"
+    },
+    {
+      "package": "@banzae/agent-runtime-core",
+      "entrypoint": "./testing",
+      "name": "systemClock",
+      "kind": "VariableDeclaration",
+      "classification": "testing-only",
+      "signature": "RuntimeClock"
+    },
+    {
+      "package": "@banzae/agent-runtime-core",
+      "entrypoint": "./testing",
+      "name": "TEXT_RUN_CAPABILITIES",
+      "kind": "VariableDeclaration",
+      "classification": "testing-only",
+      "signature": "RuntimeCapabilities"
+    },
+    {
+      "package": "@banzae/agent-runtime-core",
+      "entrypoint": "./testing",
+      "name": "unavailableHttpTransport",
+      "kind": "VariableDeclaration",
+      "classification": "testing-only",
+      "signature": "RuntimeHttpTransport"
+    },
+    {
+      "package": "@banzae/agent-runtime-core",
+      "entrypoint": "./testing",
+      "name": "unavailableWebSocketFactory",
+      "kind": "VariableDeclaration",
+      "classification": "testing-only",
+      "signature": "RuntimeWebSocketFactory"
+    },
+    {
+      "package": "@banzae/agent-runtime-detection",
+      "entrypoint": ".",
+      "name": "createHermesProbe",
+      "kind": "FunctionDeclaration",
+      "classification": "stable-for-alpha",
+      "signature": "() => RuntimeProbe"
+    },
+    {
+      "package": "@banzae/agent-runtime-detection",
+      "entrypoint": ".",
+      "name": "createOpenClawProbe",
+      "kind": "FunctionDeclaration",
+      "classification": "stable-for-alpha",
+      "signature": "() => RuntimeProbe"
+    },
+    {
+      "package": "@banzae/agent-runtime-detection",
+      "entrypoint": ".",
+      "name": "createRuntimeDetector",
+      "kind": "FunctionDeclaration",
+      "classification": "stable-for-alpha",
+      "signature": "(options: RuntimeDetectorOptions) => RuntimeDetector"
+    },
+    {
+      "package": "@banzae/agent-runtime-detection",
+      "entrypoint": ".",
+      "name": "DefaultRuntimeNetworkPolicy",
+      "kind": "ClassDeclaration",
+      "classification": "stable-for-alpha",
+      "signature": "typeof DefaultRuntimeNetworkPolicy"
+    },
+    {
+      "package": "@banzae/agent-runtime-detection",
+      "entrypoint": ".",
+      "name": "DETECTION_SCHEMA_VERSION",
+      "kind": "VariableDeclaration",
+      "classification": "stable-for-alpha",
+      "signature": "1"
+    },
+    {
+      "package": "@banzae/agent-runtime-detection",
+      "entrypoint": ".",
+      "name": "detectRuntime",
+      "kind": "FunctionDeclaration",
+      "classification": "stable-for-alpha",
+      "signature": "(input: RuntimeDetectionInput, options: RuntimeDetectorOptions) => Promise<RuntimeDetectionResult>"
+    },
+    {
+      "package": "@banzae/agent-runtime-detection",
+      "entrypoint": ".",
+      "name": "MemoryRuntimeDetectionStore",
+      "kind": "ClassDeclaration",
+      "classification": "stable-for-alpha",
+      "signature": "typeof MemoryRuntimeDetectionStore"
+    },
+    {
+      "package": "@banzae/agent-runtime-detection",
+      "entrypoint": ".",
+      "name": "PersistedRuntimeDetection",
+      "kind": "TypeAliasDeclaration",
+      "classification": "stable-for-alpha",
+      "signature": "PersistedRuntimeDetection"
+    },
+    {
+      "package": "@banzae/agent-runtime-detection",
+      "entrypoint": ".",
+      "name": "RuntimeCredentialProvider",
+      "kind": "InterfaceDeclaration",
+      "classification": "stable-for-alpha",
+      "signature": "RuntimeCredentialProvider"
+    },
+    {
+      "package": "@banzae/agent-runtime-detection",
+      "entrypoint": ".",
+      "name": "RuntimeDetectionDiagnostic",
+      "kind": "TypeAliasDeclaration",
+      "classification": "advanced-diagnostics",
+      "signature": "RuntimeDetectionDiagnostic"
+    },
+    {
+      "package": "@banzae/agent-runtime-detection",
+      "entrypoint": ".",
+      "name": "RuntimeDetectionInput",
+      "kind": "TypeAliasDeclaration",
+      "classification": "stable-for-alpha",
+      "signature": "RuntimeDetectionInput"
+    },
+    {
+      "package": "@banzae/agent-runtime-detection",
+      "entrypoint": ".",
+      "name": "RuntimeDetectionOptions",
+      "kind": "TypeAliasDeclaration",
+      "classification": "stable-for-alpha",
+      "signature": "RuntimeDetectionOptions"
+    },
+    {
+      "package": "@banzae/agent-runtime-detection",
+      "entrypoint": ".",
+      "name": "RuntimeDetectionResult",
+      "kind": "TypeAliasDeclaration",
+      "classification": "stable-for-alpha",
+      "signature": "RuntimeDetectionResult"
+    },
+    {
+      "package": "@banzae/agent-runtime-detection",
+      "entrypoint": ".",
+      "name": "RuntimeDetectionStore",
+      "kind": "InterfaceDeclaration",
+      "classification": "stable-for-alpha",
+      "signature": "RuntimeDetectionStore"
+    },
+    {
+      "package": "@banzae/agent-runtime-detection",
+      "entrypoint": ".",
+      "name": "RuntimeDetector",
+      "kind": "ClassDeclaration",
+      "classification": "stable-for-alpha",
+      "signature": "typeof RuntimeDetector"
+    },
+    {
+      "package": "@banzae/agent-runtime-detection",
+      "entrypoint": ".",
+      "name": "RuntimeDetectorOptions",
+      "kind": "TypeAliasDeclaration",
+      "classification": "stable-for-alpha",
+      "signature": "RuntimeDetectorOptions"
+    },
+    {
+      "package": "@banzae/agent-runtime-detection",
+      "entrypoint": ".",
+      "name": "RuntimeNetworkPolicy",
+      "kind": "InterfaceDeclaration",
+      "classification": "stable-for-alpha",
+      "signature": "RuntimeNetworkPolicy"
+    },
+    {
+      "package": "@banzae/agent-runtime-detection",
+      "entrypoint": ".",
+      "name": "RuntimeProbe",
+      "kind": "InterfaceDeclaration",
+      "classification": "stable-for-alpha",
+      "signature": "RuntimeProbe"
+    },
+    {
+      "package": "@banzae/agent-runtime-detection",
+      "entrypoint": ".",
+      "name": "RuntimeProbeEvidence",
+      "kind": "TypeAliasDeclaration",
+      "classification": "stable-for-alpha",
+      "signature": "RuntimeProbeEvidence"
+    },
+    {
+      "package": "@banzae/agent-runtime-detection",
+      "entrypoint": ".",
+      "name": "RuntimeProbeResult",
+      "kind": "TypeAliasDeclaration",
+      "classification": "stable-for-alpha",
+      "signature": "RuntimeProbeResult"
+    },
+    {
+      "package": "@banzae/agent-runtime-hermes",
+      "entrypoint": ".",
+      "name": "createHermesAdapterFactory",
+      "kind": "FunctionDeclaration",
+      "classification": "stable-for-alpha",
+      "signature": "(options?: HermesAdapterOptions) => { adapterId: string; create: (dependencies: RuntimeAdapterDependencies) => HermesAdapter; }"
+    },
+    {
+      "package": "@banzae/agent-runtime-hermes",
+      "entrypoint": ".",
+      "name": "HermesAdapter",
+      "kind": "ClassDeclaration",
+      "classification": "stable-for-alpha",
+      "signature": "typeof HermesAdapter"
+    },
+    {
+      "package": "@banzae/agent-runtime-hermes",
+      "entrypoint": ".",
+      "name": "HermesAdapterOptions",
+      "kind": "TypeAliasDeclaration",
+      "classification": "stable-for-alpha",
+      "signature": "HermesAdapterOptions"
+    },
+    {
+      "package": "@banzae/agent-runtime-hermes",
+      "entrypoint": ".",
+      "name": "HermesSessionMode",
+      "kind": "TypeAliasDeclaration",
+      "classification": "stable-for-alpha",
+      "signature": "HermesSessionMode"
+    },
+    {
+      "package": "@banzae/agent-runtime-hermes",
+      "entrypoint": ".",
+      "name": "HermesSessionsExtension",
+      "kind": "InterfaceDeclaration",
+      "classification": "stable-for-alpha",
+      "signature": "HermesSessionsExtension"
+    },
+    {
+      "package": "@banzae/agent-runtime-hermes",
+      "entrypoint": ".",
+      "name": "RuntimeApprovalCapability",
+      "kind": "InterfaceDeclaration",
+      "classification": "stable-for-alpha",
+      "signature": "RuntimeApprovalCapability"
+    },
+    {
+      "package": "@banzae/agent-runtime-hermes",
+      "entrypoint": "./experimental",
+      "name": "isHermesCapabilities",
+      "kind": "FunctionDeclaration",
+      "classification": "experimental",
+      "signature": "(payload: unknown) => boolean"
+    },
+    {
+      "package": "@banzae/agent-runtime-hermes",
+      "entrypoint": "./experimental",
+      "name": "mapHermesCapabilities",
+      "kind": "FunctionDeclaration",
+      "classification": "experimental",
+      "signature": "(payload: unknown) => RuntimeCapabilities"
+    },
+    {
+      "package": "@banzae/agent-runtime-hermes",
+      "entrypoint": "./experimental",
+      "name": "parseSseStream",
+      "kind": "FunctionDeclaration",
+      "classification": "experimental",
+      "signature": "(body: AsyncIterable<Uint8Array>, optionsOrMaxEventBytes?: SseParserOptions | number) => AsyncIterable<SseEvent>"
+    },
+    {
+      "package": "@banzae/agent-runtime-hermes",
+      "entrypoint": "./experimental",
+      "name": "SseEvent",
+      "kind": "TypeAliasDeclaration",
+      "classification": "experimental",
+      "signature": "SseEvent"
+    },
+    {
+      "package": "@banzae/agent-runtime-hermes",
+      "entrypoint": "./experimental",
+      "name": "SseParserOptions",
+      "kind": "TypeAliasDeclaration",
+      "classification": "experimental",
+      "signature": "SseParserOptions"
+    },
+    {
+      "package": "@banzae/agent-runtime-hermes",
+      "entrypoint": "./experimental",
+      "name": "ValidatedHermesCapabilities",
+      "kind": "TypeAliasDeclaration",
+      "classification": "experimental",
+      "signature": "ValidatedHermesCapabilities"
+    },
+    {
+      "package": "@banzae/agent-runtime-hermes",
+      "entrypoint": "./experimental",
+      "name": "validateHermesCapabilities",
+      "kind": "FunctionDeclaration",
+      "classification": "experimental",
+      "signature": "(payload: unknown) => ValidatedHermesCapabilities"
+    },
+    {
+      "package": "@banzae/agent-runtime-node",
+      "entrypoint": ".",
+      "name": "createDefaultRuntimeRegistry",
+      "kind": "FunctionDeclaration",
+      "classification": "stable-for-alpha",
+      "signature": "(options: CreateNodeRuntimeRegistryOptions) => RuntimeRegistry"
+    },
+    {
+      "package": "@banzae/agent-runtime-node",
+      "entrypoint": ".",
+      "name": "createHermesAdapterFactory",
+      "kind": "FunctionDeclaration",
+      "classification": "stable-for-alpha",
+      "signature": "(options?: HermesAdapterOptions) => { adapterId: string; create: (dependencies: RuntimeAdapterDependencies) => HermesAdapter; }"
+    },
+    {
+      "package": "@banzae/agent-runtime-node",
+      "entrypoint": ".",
+      "name": "CreateNodeRuntimeRegistryOptions",
+      "kind": "TypeAliasDeclaration",
+      "classification": "stable-for-alpha",
+      "signature": "CreateNodeRuntimeRegistryOptions"
+    },
+    {
+      "package": "@banzae/agent-runtime-node",
+      "entrypoint": ".",
+      "name": "createOpenClawAdapterFactory",
+      "kind": "FunctionDeclaration",
+      "classification": "stable-for-alpha",
+      "signature": "(options?: OpenClawAdapterOptions) => { adapterId: string; create: (dependencies: RuntimeAdapterDependencies) => OpenClawAdapter; }"
+    },
+    {
+      "package": "@banzae/agent-runtime-node",
+      "entrypoint": ".",
+      "name": "detectRuntime",
+      "kind": "FunctionDeclaration",
+      "classification": "stable-for-alpha",
+      "signature": "(input: RuntimeDetectionInput, options: RuntimeDetectorOptions) => Promise<RuntimeDetectionResult>"
+    },
+    {
+      "package": "@banzae/agent-runtime-node",
+      "entrypoint": ".",
+      "name": "EnvironmentCredentialProviderOptions",
+      "kind": "TypeAliasDeclaration",
+      "classification": "stable-for-alpha",
+      "signature": "EnvironmentCredentialProviderOptions"
+    },
+    {
+      "package": "@banzae/agent-runtime-node",
+      "entrypoint": ".",
+      "name": "EnvironmentRuntimeCredentialProvider",
+      "kind": "ClassDeclaration",
+      "classification": "stable-for-alpha",
+      "signature": "typeof EnvironmentRuntimeCredentialProvider"
+    },
+    {
+      "package": "@banzae/agent-runtime-node",
+      "entrypoint": ".",
+      "name": "FetchHttpTransport",
+      "kind": "ClassDeclaration",
+      "classification": "stable-for-alpha",
+      "signature": "typeof FetchHttpTransport"
+    },
+    {
+      "package": "@banzae/agent-runtime-node",
+      "entrypoint": ".",
+      "name": "nodeCrypto",
+      "kind": "VariableDeclaration",
+      "classification": "stable-for-alpha",
+      "signature": "RuntimeCrypto"
+    },
+    {
+      "package": "@banzae/agent-runtime-node",
+      "entrypoint": ".",
+      "name": "NodeFileStateStore",
+      "kind": "ClassDeclaration",
+      "classification": "stable-for-alpha",
+      "signature": "typeof NodeFileStateStore"
+    },
+    {
+      "package": "@banzae/agent-runtime-node",
+      "entrypoint": ".",
+      "name": "NodeMemorySecretStore",
+      "kind": "ClassDeclaration",
+      "classification": "stable-for-alpha",
+      "signature": "typeof NodeMemorySecretStore"
+    },
+    {
+      "package": "@banzae/agent-runtime-node",
+      "entrypoint": ".",
+      "name": "RuntimeAdapterDependencies",
+      "kind": "TypeAliasDeclaration",
+      "classification": "stable-for-alpha",
+      "signature": "RuntimeAdapterDependencies"
+    },
+    {
+      "package": "@banzae/agent-runtime-node",
+      "entrypoint": ".",
+      "name": "RuntimeRegistry",
+      "kind": "ClassDeclaration",
+      "classification": "stable-for-alpha",
+      "signature": "typeof RuntimeRegistry"
+    },
+    {
+      "package": "@banzae/agent-runtime-node",
+      "entrypoint": ".",
+      "name": "RuntimeSecretStore",
+      "kind": "InterfaceDeclaration",
+      "classification": "stable-for-alpha",
+      "signature": "RuntimeSecretStore"
+    },
+    {
+      "package": "@banzae/agent-runtime-node",
+      "entrypoint": ".",
+      "name": "RuntimeStateStore",
+      "kind": "InterfaceDeclaration",
+      "classification": "stable-for-alpha",
+      "signature": "RuntimeStateStore"
+    },
+    {
+      "package": "@banzae/agent-runtime-node",
+      "entrypoint": ".",
+      "name": "WsWebSocketFactory",
+      "kind": "ClassDeclaration",
+      "classification": "stable-for-alpha",
+      "signature": "typeof WsWebSocketFactory"
+    },
+    {
+      "package": "@banzae/agent-runtime-openclaw",
+      "entrypoint": ".",
+      "name": "createOpenClawAdapterFactory",
+      "kind": "FunctionDeclaration",
+      "classification": "stable-for-alpha",
+      "signature": "(options?: OpenClawAdapterOptions) => { adapterId: string; create: (dependencies: RuntimeAdapterDependencies) => OpenClawAdapter; }"
+    },
+    {
+      "package": "@banzae/agent-runtime-openclaw",
+      "entrypoint": ".",
+      "name": "OpenClawAdapter",
+      "kind": "ClassDeclaration",
+      "classification": "stable-for-alpha",
+      "signature": "typeof OpenClawAdapter"
+    },
+    {
+      "package": "@banzae/agent-runtime-openclaw",
+      "entrypoint": ".",
+      "name": "OpenClawAdapterOptions",
+      "kind": "TypeAliasDeclaration",
+      "classification": "stable-for-alpha",
+      "signature": "OpenClawAdapterOptions"
+    },
+    {
+      "package": "@banzae/agent-runtime-openclaw",
+      "entrypoint": "./experimental",
+      "name": "OPENCLAW_SUPPORTED_PROTOCOLS",
+      "kind": "VariableDeclaration",
+      "classification": "experimental",
+      "signature": "readonly [{ readonly protocolName: \"openclaw-gateway-v4\"; readonly protocolVersion: 4; readonly status: \"supported\"; }, { readonly protocolName: \"openclaw-gateway-v3\"; readonly protocolVersion: 3; readonly status: \"supported\"; }]"
+    },
+    {
+      "package": "@banzae/agent-runtime-openclaw",
+      "entrypoint": "./experimental",
+      "name": "OpenClawChallenge",
+      "kind": "TypeAliasDeclaration",
+      "classification": "experimental",
+      "signature": "OpenClawChallenge"
+    },
+    {
+      "package": "@banzae/agent-runtime-openclaw",
+      "entrypoint": "./experimental",
+      "name": "OpenClawFrame",
+      "kind": "TypeAliasDeclaration",
+      "classification": "experimental",
+      "signature": "OpenClawFrame"
+    },
+    {
+      "package": "@banzae/agent-runtime-openclaw",
+      "entrypoint": "./experimental",
+      "name": "OpenClawHello",
+      "kind": "TypeAliasDeclaration",
+      "classification": "experimental",
+      "signature": "OpenClawHello"
+    },
+    {
+      "package": "@banzae/agent-runtime-openclaw",
+      "entrypoint": "./experimental",
+      "name": "OpenClawProtocolCodec",
+      "kind": "InterfaceDeclaration",
+      "classification": "experimental",
+      "signature": "OpenClawProtocolCodec"
+    },
+    {
+      "package": "@banzae/agent-runtime-openclaw",
+      "entrypoint": "./experimental",
+      "name": "OpenClawProtocolFixtureMetadata",
+      "kind": "TypeAliasDeclaration",
+      "classification": "experimental",
+      "signature": "OpenClawProtocolFixtureMetadata"
+    },
+    {
+      "package": "@banzae/agent-runtime-openclaw",
+      "entrypoint": "./experimental",
+      "name": "OpenClawProtocolRegistry",
+      "kind": "ClassDeclaration",
+      "classification": "experimental",
+      "signature": "typeof OpenClawProtocolRegistry"
+    },
+    {
+      "package": "@banzae/agent-runtime-openclaw",
+      "entrypoint": "./experimental",
+      "name": "openClawV3Codec",
+      "kind": "FunctionDeclaration",
+      "classification": "experimental",
+      "signature": "() => OpenClawV3Codec"
+    },
+    {
+      "package": "@banzae/agent-runtime-openclaw",
+      "entrypoint": "./experimental",
+      "name": "OpenClawV3Codec",
+      "kind": "ClassDeclaration",
+      "classification": "experimental",
+      "signature": "typeof OpenClawV3Codec"
+    },
+    {
+      "package": "@banzae/agent-runtime-openclaw",
+      "entrypoint": "./experimental",
+      "name": "openClawV4Codec",
+      "kind": "FunctionDeclaration",
+      "classification": "experimental",
+      "signature": "() => OpenClawV4Codec"
+    },
+    {
+      "package": "@banzae/agent-runtime-openclaw",
+      "entrypoint": "./experimental",
+      "name": "OpenClawV4Codec",
+      "kind": "ClassDeclaration",
+      "classification": "experimental",
+      "signature": "typeof OpenClawV4Codec"
+    },
+    {
+      "package": "@banzae/agent-runtime-testing",
+      "entrypoint": ".",
+      "name": "AdapterTestHarness",
+      "kind": "TypeAliasDeclaration",
+      "classification": "testing-only",
+      "signature": "AdapterTestHarness"
+    },
+    {
+      "package": "@banzae/agent-runtime-testing",
+      "entrypoint": ".",
+      "name": "assertNoLiveReportSecrets",
+      "kind": "FunctionDeclaration",
+      "classification": "testing-only",
+      "signature": "(value: unknown, markers?: readonly string[]) => void"
+    },
+    {
+      "package": "@banzae/agent-runtime-testing",
+      "entrypoint": ".",
+      "name": "assertResourcesReleased",
+      "kind": "FunctionDeclaration",
+      "classification": "testing-only",
+      "signature": "(snapshot: RuntimeConformanceResourceSnapshot | undefined) => void"
+    },
+    {
+      "package": "@banzae/agent-runtime-testing",
+      "entrypoint": ".",
+      "name": "assertRuntimeError",
+      "kind": "FunctionDeclaration",
+      "classification": "testing-only",
+      "signature": "(work: () => Promise<unknown>, code: RuntimeError[\"code\"]) => Promise<RuntimeError>"
+    },
+    {
+      "package": "@banzae/agent-runtime-testing",
+      "entrypoint": ".",
+      "name": "assertSecretMarkersAbsent",
+      "kind": "FunctionDeclaration",
+      "classification": "testing-only",
+      "signature": "(value: unknown, markers: readonly string[]) => void"
+    },
+    {
+      "package": "@banzae/agent-runtime-testing",
+      "entrypoint": ".",
+      "name": "collectRuntimeEvents",
+      "kind": "FunctionDeclaration",
+      "classification": "testing-only",
+      "signature": "(stream: AsyncIterable<RuntimeEvent>, maximum?: number) => Promise<RuntimeEvent[]>"
+    },
+    {
+      "package": "@banzae/agent-runtime-testing",
+      "entrypoint": ".",
+      "name": "compareLiveCompatibilityReports",
+      "kind": "FunctionDeclaration",
+      "classification": "testing-only",
+      "signature": "(previous: LiveCompatibilityReport, current: LiveCompatibilityReport) => LiveCompatibilityDiff"
+    },
+    {
+      "package": "@banzae/agent-runtime-testing",
+      "entrypoint": ".",
+      "name": "createLiveFixtureCandidate",
+      "kind": "FunctionDeclaration",
+      "classification": "testing-only",
+      "signature": "(input: { report: LiveCompatibilityReport; payload: unknown; }) => LiveFixtureCandidate"
+    },
+    {
+      "package": "@banzae/agent-runtime-testing",
+      "entrypoint": ".",
+      "name": "createRuntimeAdapterConformanceSuite",
+      "kind": "FunctionDeclaration",
+      "classification": "testing-only",
+      "signature": "<TTarget extends RuntimeConformanceTarget>(config: RuntimeAdapterConformanceConfig<TTarget>) => RuntimeAdapterConformanceSuite"
+    },
+    {
+      "package": "@banzae/agent-runtime-testing",
+      "entrypoint": ".",
+      "name": "createSecretMarker",
+      "kind": "FunctionDeclaration",
+      "classification": "testing-only",
+      "signature": "(label: string) => string"
+    },
+    {
+      "package": "@banzae/agent-runtime-testing",
+      "entrypoint": ".",
+      "name": "DeterministicRuntimeClock",
+      "kind": "ClassDeclaration",
+      "classification": "testing-only",
+      "signature": "typeof DeterministicRuntimeClock"
+    },
+    {
+      "package": "@banzae/agent-runtime-testing",
+      "entrypoint": ".",
+      "name": "DeterministicRuntimeIdGenerator",
+      "kind": "ClassDeclaration",
+      "classification": "testing-only",
+      "signature": "typeof DeterministicRuntimeIdGenerator"
+    },
+    {
+      "package": "@banzae/agent-runtime-testing",
+      "entrypoint": ".",
+      "name": "FakeHermesRun",
+      "kind": "TypeAliasDeclaration",
+      "classification": "testing-only",
+      "signature": "FakeHermesRun"
+    },
+    {
+      "package": "@banzae/agent-runtime-testing",
+      "entrypoint": ".",
+      "name": "FakeHermesServer",
+      "kind": "ClassDeclaration",
+      "classification": "testing-only",
+      "signature": "typeof FakeHermesServer"
+    },
+    {
+      "package": "@banzae/agent-runtime-testing",
+      "entrypoint": ".",
+      "name": "FakeOpenClawFailureMode",
+      "kind": "TypeAliasDeclaration",
+      "classification": "testing-only",
+      "signature": "FakeOpenClawFailureMode"
+    },
+    {
+      "package": "@banzae/agent-runtime-testing",
+      "entrypoint": ".",
+      "name": "FakeOpenClawRun",
+      "kind": "TypeAliasDeclaration",
+      "classification": "testing-only",
+      "signature": "FakeOpenClawRun"
+    },
+    {
+      "package": "@banzae/agent-runtime-testing",
+      "entrypoint": ".",
+      "name": "FakeOpenClawServerOptions",
+      "kind": "TypeAliasDeclaration",
+      "classification": "testing-only",
+      "signature": "FakeOpenClawServerOptions"
+    },
+    {
+      "package": "@banzae/agent-runtime-testing",
+      "entrypoint": ".",
+      "name": "FakeOpenClawV3Server",
+      "kind": "ClassDeclaration",
+      "classification": "testing-only",
+      "signature": "typeof FakeOpenClawV3Server"
+    },
+    {
+      "package": "@banzae/agent-runtime-testing",
+      "entrypoint": ".",
+      "name": "FakeOpenClawV4Server",
+      "kind": "ClassDeclaration",
+      "classification": "testing-only",
+      "signature": "typeof FakeOpenClawV4Server"
+    },
+    {
+      "package": "@banzae/agent-runtime-testing",
+      "entrypoint": ".",
+      "name": "FakeRuntimeAdapter",
+      "kind": "ClassDeclaration",
+      "classification": "testing-only",
+      "signature": "typeof FakeRuntimeAdapter"
+    },
+    {
+      "package": "@banzae/agent-runtime-testing",
+      "entrypoint": ".",
+      "name": "formatLiveCompatibilityReport",
+      "kind": "FunctionDeclaration",
+      "classification": "testing-only",
+      "signature": "(report: LiveCompatibilityReport) => string"
+    },
+    {
+      "package": "@banzae/agent-runtime-testing",
+      "entrypoint": ".",
+      "name": "LIVE_COMPATIBILITY_PREFIX",
+      "kind": "VariableDeclaration",
+      "classification": "testing-only",
+      "signature": "\"banzae-sdk-compat-\""
+    },
+    {
+      "package": "@banzae/agent-runtime-testing",
+      "entrypoint": ".",
+      "name": "LIVE_COMPATIBILITY_PROMPT",
+      "kind": "VariableDeclaration",
+      "classification": "testing-only",
+      "signature": "\"Reply with exactly: BANZAE_RUNTIME_COMPATIBILITY_OK\""
+    },
+    {
+      "package": "@banzae/agent-runtime-testing",
+      "entrypoint": ".",
+      "name": "LIVE_COMPATIBILITY_REPORT_SCHEMA_VERSION",
+      "kind": "VariableDeclaration",
+      "classification": "testing-only",
+      "signature": "1"
+    },
+    {
+      "package": "@banzae/agent-runtime-testing",
+      "entrypoint": ".",
+      "name": "LIVE_FIXTURE_SANITIZER_VERSION",
+      "kind": "VariableDeclaration",
+      "classification": "testing-only",
+      "signature": "\"live-compatibility-v1\""
+    },
+    {
+      "package": "@banzae/agent-runtime-testing",
+      "entrypoint": ".",
+      "name": "LiveCheckResult",
+      "kind": "TypeAliasDeclaration",
+      "classification": "testing-only",
+      "signature": "LiveCheckResult"
+    },
+    {
+      "package": "@banzae/agent-runtime-testing",
+      "entrypoint": ".",
+      "name": "LiveCompatibilityCheck",
+      "kind": "TypeAliasDeclaration",
+      "classification": "testing-only",
+      "signature": "LiveCompatibilityCheck"
+    },
+    {
+      "package": "@banzae/agent-runtime-testing",
+      "entrypoint": ".",
+      "name": "LiveCompatibilityCheckContext",
+      "kind": "TypeAliasDeclaration",
+      "classification": "testing-only",
+      "signature": "LiveCompatibilityCheckContext"
+    },
+    {
+      "package": "@banzae/agent-runtime-testing",
+      "entrypoint": ".",
+      "name": "LiveCompatibilityDiff",
+      "kind": "TypeAliasDeclaration",
+      "classification": "testing-only",
+      "signature": "LiveCompatibilityDiff"
+    },
+    {
+      "package": "@banzae/agent-runtime-testing",
+      "entrypoint": ".",
+      "name": "LiveCompatibilityReport",
+      "kind": "TypeAliasDeclaration",
+      "classification": "testing-only",
+      "signature": "LiveCompatibilityReport"
+    },
+    {
+      "package": "@banzae/agent-runtime-testing",
+      "entrypoint": ".",
+      "name": "LiveCompatibilityReportMetadata",
+      "kind": "TypeAliasDeclaration",
+      "classification": "testing-only",
+      "signature": "LiveCompatibilityReportMetadata"
+    },
+    {
+      "package": "@banzae/agent-runtime-testing",
+      "entrypoint": ".",
+      "name": "LiveCompatibilityTarget",
+      "kind": "TypeAliasDeclaration",
+      "classification": "testing-only",
+      "signature": "LiveCompatibilityTarget"
+    },
+    {
+      "package": "@banzae/agent-runtime-testing",
+      "entrypoint": ".",
+      "name": "LiveEnvironmentConfig",
+      "kind": "TypeAliasDeclaration",
+      "classification": "testing-only",
+      "signature": "LiveEnvironmentConfig"
+    },
+    {
+      "package": "@banzae/agent-runtime-testing",
+      "entrypoint": ".",
+      "name": "LiveFixtureCandidate",
+      "kind": "TypeAliasDeclaration",
+      "classification": "testing-only",
+      "signature": "LiveFixtureCandidate"
+    },
+    {
+      "package": "@banzae/agent-runtime-testing",
+      "entrypoint": ".",
+      "name": "LiveMutationPolicy",
+      "kind": "TypeAliasDeclaration",
+      "classification": "testing-only",
+      "signature": "LiveMutationPolicy"
+    },
+    {
+      "package": "@banzae/agent-runtime-testing",
+      "entrypoint": ".",
+      "name": "LiveProvider",
+      "kind": "TypeAliasDeclaration",
+      "classification": "testing-only",
+      "signature": "LiveProvider"
+    },
+    {
+      "package": "@banzae/agent-runtime-testing",
+      "entrypoint": ".",
+      "name": "parseLiveEnvironment",
+      "kind": "FunctionDeclaration",
+      "classification": "testing-only",
+      "signature": "(provider: LiveProvider, environment: Readonly<Record<string, string | undefined>>) => LiveEnvironmentConfig"
+    },
+    {
+      "package": "@banzae/agent-runtime-testing",
+      "entrypoint": ".",
+      "name": "runLiveCompatibility",
+      "kind": "FunctionDeclaration",
+      "classification": "testing-only",
+      "signature": "(options: RunLiveCompatibilityOptions) => Promise<LiveCompatibilityReport>"
+    },
+    {
+      "package": "@banzae/agent-runtime-testing",
+      "entrypoint": ".",
+      "name": "RunLiveCompatibilityOptions",
+      "kind": "TypeAliasDeclaration",
+      "classification": "testing-only",
+      "signature": "RunLiveCompatibilityOptions"
+    },
+    {
+      "package": "@banzae/agent-runtime-testing",
+      "entrypoint": ".",
+      "name": "RuntimeAdapterConformanceConfig",
+      "kind": "TypeAliasDeclaration",
+      "classification": "testing-only",
+      "signature": "RuntimeAdapterConformanceConfig<TTarget>"
+    },
+    {
+      "package": "@banzae/agent-runtime-testing",
+      "entrypoint": ".",
+      "name": "RuntimeAdapterConformanceScenarios",
+      "kind": "TypeAliasDeclaration",
+      "classification": "testing-only",
+      "signature": "RuntimeAdapterConformanceScenarios<TTarget>"
+    },
+    {
+      "package": "@banzae/agent-runtime-testing",
+      "entrypoint": ".",
+      "name": "RuntimeAdapterConformanceSuite",
+      "kind": "TypeAliasDeclaration",
+      "classification": "testing-only",
+      "signature": "RuntimeAdapterConformanceSuite"
+    },
+    {
+      "package": "@banzae/agent-runtime-testing",
+      "entrypoint": ".",
+      "name": "RuntimeConformanceAssertionError",
+      "kind": "ClassDeclaration",
+      "classification": "testing-only",
+      "signature": "typeof RuntimeConformanceAssertionError"
+    },
+    {
+      "package": "@banzae/agent-runtime-testing",
+      "entrypoint": ".",
+      "name": "RuntimeConformanceCase",
+      "kind": "TypeAliasDeclaration",
+      "classification": "testing-only",
+      "signature": "RuntimeConformanceCase"
+    },
+    {
+      "package": "@banzae/agent-runtime-testing",
+      "entrypoint": ".",
+      "name": "RuntimeConformanceCategory",
+      "kind": "TypeAliasDeclaration",
+      "classification": "testing-only",
+      "signature": "RuntimeConformanceCategory"
+    },
+    {
+      "package": "@banzae/agent-runtime-testing",
+      "entrypoint": ".",
+      "name": "RuntimeConformanceResourceSnapshot",
+      "kind": "TypeAliasDeclaration",
+      "classification": "testing-only",
+      "signature": "RuntimeConformanceResourceSnapshot"
+    },
+    {
+      "package": "@banzae/agent-runtime-testing",
+      "entrypoint": ".",
+      "name": "RuntimeConformanceTarget",
+      "kind": "TypeAliasDeclaration",
+      "classification": "testing-only",
+      "signature": "RuntimeConformanceTarget"
+    },
+    {
+      "package": "@banzae/agent-runtime-testing",
+      "entrypoint": ".",
+      "name": "sanitizeLiveValue",
+      "kind": "FunctionDeclaration",
+      "classification": "testing-only",
+      "signature": "(value: unknown, options?: { replaceIdentifiers?: boolean; }) => unknown"
+    },
+    {
+      "package": "@banzae/agent-runtime-testing",
+      "entrypoint": ".",
+      "name": "smokeAdapterContract",
+      "kind": "FunctionDeclaration",
+      "classification": "testing-only",
+      "signature": "(harness: AdapterTestHarness) => Promise<void>"
+    },
+    {
+      "package": "@banzae/agent-runtime-testing",
+      "entrypoint": ".",
+      "name": "validateLiveCompatibilityReport",
+      "kind": "FunctionDeclaration",
+      "classification": "testing-only",
+      "signature": "(value: unknown) => asserts value is LiveCompatibilityReport"
+    },
+    {
+      "package": "@banzae/agent-runtime-testing",
+      "entrypoint": ".",
+      "name": "validateLiveEndpoint",
+      "kind": "FunctionDeclaration",
+      "classification": "testing-only",
+      "signature": "(endpoint: string, provider: LiveProvider) => void"
+    },
+    {
+      "package": "@banzae/agent-runtime-testing",
+      "entrypoint": ".",
+      "name": "validateLiveFixtureCandidate",
+      "kind": "FunctionDeclaration",
+      "classification": "testing-only",
+      "signature": "(value: unknown) => asserts value is LiveFixtureCandidate"
+    }
+  ]
+}

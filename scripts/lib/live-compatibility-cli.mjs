@@ -214,7 +214,7 @@ async function controlledRun({ adapter, signal, state }) {
   }, { signal });
   let output = '';
   let terminalCount = 0;
-  if (capabilities.runs.streamText) {
+  if (capabilities.runs.stream) {
     for await (const event of adapter.streamRun({
       applicationRunId,
       externalRunId: run.externalRunId,

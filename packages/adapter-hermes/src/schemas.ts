@@ -1,5 +1,6 @@
 import {
   RuntimeError,
+  normalizeRuntimeTimestamp,
   type RuntimeMessage,
   type RuntimeRunStatus,
 } from '@banzae/agent-runtime-core';
@@ -216,7 +217,7 @@ function normalizeMessage(value: unknown): RuntimeMessage {
     id: stringValue(message.id),
     role,
     content,
-    createdAt: stringValue(message.timestamp),
+    createdAt: normalizeRuntimeTimestamp(message.timestamp ?? message.created_at),
     metadata: toolCalls || message.tool_call_id || message.tool_name
       ? { toolCalls, toolCallId: stringValue(message.tool_call_id), toolName: stringValue(message.tool_name) }
       : undefined,

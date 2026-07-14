@@ -1,11 +1,11 @@
 import {
   RuntimeError,
   NO_CAPABILITIES,
-  withDeadline,
   type RuntimeCapabilities,
   type RuntimeWebSocketConnection,
   type RuntimeWebSocketEvent,
 } from '@banzae/agent-runtime-core';
+import { withDeadline } from '@banzae/agent-runtime-core/experimental';
 import {
   OpenClawProtocolRegistry,
   openClawV3Codec,
@@ -14,7 +14,7 @@ import {
   type OpenClawFrame,
   type OpenClawHello,
   type OpenClawProtocolCodec,
-} from '@banzae/agent-runtime-openclaw';
+} from '@banzae/agent-runtime-openclaw/experimental';
 import { authHeaders, normalizeDetectionEndpoint, sanitizeDetectionValue } from './security.js';
 import type { PersistedRuntimeDetection, RuntimeDetectionInput, RuntimeProbe, RuntimeProbeContext, RuntimeProbeResult } from './types.js';
 
@@ -107,7 +107,7 @@ export function createHermesProbe(): RuntimeProbe {
         }
         if (response.status === 403) {
           await closeBody(response.body);
-          return probeError('hermes', started, context, runtimeError('AUTHORIZATION_FAILED', 'Hermes permission denied', false, { status: 403, stage: 'hermes.capabilities' }));
+          return probeError('hermes', started, context, runtimeError('PERMISSION_DENIED', 'Hermes permission denied', false, { status: 403, stage: 'hermes.capabilities' }));
         }
         if (response.status === 404) {
           await closeBody(response.body);
@@ -119,7 +119,7 @@ export function createHermesProbe(): RuntimeProbe {
         }
         if (response.status >= 500) {
           await closeBody(response.body);
-          return probeError('hermes', started, context, runtimeError('RUNTIME_UNAVAILABLE', 'Hermes provider unavailable', true, { status: response.status, stage: 'hermes.capabilities' }));
+          return probeError('hermes', started, context, runtimeError('PROVIDER_UNAVAILABLE', 'Hermes provider unavailable', true, { status: response.status, stage: 'hermes.capabilities' }));
         }
         if (response.status < 200 || response.status >= 300) {
           await closeBody(response.body);
@@ -302,9 +302,10 @@ function hermesCapabilities(payload: Record<string, unknown>): RuntimeCapabiliti
   return {
     ...NO_CAPABILITIES,
     sessions: { create: sessionCreate, resume: start, history: sessionHistory, fork: false },
-    runs: { start, status, streamText: stream, streamTools: tools, cancel, approvals },
+    runs: { start, status, stream, cancel, approvals },
     input: { text: start, images: false, files: false },
     output: { text: status || stream, reasoning: false, tools, usage: false },
+    health: { liveness: true, readiness: false },
     extensions: {
       'hermes.protocol': 'hermes-runs-http',
       'hermes.long_term_session_key': features.session_key_header === 'X-Hermes-Session-Key',
@@ -328,12 +329,12 @@ function probeError(adapterId: string, started: number, context: RuntimeProbeCon
 
 function mapOpenClawDetectionError(error: unknown): RuntimeError {
   if (error instanceof RuntimeError) return error;
-  return runtimeError('RUNTIME_UNAVAILABLE', 'OpenClaw probe failed', true, safeErrorDetails(error, 'openclaw.probe'));
+  return runtimeError('PROVIDER_UNAVAILABLE', 'OpenClaw probe failed', true, safeErrorDetails(error, 'openclaw.probe'));
 }
 
 function mapHermesDetectionError(error: unknown): RuntimeError {
   if (error instanceof RuntimeError) return error;
-  return runtimeError('RUNTIME_UNAVAILABLE', 'Hermes probe failed', true, safeErrorDetails(error, 'hermes.capabilities'));
+  return runtimeError('PROVIDER_UNAVAILABLE', 'Hermes probe failed', true, safeErrorDetails(error, 'hermes.capabilities'));
 }
 
 function mapOpenClawProviderError(error: unknown, protocolVersion: number): RuntimeError {
@@ -345,7 +346,7 @@ function mapOpenClawProviderError(error: unknown, protocolVersion: number): Runt
   const details = { ...safeErrorDetails(error, 'openclaw.hello'), protocolVersion: String(protocolVersion) };
   if (code === 'PAIRING_REQUIRED' || detailCode === 'PAIRING_REQUIRED' || lower.includes('pairing')) return runtimeError('PAIRING_REQUIRED', 'OpenClaw pairing is required', false, details);
   if (code === 'AUTHENTICATION_FAILED' || detailCode === 'AUTHENTICATION_FAILED' || lower.includes('auth') || lower.includes('token')) return runtimeError('AUTHENTICATION_FAILED', 'OpenClaw authentication failed', false, details);
-  if (code === 'AUTHORIZATION_FAILED' || code === 'PERMISSION_DENIED' || detailCode === 'AUTHORIZATION_FAILED' || detailCode === 'PERMISSION_DENIED' || lower.includes('permission') || lower.includes('scope')) return runtimeError('AUTHORIZATION_FAILED', 'OpenClaw permission denied', false, details);
+  if (code === 'AUTHORIZATION_FAILED' || code === 'PERMISSION_DENIED' || detailCode === 'AUTHORIZATION_FAILED' || detailCode === 'PERMISSION_DENIED' || lower.includes('permission') || lower.includes('scope')) return runtimeError('PERMISSION_DENIED', 'OpenClaw permission denied', false, details);
   if (code === 'PROTOCOL_MISMATCH' || detailCode === 'PROTOCOL_MISMATCH' || lower.includes('protocol')) return runtimeError('PROTOCOL_MISMATCH', 'OpenClaw protocol mismatch', false, details);
   return runtimeError('PROVIDER_ERROR', 'OpenClaw provider rejected detection hello', false, details);
 }

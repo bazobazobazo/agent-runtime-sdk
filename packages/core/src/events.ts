@@ -27,6 +27,14 @@ export function isTerminalEvent(event: RuntimeEvent): boolean {
   return event.type === 'run.completed' || event.type === 'run.failed' || event.type === 'run.cancelled';
 }
 
+export function isTerminalRuntimeRunStatus(status: import('./types.js').RuntimeRunStatus): boolean {
+  return status === 'completed' || status === 'failed' || status === 'cancelled';
+}
+
+export function isActiveRuntimeRunStatus(status: import('./types.js').RuntimeRunStatus): boolean {
+  return status === 'queued' || status === 'running' || status === 'waiting_for_approval' || status === 'stopping';
+}
+
 export function failedEventFromError(
   base: RuntimeEventBase,
   error: RuntimeError,

@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import {
   RuntimeError,
-  createTestDependencies,
-  sanitizeProviderPayload,
   type RuntimeWebSocketConnection,
   type RuntimeWebSocketEvent,
 } from '@banzae/agent-runtime-core';
+import { sanitizeProviderPayload } from '@banzae/agent-runtime-core/diagnostics';
+import { createTestDependencies } from '@banzae/agent-runtime-core/testing';
 import { OpenClawRequestManager } from '../../adapter-openclaw/src/transport/request-manager.js';
 import { openClawV4Codec } from '../../adapter-openclaw/src/protocol/v4/codec.js';
 import { BoundedDedupeWindow } from '../../adapter-hermes/src/dedupe.js';

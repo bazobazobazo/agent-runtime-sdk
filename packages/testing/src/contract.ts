@@ -1,6 +1,5 @@
 import {
   RuntimeError,
-  assertStartRunInput,
   isTerminalEvent,
   type AgentRuntimeAdapter,
   type CancelRuntimeRunInput,
@@ -17,6 +16,7 @@ import {
   type StartRuntimeRunInput,
   type StreamRuntimeRunInput,
 } from '@banzae/agent-runtime-core';
+import { assertStartRunInput } from '@banzae/agent-runtime-core/experimental';
 
 export type RuntimeConformanceCategory =
   | 'connection'
@@ -106,6 +106,29 @@ export function createRuntimeAdapterConformanceSuite<TTarget extends RuntimeConf
   });
 
   const cases: RuntimeConformanceCase[] = [
+    testCase('connection', 'follows the shared lifecycle state model', async (adapter, target) => {
+      assertEqual(adapter.lifecycleState, 'created', 'initial lifecycle state');
+      assertDeepEqual(await adapter.capabilities(), {
+        schemaVersion: 1,
+        sessions: { create: false, resume: false, history: false, fork: false },
+        runs: { start: false, status: false, stream: false, cancel: false, approvals: false },
+        input: { text: false, images: false, files: false },
+        output: { text: false, reasoning: false, tools: false, usage: false },
+        health: { liveness: false, readiness: false },
+        extensions: {},
+      }, 'pre-connect capabilities');
+      assertEqual((await adapter.health()).status, 'unavailable', 'pre-connect health');
+      await adapter.connect(target.connection);
+      assertEqual(adapter.lifecycleState, 'connected', 'connected lifecycle state');
+      await adapter.connect(target.connection);
+      assertEqual(adapter.lifecycleState, 'connected', 'repeated connect lifecycle state');
+      await adapter.close();
+      assertEqual(adapter.lifecycleState, 'closed', 'closed lifecycle state');
+      await adapter.close();
+      assertEqual(adapter.lifecycleState, 'closed', 'idempotent close lifecycle state');
+      await adapter.connect(target.connection);
+      assertEqual(adapter.lifecycleState, 'connected', 'reconnected lifecycle state');
+    }),
     testCase('connection', 'connects with a valid provider-neutral descriptor', async (adapter, target) => {
       const info = await adapter.connect(target.connection);
       const descriptor = info.descriptor;
@@ -177,7 +200,7 @@ export function createRuntimeAdapterConformanceSuite<TTarget extends RuntimeConf
       assert(events.every((event) => event.externalRunId === handle.externalRunId), 'stream changed external run id');
       assertEqual(events.filter(isTerminalEvent).length, 1, 'terminal event count');
       assert(isTerminalEvent(events.at(-1)!), 'terminal event must end iteration');
-      assert(events.every((event) => event.provider?.raw === undefined), 'raw provider payload is enabled by default');
+      assert(events.every((event) => event.provider?.sanitizedRawPayload === undefined), 'raw provider payload is disabled by default');
     }),
     testCase('status', 'normalizes provider run status', async (adapter, target) => {
       await adapter.connect(target.connection);
@@ -209,7 +232,7 @@ export function createRuntimeAdapterConformanceSuite<TTarget extends RuntimeConf
     testCase('streaming', 'keeps two concurrent sessions and streams isolated', async (adapter, target) => {
       await adapter.connect(target.connection);
       const capabilities = await adapter.capabilities();
-      if (!capabilities.runs.streamText) return;
+      if (!capabilities.runs.stream) return;
       const firstInput = config.scenarios.session(target);
       const secondInput = { ...config.scenarios.session(target), applicationSessionId: `${firstInput.applicationSessionId}-second` };
       const firstSession = await adapter.ensureSession(firstInput);
@@ -228,7 +251,7 @@ export function createRuntimeAdapterConformanceSuite<TTarget extends RuntimeConf
     testCase('resources', 'iterator return releases stream registrations', async (adapter, target) => {
       await adapter.connect(target.connection);
       const capabilities = await adapter.capabilities();
-      if (!capabilities.runs.streamText) return;
+      if (!capabilities.runs.stream) return;
       const session = await adapter.ensureSession(config.scenarios.session(target));
       const run = await adapter.startRun(config.scenarios.run(target, session));
       const baselineSubscriptions = target.resourceSnapshot?.().activeSubscriptions ?? 0;
@@ -251,7 +274,7 @@ export function createRuntimeAdapterConformanceSuite<TTarget extends RuntimeConf
       const next = iterator.next();
       await target.triggerApproval(run, session);
       const event = (await next).value;
-      assert(event?.type === 'approval.requested', 'approval stream did not emit approval.requested');
+      assert(event?.type === 'approval.required', 'approval stream did not emit approval.required');
       assert(event.availableDecisions.length > 0, 'approval request advertised no decisions');
       await adapter.resolveApproval!({
         applicationRunId: run.applicationRunId,
@@ -274,8 +297,8 @@ export function createRuntimeAdapterConformanceSuite<TTarget extends RuntimeConf
         await assertRuntimeError(() => adapter.getHistory(input), 'UNSUPPORTED_CAPABILITY');
         return;
       }
-      const messages = await adapter.getHistory(input);
-      assert(Array.isArray(messages) && messages.length > 0, 'advertised history returned no messages');
+      const page = await adapter.getHistory(input);
+      assert(Array.isArray(page.messages) && page.messages.length > 0, 'advertised history returned no messages');
     }),
     testCase('security', 'public connection output contains no supplied credentials', async (adapter, target) => {
       const info = await adapter.connect(target.connection);

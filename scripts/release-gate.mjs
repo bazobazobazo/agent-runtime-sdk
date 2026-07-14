@@ -13,6 +13,8 @@ const commands = [
   ['pnpm', ['api:check']],
   ['pnpm', ['secret:scan']],
   ['pnpm', ['build']],
+  ['pnpm', ['test:live:cli']],
+  ['pnpm', ['consumer:check']],
   ['pnpm', ['artifact:scan']],
   ['pnpm', ['package:contents']],
   ['pnpm', ['run', 'sbom:generate']],

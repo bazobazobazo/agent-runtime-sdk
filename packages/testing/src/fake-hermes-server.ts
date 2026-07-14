@@ -79,7 +79,7 @@ export class FakeHermesServer implements RuntimeHttpTransport {
     this.requests.push(input);
     if (input.signal?.aborted) throw input.signal.reason;
     const url = new URL(input.url);
-    if (this.shutdownState) throw new RuntimeError({ code: 'RUNTIME_UNAVAILABLE', retryable: true, message: 'Fake Hermes server is shut down' });
+    if (this.shutdownState) throw new RuntimeError({ code: 'PROVIDER_UNAVAILABLE', retryable: true, message: 'Fake Hermes server is shut down' });
     if (this.failAuth) return this.responseJson(401, { error: 'unauthorized' });
     if (this.failPermission) return this.responseJson(403, { error: 'forbidden' });
     if (this.rateLimitRequests > 0) {

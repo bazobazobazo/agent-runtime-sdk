@@ -1,4 +1,4 @@
-import type { RuntimeMessage } from '@banzae/agent-runtime-core';
+import { normalizeRuntimeTimestamp, type RuntimeMessage } from '@banzae/agent-runtime-core';
 
 export function normalizeOpenClawHistory(payload: unknown): RuntimeMessage[] {
   const messages = Array.isArray((payload as { messages?: unknown })?.messages)
@@ -18,7 +18,7 @@ export function normalizeOpenClawHistory(payload: unknown): RuntimeMessage[] {
         id: typeof value.id === 'string' ? value.id : undefined,
         role,
         content,
-        createdAt: typeof value.createdAt === 'string' ? value.createdAt : undefined,
+        createdAt: normalizeRuntimeTimestamp(value.createdAt ?? value.created_at ?? value.timestamp),
         metadata: { provider: 'openclaw', runId: value.runId, sequence: value.sequence },
       },
     ];

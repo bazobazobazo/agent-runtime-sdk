@@ -93,3 +93,7 @@ decision. Replace `'approve'` with `{ action: 'allow', scope: 'once' }`,
 `availableDecisions`. Terminal run events may include reconciled output, usage,
 and session-state patches. `INVALID_RESPONSE` is now a public normalized error
 code, and Hermes options add `maxDeduplicationEntries`.
+
+Normal applications use the package root. Strict schema and SSE utilities are
+available only from `/experimental` for adapter authors and may change during
+the alpha series. Hermes Jobs remain unexported and out of scope.

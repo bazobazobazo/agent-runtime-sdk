@@ -1,21 +1,23 @@
 import { describe, expect, it } from 'vitest';
-import { RuntimeError, createTestDependencies, type RuntimeHttpResponse, type RuntimeWebSocketEvent } from '@banzae/agent-runtime-core';
+import { RuntimeError, type RuntimeHttpResponse, type RuntimeWebSocketEvent } from '@banzae/agent-runtime-core';
+import { createTestDependencies } from '@banzae/agent-runtime-core/testing';
 import {
   DefaultRuntimeNetworkPolicy,
   MemoryRuntimeDetectionStore,
-  RuntimeProbeRegistry,
   createHermesProbe,
   createOpenClawProbe,
   createRuntimeDetector,
-  detectionFingerprint,
-  explicitAdapterId,
-  normalizeTargetEndpoint,
-  sanitizeDetectionValue,
-  schemeHint,
-  selectDetectionCandidate,
   type RuntimeDetectionOptions,
   type RuntimeProbe,
 } from './index.js';
+import { RuntimeProbeRegistry } from './probe-registry.js';
+import {
+  explicitAdapterId,
+  normalizeTargetEndpoint,
+  schemeHint,
+  selectDetectionCandidate,
+} from './detector.js';
+import { detectionFingerprint, sanitizeDetectionValue } from './security.js';
 
 describe('runtime auto-detection', () => {
   it('explicit OpenClaw selection bypasses probes', async () => {
@@ -197,9 +199,9 @@ describe('runtime auto-detection', () => {
   it('maps Hermes HTTP failures safely', async () => {
     for (const [status, code] of [
       [401, 'AUTHENTICATION_FAILED'],
-      [403, 'AUTHORIZATION_FAILED'],
+      [403, 'PERMISSION_DENIED'],
       [429, 'RATE_LIMITED'],
-      [500, 'RUNTIME_UNAVAILABLE'],
+      [500, 'PROVIDER_UNAVAILABLE'],
     ] as const) {
       const result = await createHermesProbe().probe(
         { target: { endpoint: 'https://runtime.example.test' } },
@@ -263,10 +265,10 @@ describe('runtime auto-detection', () => {
     );
     expect(sanitized).not.toContain('secret');
     await expect(new DefaultRuntimeNetworkPolicy().validateTarget(new URL('https://user:pass@runtime.example.test'))).rejects.toMatchObject({
-      code: 'INVALID_CONFIGURATION',
+      code: 'NETWORK_POLICY_REJECTED',
     });
     await expect(new DefaultRuntimeNetworkPolicy().validateTarget(new URL('https://runtime.example.test?token=secret'))).rejects.toMatchObject({
-      code: 'INVALID_CONFIGURATION',
+      code: 'NETWORK_POLICY_REJECTED',
     });
   });
 
@@ -310,9 +312,9 @@ describe('runtime auto-detection', () => {
 
   it('rejects cross-host redirects and unsupported schemes', async () => {
     const policy = new DefaultRuntimeNetworkPolicy();
-    await expect(policy.validateTarget(new URL('ftp://runtime.example.test'))).rejects.toMatchObject({ code: 'INVALID_CONFIGURATION' });
+    await expect(policy.validateTarget(new URL('ftp://runtime.example.test'))).rejects.toMatchObject({ code: 'NETWORK_POLICY_REJECTED' });
     await expect(policy.validateRedirect(new URL('https://a.example.test'), new URL('https://b.example.test'))).rejects.toMatchObject({
-      code: 'INVALID_CONFIGURATION',
+      code: 'NETWORK_POLICY_REJECTED',
     });
   });
 
@@ -321,9 +323,9 @@ describe('runtime auto-detection', () => {
     await expect(policy.validateTarget(new URL('https://[::1]:8443'))).resolves.toBeUndefined();
     await expect(policy.validateTarget(new URL('https://127.0.0.1:8443'))).resolves.toBeUndefined();
     await expect(policy.validateTarget(new URL('https://bücher.example'))).resolves.toBeUndefined();
-    await expect(policy.validateTarget(new URL('https://runtime.example.test/?%74oken=secret'))).rejects.toMatchObject({ code: 'INVALID_CONFIGURATION' });
+    await expect(policy.validateTarget(new URL('https://runtime.example.test/?%74oken=secret'))).rejects.toMatchObject({ code: 'NETWORK_POLICY_REJECTED' });
     await expect(createRuntimeDetector({ dependencies: deps(), probes: [] }).detect({ target: { endpoint: 'not a url' } }))
-      .rejects.toMatchObject({ code: 'INVALID_CONFIGURATION' });
+      .rejects.toMatchObject({ code: 'NETWORK_POLICY_REJECTED' });
   });
 
   it('rejects duplicate probe registration and leaves Codex/Pi unregistered', () => {

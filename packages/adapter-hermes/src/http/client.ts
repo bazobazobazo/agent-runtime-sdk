@@ -358,7 +358,7 @@ function throwIfAborted(signal: AbortSignal): void {
 function normalizeTransportError(error: unknown, signal: AbortSignal): RuntimeError {
   if (error instanceof RuntimeError) return error;
   if (signal.aborted) return signal.reason instanceof RuntimeError ? signal.reason : runtimeError('CANCELLED', 'Hermes operation was cancelled', false);
-  return runtimeError('RUNTIME_UNAVAILABLE', 'Hermes transport failed', true, safeErrorDetails(error, 'transport'));
+  return runtimeError('PROVIDER_UNAVAILABLE', 'Hermes transport failed', true, safeErrorDetails(error, 'transport'));
 }
 
 function runtimeError(code: RuntimeErrorCode, message: string, retryable: boolean, details?: Record<string, unknown>): RuntimeError {

@@ -3,12 +3,11 @@ import {
   SECURE_RUNTIME_LIMITS,
   isRuntimeError,
   resolveSecureLimit,
-  sanitizeProviderPayload,
-  sanitizeDetails,
   type AgentRuntimeAdapter,
   type RuntimeCapabilities,
   type RuntimeErrorCode,
 } from '@banzae/agent-runtime-core';
+import { sanitizeDetails, sanitizeProviderPayload } from '@banzae/agent-runtime-core/diagnostics';
 
 export const LIVE_COMPATIBILITY_REPORT_SCHEMA_VERSION = 1 as const;
 export const LIVE_COMPATIBILITY_PROMPT = 'Reply with exactly: BANZAE_RUNTIME_COMPATIBILITY_OK';
@@ -561,7 +560,6 @@ function safeErrorMessage(code: RuntimeErrorCode): string {
     TIMEOUT: 'The live compatibility operation timed out',
     CANCELLED: 'The live compatibility operation was cancelled',
     INVALID_RESPONSE: 'The runtime returned an invalid response',
-    RUNTIME_UNAVAILABLE: 'The runtime is unavailable',
     PROVIDER_UNAVAILABLE: 'The runtime provider is unavailable',
   };
   return messages[code] ?? 'Live compatibility check failed';
@@ -640,13 +638,14 @@ function isIsoDate(value: unknown): boolean {
 
 function isCapabilities(value: unknown): value is RuntimeCapabilities {
   if (!isRecord(value) || value.schemaVersion !== 1) return false;
-  if (!isRecord(value.sessions) || !isRecord(value.runs) || !isRecord(value.input) || !isRecord(value.output) || !isRecord(value.extensions)) return false;
-  const { sessions, runs, input, output, extensions } = value;
+  if (!isRecord(value.sessions) || !isRecord(value.runs) || !isRecord(value.input) || !isRecord(value.output) || !isRecord(value.health) || !isRecord(value.extensions)) return false;
+  const { sessions, runs, input, output, health, extensions } = value;
   return [
     ...['create', 'resume', 'history', 'fork'].map((key) => sessions[key]),
-    ...['start', 'status', 'streamText', 'streamTools', 'cancel', 'approvals'].map((key) => runs[key]),
+    ...['start', 'status', 'stream', 'cancel', 'approvals'].map((key) => runs[key]),
     ...['text', 'images', 'files'].map((key) => input[key]),
     ...['text', 'reasoning', 'tools', 'usage'].map((key) => output[key]),
+    ...['liveness', 'readiness'].map((key) => health[key]),
   ].every((item) => typeof item === 'boolean') && Object.values(extensions).every(
     (item) => typeof item === 'boolean' || typeof item === 'string' || typeof item === 'number',
   );
@@ -656,9 +655,10 @@ function disabledCapabilities(): RuntimeCapabilities {
   return {
     schemaVersion: 1,
     sessions: { create: false, resume: false, history: false, fork: false },
-    runs: { start: false, status: false, streamText: false, streamTools: false, cancel: false, approvals: false },
+    runs: { start: false, status: false, stream: false, cancel: false, approvals: false },
     input: { text: false, images: false, files: false },
     output: { text: false, reasoning: false, tools: false, usage: false },
+    health: { liveness: false, readiness: false },
     extensions: {},
   };
 }

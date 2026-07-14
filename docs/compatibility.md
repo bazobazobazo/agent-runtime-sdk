@@ -39,7 +39,7 @@ Live integration validation is a separate, stronger check. It runs the SDK
 against a real target runtime and exercises state-changing behavior such as
 session creation, run creation, streaming, history reads, and cancellation. Until
 those live commands are confirmed for the target release environment, treat the
-SDK as an initial scaffold even when fixture-backed replay tests pass.
+SDK as a pre-alpha implementation even when fixture-backed replay tests pass.
 
 Shared fake-server conformance adds provider-neutral lifecycle, capability,
 session, run, stream, status, cancellation, concurrency, security, and resource
@@ -58,6 +58,11 @@ Security fuzzing, resource stress, fixture validation, and CodeQL strengthen the
 evidence for bounded SDK behavior but do not upgrade fake or synthetic runtime
 evidence to live compatibility. The compatibility labels in this table remain
 unchanged by the security-resilience phase.
+
+Runtime compatibility is separate from TypeScript API compatibility. Version
+`0.x` may break with migration notes; experimental entrypoints may change more
+frequently. The contract is “pre-alpha public API frozen for
+`v0.1.0-alpha.1`,” not stable or production-final.
 
 ## OpenClaw Stream Reconciliation
 

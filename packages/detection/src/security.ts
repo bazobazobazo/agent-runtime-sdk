@@ -1,4 +1,6 @@
-import { RuntimeError, normalizeEndpoint, sanitizeProviderPayload, type RuntimeAdapterDependencies, type RuntimeAuthInput, type RuntimeTarget } from '@banzae/agent-runtime-core';
+import { RuntimeError, type RuntimeAdapterDependencies, type RuntimeAuthInput, type RuntimeTarget } from '@banzae/agent-runtime-core';
+import { normalizeEndpoint } from '@banzae/agent-runtime-core/experimental';
+import { sanitizeProviderPayload } from '@banzae/agent-runtime-core/diagnostics';
 import type { RuntimeNetworkPolicy } from './types.js';
 
 export const DETECTION_SCHEMA_VERSION = 1;
@@ -95,7 +97,14 @@ export function authHeaders(auth?: RuntimeAuthInput): Readonly<Record<string, st
 }
 
 function policyError(message: string, details?: Record<string, unknown>): RuntimeError {
-  return new RuntimeError({ code: 'INVALID_CONFIGURATION', retryable: false, message, details, adapterId: 'detection' });
+  return new RuntimeError({
+    code: 'NETWORK_POLICY_REJECTED',
+    retryable: false,
+    message,
+    details,
+    adapterId: 'detection',
+    operation: 'network-policy.validate',
+  });
 }
 
 function hex(bytes: Uint8Array): string {

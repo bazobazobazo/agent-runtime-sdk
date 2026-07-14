@@ -149,14 +149,14 @@ class WsConnection implements RuntimeWebSocketConnection {
 function validateTransportUrl(input: string, allowedSchemes: ReadonlySet<string>): URL {
   let url: URL;
   try { url = new URL(input); } catch {
-    throw new RuntimeError({ code: 'INVALID_CONFIGURATION', retryable: false, message: 'Runtime transport URL is invalid' });
+    throw new RuntimeError({ code: 'NETWORK_POLICY_REJECTED', retryable: false, message: 'Runtime transport URL is invalid', operation: 'network-policy.validate' });
   }
   if (!allowedSchemes.has(url.protocol) || !url.hostname || url.username || url.password) {
-    throw new RuntimeError({ code: 'INVALID_CONFIGURATION', retryable: false, message: 'Runtime transport URL violates network policy' });
+    throw new RuntimeError({ code: 'NETWORK_POLICY_REJECTED', retryable: false, message: 'Runtime transport URL violates network policy', operation: 'network-policy.validate' });
   }
   for (const key of url.searchParams.keys()) {
     if (CREDENTIAL_QUERY_KEYS.has(key.toLowerCase())) {
-      throw new RuntimeError({ code: 'INVALID_CONFIGURATION', retryable: false, message: 'Runtime transport URL contains credential-like query data' });
+      throw new RuntimeError({ code: 'NETWORK_POLICY_REJECTED', retryable: false, message: 'Runtime transport URL contains credential-like query data', operation: 'network-policy.validate' });
     }
   }
   return url;

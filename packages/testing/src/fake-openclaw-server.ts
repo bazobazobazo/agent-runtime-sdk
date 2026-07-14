@@ -61,7 +61,7 @@ abstract class FakeOpenClawServerBase implements RuntimeWebSocketFactory {
 
   async connect(input: { url: string; signal?: AbortSignal }): Promise<RuntimeWebSocketConnection> {
     if (this.options.failureMode === 'unavailable') {
-      throw new RuntimeError({ code: 'RUNTIME_UNAVAILABLE', retryable: true, message: 'Fake OpenClaw runtime is unavailable' });
+      throw new RuntimeError({ code: 'PROVIDER_UNAVAILABLE', retryable: true, message: 'Fake OpenClaw runtime is unavailable' });
     }
     if (input.signal?.aborted) throw cancelled();
     this.shutdownState = false;

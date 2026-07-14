@@ -1,12 +1,12 @@
 import {
   RuntimeError,
   resolveSecureLimit,
-  withDeadline,
   type RuntimeAdapterDependencies,
   type RuntimeAuthInput,
   type RuntimeCapabilities,
   type RuntimeTarget,
 } from '@banzae/agent-runtime-core';
+import { withDeadline } from '@banzae/agent-runtime-core/experimental';
 import { RuntimeProbeRegistry } from './probe-registry.js';
 import { createHermesProbe, createOpenClawProbe } from './probes.js';
 import { DefaultRuntimeNetworkPolicy, DETECTION_SCHEMA_VERSION, detectionFingerprint, normalizeDetectionEndpoint, sanitizeDetectionValue } from './security.js';
@@ -414,7 +414,7 @@ function manifestCapabilities(product: string): RuntimeCapabilities | undefined 
 }
 
 function manifestError(error: unknown): RuntimeProbeResult | undefined {
-  if (error instanceof RuntimeError && error.code === 'RUNTIME_UNAVAILABLE') return undefined;
+  if (error instanceof RuntimeError && error.code === 'PROVIDER_UNAVAILABLE') return undefined;
   return undefined;
 }
 

@@ -1,4 +1,5 @@
-import { RuntimeError, sanitizeProviderPayload } from '@banzae/agent-runtime-core';
+import { RuntimeError } from '@banzae/agent-runtime-core';
+import { sanitizeProviderPayload } from '@banzae/agent-runtime-core/diagnostics';
 
 export function asRecord(value: unknown, context = 'OpenClaw payload'): Record<string, unknown> {
   if (value && typeof value === 'object' && !Array.isArray(value)) return value as Record<string, unknown>;
