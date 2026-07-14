@@ -29,13 +29,27 @@ the target release environment.
 
 ```ts
 import { createDefaultRuntimeRegistry } from '@banzae/agent-runtime-node';
+import { createHermesProbe, createOpenClawProbe, createRuntimeDetector } from '@banzae/agent-runtime-detection';
 
 const registry = createDefaultRuntimeRegistry({
   stateStore,
   secretStore,
   logger,
 });
+
+const detector = createRuntimeDetector({
+  dependencies,
+  probes: [createOpenClawProbe(), createHermesProbe()],
+});
+
+const result = await detector.detect({
+  target: {
+    endpoint: 'https://agent.example.com',
+  },
+  adapterId: 'auto',
+});
 ```
 
-See `docs/architecture.md`, `docs/adapter-authoring.md`, and
+Runtime detection never sends the first user prompt and never starts a run. See
+`docs/architecture.md`, `docs/adapter-authoring.md`, `docs/detection.md`, and
 `docs/compatibility.md`.
