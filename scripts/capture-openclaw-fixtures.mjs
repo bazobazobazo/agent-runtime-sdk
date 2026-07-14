@@ -9,7 +9,7 @@ import {
 } from 'node:crypto';
 import { dirname, resolve } from 'node:path';
 import WebSocket from 'ws';
-import { sanitizeFrameText, sanitizeFixture } from './lib/sanitize-fixture.mjs';
+import { SANITIZER_VERSION, sanitizeFrameText, sanitizeFixture } from './lib/sanitize-fixture.mjs';
 import {
   buildLegacyDeviceProof,
   loadLegacyOpenClawStore,
@@ -18,7 +18,7 @@ import {
 const url = process.env.OPENCLAW_GATEWAY_URL;
 const token = process.env.OPENCLAW_GATEWAY_TOKEN;
 const protocol = Number(process.env.OPENCLAW_PROTOCOL ?? '4');
-const out = process.env.OUT ?? `fixtures/openclaw-v${protocol}/live-capture.json`;
+const out = process.env.OUT ?? `fixtures/openclaw/v${protocol}/live-capture-candidate.json`;
 const legacyStoreDir = process.env.OPENCLAW_CLIENT_STORE_DIR;
 const devicePairing = process.env.OPENCLAW_DEVICE_PAIRING ?? (legacyStoreDir ? 'stored' : 'disabled');
 
@@ -144,10 +144,15 @@ await writeFile(
   out,
   `${JSON.stringify(
     sanitizeFixture({
-      runtime: 'openclaw',
-      protocol,
-      capturedAt: new Date().toISOString(),
-      source: 'live handshake capture',
+      metadata: {
+        runtimeProduct: 'openclaw',
+        runtimeVersion: 'unknown',
+        protocolVersion: protocol,
+        captureDate: new Date().toISOString().slice(0, 10),
+        fixtureSchemaVersion: 1,
+        sanitizerVersion: SANITIZER_VERSION,
+        source: 'sanitized-live-capture',
+      },
       frames,
     }),
     null,

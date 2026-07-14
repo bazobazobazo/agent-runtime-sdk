@@ -1,0 +1,17 @@
+{
+  "metadata": {
+    "runtimeProduct": "openclaw",
+    "runtimeVersion": "2026.4.22",
+    "protocolVersion": 3,
+    "captureDate": "2026-07-14",
+    "fixtureSchemaVersion": 1,
+    "sanitizerVersion": "openclaw-sanitizer-v2",
+    "source": "synthetic"
+  },
+  "frame": {
+    "type": "req",
+    "id": "cancel:provider-run-1",
+    "method": "chat.abort",
+    "params": { "sessionKey": "session-1", "runId": "provider-run-1" }
+  }
+}

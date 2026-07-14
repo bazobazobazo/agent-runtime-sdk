@@ -51,6 +51,7 @@ try {
     auth: token ? { kind: 'token', token } : { kind: 'device-token', token: legacy.deviceToken, deviceId: legacy.deviceId },
     options: protocol ? { protocolVersion: protocol } : undefined,
   });
+  const health = await adapter.health();
 
   const session = await adapter.ensureSession({
     applicationSessionId: sessionId,
@@ -85,7 +86,10 @@ try {
 
   console.log(JSON.stringify({
     runtime: 'openclaw',
-    protocol,
+    runtimeVersion: health.descriptor?.runtimeVersion,
+    negotiatedProtocol: health.descriptor?.protocolVersion,
+    protocolName: health.descriptor?.protocolName,
+    supportedMethods: health.details?.methodAvailability,
     sessionId,
     runStatus: snapshot.status,
     observedExpectedOutput: true,

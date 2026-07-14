@@ -1,0 +1,25 @@
+{
+  "metadata": {
+    "runtimeProduct": "openclaw",
+    "runtimeVersion": "2026.4.22",
+    "protocolVersion": 3,
+    "captureDate": "2026-07-14",
+    "fixtureSchemaVersion": 1,
+    "sanitizerVersion": "openclaw-sanitizer-v2",
+    "source": "synthetic"
+  },
+  "frame": {
+    "type": "req",
+    "id": "fixture-connect",
+    "method": "connect",
+    "params": {
+      "minProtocol": 3,
+      "maxProtocol": 3,
+      "client": { "id": "gateway-client", "version": "0.1.0", "platform": "node", "mode": "backend" },
+      "role": "operator",
+      "scopes": ["operator.read", "operator.write"],
+      "caps": ["tool-events"],
+      "auth": { "token": "[redacted]" }
+    }
+  }
+}

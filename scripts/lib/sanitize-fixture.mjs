@@ -1,4 +1,8 @@
-const SECRET_KEY_RE = /(token|secret|password|authorization|cookie|privateKey|private_key|signature|url|urls)/i;
+export const SANITIZER_VERSION = 'openclaw-sanitizer-v2';
+
+const SECRET_KEY_RE =
+  /^(authorization|token|accessToken|refreshToken|gatewayToken|deviceToken|password|secret|signature|cookie|privateKey|private_key|apiKey)$/i;
+const SECRET_SUBSTRING_RE = /(authorization|token|secret|password|cookie|private.?key|signature|api.?key|credential)/i;
 const ENVIRONMENT_KEY_RE = /^(snapshot|presence|health|sessions|path|host|ip|deviceId|instanceId|text)$/i;
 const HOST_RE = /\b([a-z0-9-]+\.)*banzae\.dev\b/gi;
 const IPV4_RE = /\b(?:\d{1,3}\.){3}\d{1,3}\b/g;
@@ -18,7 +22,9 @@ export function sanitizeFixture(value) {
     return Object.fromEntries(
       Object.entries(value).map(([key, nested]) => [
         key,
-        SECRET_KEY_RE.test(key) || ENVIRONMENT_KEY_RE.test(key) ? '__REDACTED__' : sanitizeFixture(nested),
+        SECRET_KEY_RE.test(key) || SECRET_SUBSTRING_RE.test(key) || ENVIRONMENT_KEY_RE.test(key)
+          ? '__REDACTED__'
+          : sanitizeFixture(nested),
       ]),
     );
   }

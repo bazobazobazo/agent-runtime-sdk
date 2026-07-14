@@ -6,6 +6,7 @@ import type {
   RuntimeAdapterDependencies,
   RuntimeCapabilities,
   RuntimeEvent,
+  RuntimeRunSnapshot,
   StartRuntimeRunInput,
 } from '@banzae/agent-runtime-core';
 import type { RuntimeError } from '@banzae/agent-runtime-core';
@@ -61,6 +62,32 @@ export type OpenClawHello = {
   raw: unknown;
 };
 
+export type OpenClawChallenge = {
+  nonce?: string;
+  raw: unknown;
+};
+
+export type OpenClawRunStartResult = {
+  externalRunId: string;
+  status: RuntimeRunSnapshot['status'];
+  providerState: Readonly<Record<string, unknown>>;
+};
+
+export type OpenClawCancelResult = {
+  accepted: boolean;
+  raw: unknown;
+};
+
+export type OpenClawProtocolFixtureMetadata = {
+  runtimeProduct: 'openclaw';
+  runtimeVersion: string;
+  protocolVersion: number;
+  captureDate: string;
+  fixtureSchemaVersion: number;
+  sanitizerVersion: string;
+  source: 'synthetic' | 'sanitized-live-capture' | 'upstream-reference';
+};
+
 export type OpenClawRunContext = {
   applicationRunId: string;
   externalRunId: string;
@@ -84,12 +111,16 @@ export interface OpenClawProtocolCodec {
   readonly protocolVersion: number;
   readonly protocolName: `openclaw-gateway-v${number}`;
 
+  parseChallenge(frame: OpenClawFrame): OpenClawChallenge | undefined;
   createConnectParams(input: OpenClawConnectInput): Record<string, unknown>;
   parseHello(payload: unknown): OpenClawHello;
   parseFrame(input: string | Uint8Array): OpenClawFrame;
   encodeRequest(input: OpenClawRpcRequest): string;
   extractProviderEventMetadata(event: Extract<OpenClawFrame, { type: 'event' }>): OpenClawProviderEventMetadata;
   mapProviderEvent(event: Extract<OpenClawFrame, { type: 'event' }>, context: OpenClawRunContext): RuntimeEvent[];
+  parseRunStartResponse(payload: unknown): OpenClawRunStartResult;
+  parseRunWaitResponse(input: GetRuntimeRunInput, payload: unknown): RuntimeRunSnapshot;
+  parseCancelResponse(payload: unknown): OpenClawCancelResult;
   mapError(error: unknown): RuntimeError;
   supportsMethod(method: string, hello: OpenClawHello): boolean;
   capabilities(hello?: OpenClawHello): RuntimeCapabilities;

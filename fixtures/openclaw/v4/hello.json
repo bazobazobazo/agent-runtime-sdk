@@ -1,0 +1,19 @@
+{
+  "metadata": {
+    "runtimeProduct": "openclaw",
+    "runtimeVersion": "2026.6.11",
+    "protocolVersion": 4,
+    "captureDate": "2026-07-14",
+    "fixtureSchemaVersion": 1,
+    "sanitizerVersion": "openclaw-sanitizer-v2",
+    "source": "synthetic"
+  },
+  "payload": {
+    "protocol": 4,
+    "serverVersion": "2026.6.11",
+    "connectionId": "fixture-connection",
+    "methods": ["sessions.create", "chat.send", "agent.wait", "chat.history", "chat.abort"],
+    "events": ["connect.challenge", "chat.delta", "chat.completed", "session.delta", "session.completed"],
+    "features": {}
+  }
+}

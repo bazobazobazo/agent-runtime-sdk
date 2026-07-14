@@ -9,6 +9,8 @@ import {
 } from '@banzae/agent-runtime-core';
 import { OpenClawAdapter, OpenClawProtocolRegistry, OpenClawRequestManager, openClawV3Codec, openClawV4Codec } from './index.js';
 import { normalizeOpenClawHistory } from './mapping/transcript.js';
+import { classifyNegotiationFailure } from './protocol/negotiation.js';
+import { sanitizeOpenClawPayload } from './protocol/shared.js';
 
 describe('OpenClaw protocol scaffolding', () => {
   it('orders codecs newest first', () => {
@@ -16,6 +18,14 @@ describe('OpenClaw protocol scaffolding', () => {
     registry.register(openClawV3Codec());
     registry.register(openClawV4Codec());
     expect(registry.preferredVersions()).toEqual([4, 3]);
+    expect(registry.supportedVersions()).toEqual([3, 4]);
+    expect(registry.get(4)).toBeTruthy();
+  });
+
+  it('rejects duplicate codec registrations', () => {
+    const registry = new OpenClawProtocolRegistry();
+    registry.register(openClawV4Codec());
+    expect(() => registry.register(openClawV4Codec())).toThrow('Duplicate OpenClaw protocol v4');
   });
 
   it('fails unknown protocol closed', () => {
@@ -32,6 +42,133 @@ describe('OpenClaw protocol scaffolding', () => {
       input: { text: 'hello' },
     });
     expect(request.params?.idempotencyKey).toBe('forge-runtime-run:run-1');
+  });
+
+  it.each([
+    ['v3', openClawV3Codec(), '../../../fixtures/openclaw/v3'],
+    ['v4', openClawV4Codec(), '../../../fixtures/openclaw/v4'],
+  ])('validates %s fixture contract', async (_label, codec, basePath) => {
+    const challenge = await readFixture(`${basePath}/challenge.json`);
+    const connectRequest = await readFixture(`${basePath}/connect-request.json`);
+    const helloFixture = await readFixture(`${basePath}/hello.json`);
+    const runStartRequest = await readFixture(`${basePath}/run-start-request.json`);
+    const runStartResponse = await readFixture(`${basePath}/run-start-response.json`);
+    const historyRequest = await readFixture(`${basePath}/history-request.json`);
+    const historyResponse = await readFixture(`${basePath}/history-response.json`);
+    const cancelRequest = await readFixture(`${basePath}/cancel-request.json`);
+    const cancelResponse = await readFixture(`${basePath}/cancel-response.json`);
+    const providerErrors = await readFixture(`${basePath}/provider-errors.json`);
+    const runEvents = await readJsonlFixture(`${basePath}/run-events.jsonl`);
+
+    expect(codec.parseChallenge(codec.parseFrame(JSON.stringify(challenge.frame)))?.nonce).toBe('fixture-nonce');
+    expect(sanitizeOpenClawPayload(codec.createConnectParams({ requestId: 'fixture-connect', auth: { kind: 'token', token: 'secret' } }))).toMatchObject(
+      connectRequest.frame.params,
+    );
+    expect(codec.parseHello(helloFixture.payload).protocolVersion).toBe(codec.protocolVersion);
+    expect(codec.buildRunStart(startRunInput())).toEqual(stripReqType(runStartRequest.frame));
+    expect(codec.parseRunStartResponse(runStartResponse.payload)).toMatchObject({ externalRunId: 'provider-run-1', status: 'running' });
+    expect(codec.buildHistory({ externalSessionId: 'session-1', limit: 25 })).toEqual(stripReqType(historyRequest.frame));
+    expect(normalizeOpenClawHistory(historyResponse.payload)).toHaveLength(1);
+    expect(codec.buildCancel({ applicationRunId: 'app-run', externalRunId: 'provider-run-1', externalSessionId: 'session-1' })).toEqual(
+      stripReqType(cancelRequest.frame),
+    );
+    expect(codec.parseCancelResponse(cancelResponse.payload).accepted).toBe(true);
+
+    const context = {
+      ...runInput('app-run', 'provider-run-1', 'session-1'),
+      clock: createTestDependencies().clock,
+      ids: createTestDependencies().ids,
+    };
+    const normalized = runEvents.flatMap((line) => codec.mapProviderEvent(codec.parseFrame(JSON.stringify(line.frame)) as never, context));
+    expect(normalized.some((event) => event.type === 'assistant.delta')).toBe(true);
+    expect(normalized.some((event) => event.type === 'run.completed')).toBe(true);
+    expect(codec.mapError(providerErrors.errors[0]).code).toBe('AUTHENTICATION_FAILED');
+    expect(codec.mapError(providerErrors.errors[1]).code).toBe('PROTOCOL_MISMATCH');
+  });
+
+  it.each([
+    ['v3', openClawV3Codec()],
+    ['v4', openClawV4Codec()],
+  ])('rejects malformed %s payloads', (_label, codec) => {
+    expect(() => codec.parseFrame('{')).toThrow(RuntimeError);
+    expect(() => codec.parseHello({ protocol: codec.protocolVersion + 10 })).toThrow(RuntimeError);
+    expect(() => codec.parseRunStartResponse({ status: 'running' })).toThrow(RuntimeError);
+    expect(codec.mapProviderEvent(codec.parseFrame(JSON.stringify({ event: 'gateway.status', payload: { status: 'ok' } })) as never, eventContext())).toEqual(
+      [],
+    );
+  });
+
+  it('classifies negotiation failures without downgrading auth or malformed frames', () => {
+    expect(
+      classifyNegotiationFailure(
+        new RuntimeError({ code: 'PROTOCOL_MISMATCH', retryable: false, adapterId: 'openclaw', message: 'bad protocol' }),
+      ),
+    ).toBe('try-next-protocol');
+    expect(
+      classifyNegotiationFailure(
+        new RuntimeError({ code: 'AUTHENTICATION_FAILED', retryable: false, adapterId: 'openclaw', message: 'bad token' }),
+      ),
+    ).toBe('fail-closed');
+    expect(
+      classifyNegotiationFailure(
+        new RuntimeError({ code: 'PROVIDER_ERROR', retryable: false, adapterId: 'openclaw', message: 'malformed hello' }),
+      ),
+    ).toBe('fail-closed');
+  });
+
+  it('sanitizes nested credential-like fixture payloads', () => {
+    expect(
+      sanitizeOpenClawPayload({
+        nested: [{ authorization: 'Bearer secret', child: { apiKey: 'key', text: 'ok' } }],
+        host: 'bfp1.banzae.dev',
+        deviceToken: 'device-secret',
+      }),
+    ).toEqual({
+      nested: [{ authorization: '[redacted]', child: { apiKey: '[redacted]', text: 'ok' } }],
+      host: 'runtime.example.test',
+      deviceToken: '[redacted]',
+    });
+  });
+
+  it('negotiates v4 first and stores the selected protocol in the descriptor', async () => {
+    const connection = handshakeConnection(4);
+    const adapter = adapterWithConnections([connection]);
+
+    const info = await adapter.connect(connectionConfig());
+
+    expect(info.descriptor.protocolName).toBe('openclaw-gateway-v4');
+    expect(info.descriptor.protocolVersion).toBe('4');
+    expect(connection.sent).toHaveLength(1);
+  });
+
+  it('opens a fresh socket when v4 mismatches and then negotiates v3', async () => {
+    const first = handshakeConnection(3);
+    const second = handshakeConnection(3);
+    const adapter = adapterWithConnections([first, second]);
+
+    const info = await adapter.connect(connectionConfig());
+
+    expect(info.descriptor.protocolName).toBe('openclaw-gateway-v3');
+    expect(first.sent).toHaveLength(1);
+    expect(second.sent).toHaveLength(1);
+  });
+
+  it('does not downgrade on authentication failure', async () => {
+    const first = handshakeConnection(4, { error: { code: 'AUTHENTICATION_FAILED', message: 'authentication failed' } });
+    const second = handshakeConnection(3);
+    const adapter = adapterWithConnections([first, second]);
+
+    await expect(adapter.connect(connectionConfig())).rejects.toMatchObject({ code: 'AUTHENTICATION_FAILED' });
+    expect(second.sent).toHaveLength(0);
+  });
+
+  it('does not downgrade on malformed hello responses', async () => {
+    const first = handshakeConnection(4, { malformedHello: true });
+    const second = handshakeConnection(3);
+    const adapter = adapterWithConnections([first, second]);
+
+    await expect(adapter.connect(connectionConfig())).rejects.toMatchObject({ code: 'PROVIDER_ERROR' });
+    expect(second.sent).toHaveLength(0);
   });
 
   it('includes the session key when aborting OpenClaw chat runs', () => {
@@ -467,6 +604,42 @@ async function readHelloFixture(path: string, codec: ReturnType<typeof openClawV
   return codec.parseHello(serverResponse?.payload);
 }
 
+async function readFixture(path: string): Promise<Record<string, any>> {
+  return JSON.parse(await readFile(new URL(path, import.meta.url), 'utf8')) as Record<string, any>;
+}
+
+async function readJsonlFixture(path: string): Promise<Array<Record<string, any>>> {
+  const text = await readFile(new URL(path, import.meta.url), 'utf8');
+  return text
+    .trim()
+    .split('\n')
+    .filter(Boolean)
+    .map((line) => JSON.parse(line) as Record<string, any>);
+}
+
+function startRunInput() {
+  return {
+    applicationRunId: 'app-run',
+    idempotencyKey: 'idem-1',
+    session: { applicationSessionId: 'session-1', externalSessionId: 'session-1', created: false },
+    input: { text: 'fixture prompt' },
+  };
+}
+
+function stripReqType(frame: Record<string, any>) {
+  const { type: _type, ...request } = frame;
+  return request;
+}
+
+function eventContext() {
+  const deps = createTestDependencies();
+  return {
+    ...runInput('app-run', 'provider-run-1', 'session-1'),
+    clock: deps.clock,
+    ids: deps.ids,
+  };
+}
+
 function createAdapterHarness(options: { now?: Date; includeRawProviderPayload?: boolean } = {}) {
   const connection = new FakeWebSocketConnection();
   const dispatcher = createDispatcher(connection);
@@ -496,6 +669,62 @@ function createAdapterHarness(options: { now?: Date; includeRawProviderPayload?:
     dispatcher,
   };
   return { adapter, connection, dispatcher, deps };
+}
+
+function adapterWithConnections(connections: FakeWebSocketConnection[]): OpenClawAdapter {
+  const deps = createTestDependencies({
+    webSockets: {
+      async connect() {
+        const connection = connections.shift();
+        if (!connection) throw new RuntimeError({ code: 'RUNTIME_UNAVAILABLE', retryable: true, message: 'No fake socket left' });
+        connection.pushMessage(eventFrame('connect.challenge', { nonce: 'fixture-nonce' }));
+        return connection;
+      },
+    },
+  });
+  return new OpenClawAdapter(deps, { connectTimeoutMs: 100, requestTimeoutMs: 100 });
+}
+
+function handshakeConnection(
+  selectedProtocol: number,
+  options: { error?: Record<string, unknown>; malformedHello?: boolean } = {},
+): FakeWebSocketConnection {
+  const connection = new FakeWebSocketConnection();
+  connection.onSend = (data) => {
+    const request = JSON.parse(String(data)) as { id: string; params?: { minProtocol?: number; maxProtocol?: number } };
+    if (options.error) {
+      connection.pushMessage(JSON.stringify({ type: 'res', id: request.id, error: options.error }));
+      return;
+    }
+    if (options.malformedHello) {
+      connection.pushMessage(JSON.stringify({ type: 'res', id: request.id, payload: 'bad hello' }));
+      return;
+    }
+    const requested = request.params?.minProtocol;
+    const payload = {
+      protocol: selectedProtocol,
+      serverVersion: selectedProtocol === 4 ? '2026.6.11' : '2026.4.22',
+      methods: ['sessions.create', 'chat.send', 'agent.wait', 'chat.history', 'chat.abort'],
+      events: ['connect.challenge', 'chat.delta', 'chat.completed'],
+      features: {},
+    };
+    if (requested !== selectedProtocol) {
+      connection.pushMessage(
+        JSON.stringify({
+          type: 'res',
+          id: request.id,
+          error: { code: 'INVALID_REQUEST', message: 'protocol mismatch', details: { expectedProtocol: selectedProtocol } },
+        }),
+      );
+      return;
+    }
+    connection.pushMessage(JSON.stringify({ type: 'res', id: request.id, payload }));
+  };
+  return connection;
+}
+
+function connectionConfig() {
+  return { target: { endpoint: 'wss://runtime.example.test/gateway' }, auth: { kind: 'none' as const } };
 }
 
 function runInput(applicationRunId: string, externalRunId: string, externalSessionId: string) {

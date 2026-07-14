@@ -33,6 +33,7 @@ import {
 } from '@banzae/agent-runtime-core';
 import { OpenClawRequestManager } from './transport/request-manager.js';
 import { OpenClawProtocolRegistry } from './protocol/registry.js';
+import { classifyNegotiationFailure } from './protocol/negotiation.js';
 import { openClawV3Codec } from './protocol/v3/codec.js';
 import { openClawV4Codec } from './protocol/v4/codec.js';
 import type { OpenClawFrame, OpenClawHello, OpenClawProtocolCodec } from './protocol/types.js';
@@ -158,7 +159,7 @@ export class OpenClawAdapter implements AgentRuntimeAdapter {
       } catch (error) {
         const mapped = codec.mapError(error);
         failures.push(mapped);
-        if (mapped.code !== 'PROTOCOL_MISMATCH') throw mapped;
+        if (classifyNegotiationFailure(mapped) !== 'try-next-protocol') throw mapped;
       }
     }
 
@@ -233,21 +234,12 @@ export class OpenClawAdapter implements AgentRuntimeAdapter {
     } catch (error) {
       throw this.mapRunStartTransportError(error);
     }
-    const externalRunId = stringValue(response.runId) ?? stringValue(response.id);
-    if (!externalRunId) {
-      throw new RuntimeError({
-        code: 'PROVIDER_ERROR',
-        retryable: false,
-        adapterId: this.adapterId,
-        message: 'OpenClaw accepted run start without returning a provider run id',
-        details: { method: 'chat.send' },
-      });
-    }
+    const parsed = state.codec.parseRunStartResponse(response);
     return {
       applicationRunId: input.applicationRunId,
-      externalRunId,
-      status: normalizeStatus(response.status),
-      providerState: { adapterId: this.adapterId, protocolVersion: state.codec.protocolVersion, method: 'chat.send', response },
+      externalRunId: parsed.externalRunId,
+      status: parsed.status,
+      providerState: parsed.providerState,
     };
   }
 
@@ -264,20 +256,14 @@ export class OpenClawAdapter implements AgentRuntimeAdapter {
     const response = await state.dispatcher.request<Record<string, unknown>>(state.codec.buildRunWait(input), {
       signal: options?.signal,
     });
-    return {
-      applicationRunId: input.applicationRunId,
-      externalRunId: input.externalRunId,
-      status: normalizeStatus(response.status),
-      output: stringValue(response.output ?? response.text ?? response.message),
-      usage: typeof response.usage === 'object' && response.usage ? (response.usage as Record<string, number>) : undefined,
-      providerState: response,
-    };
+    return state.codec.parseRunWaitResponse(input, response);
   }
 
   async cancelRun(input: CancelRuntimeRunInput, options?: OperationOptions): Promise<void> {
     const state = this.requireConnected();
     if (!state.codec.supportsMethod('chat.abort', state.hello) && !state.codec.supportsMethod('sessions.abort', state.hello)) return;
-    await state.dispatcher.request(state.codec.buildCancel(input), { signal: options?.signal });
+    const response = await state.dispatcher.request(state.codec.buildCancel(input), { signal: options?.signal });
+    state.codec.parseCancelResponse(response);
   }
 
   async getHistory(input: GetRuntimeHistoryInput, options?: OperationOptions): Promise<RuntimeMessage[]> {
@@ -306,7 +292,11 @@ export class OpenClawAdapter implements AgentRuntimeAdapter {
       options?.signal,
     );
     try {
-      const challenge = await waitForChallenge(connection, codec);
+      const challenge = await withDeadline(
+        waitForChallenge(connection, codec),
+        options?.timeoutMs ?? this.options.connectTimeoutMs ?? 15_000,
+        options?.signal,
+      );
       const scopes = this.options.scopes ?? ['operator.read', 'operator.write'];
       const identity = challenge && config.auth && config.auth.kind !== 'none'
         ? await this.resolveDeviceIdentity(endpoint)
@@ -670,10 +660,8 @@ async function waitForChallenge(
     if (event.type === 'open') continue;
     if (event.type === 'message') {
       const frame = codec.parseFrame(event.data);
-      if (frame.type === 'event' && frame.event === 'connect.challenge') {
-        const payload = frame.payload as Record<string, unknown> | undefined;
-        return typeof payload?.nonce === 'string' ? payload.nonce : undefined;
-      }
+      const challenge = codec.parseChallenge(frame);
+      if (challenge) return challenge.nonce;
       if (frame.type === 'hello-ok' || frame.type === 'res') return undefined;
     }
     if (event.type === 'close') {
@@ -701,16 +689,6 @@ function protocolVersionsFromOptions(options?: Readonly<Record<string, unknown>>
   if (typeof value === 'number') return [value];
   if (Array.isArray(value)) return value.filter((item): item is number => typeof item === 'number');
   return undefined;
-}
-
-function normalizeStatus(status: unknown) {
-  if (status === 'queued' || status === 'running' || status === 'waiting_for_approval' || status === 'stopping') return status;
-  if (status === 'completed' || status === 'failed' || status === 'cancelled') return status;
-  return 'unknown';
-}
-
-function stringValue(value: unknown): string | undefined {
-  return typeof value === 'string' && value ? value : undefined;
 }
 
 const ED25519_SPKI_PREFIX = Uint8Array.from([0x30, 0x2a, 0x30, 0x05, 0x06, 0x03, 0x2b, 0x65, 0x70, 0x03, 0x21, 0x00]);
