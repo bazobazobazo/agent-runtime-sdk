@@ -1,10 +1,9 @@
-import { RuntimeError, normalizeEndpoint, type RuntimeAdapterDependencies, type RuntimeAuthInput, type RuntimeTarget } from '@banzae/agent-runtime-core';
+import { RuntimeError, normalizeEndpoint, sanitizeProviderPayload, type RuntimeAdapterDependencies, type RuntimeAuthInput, type RuntimeTarget } from '@banzae/agent-runtime-core';
 import type { RuntimeNetworkPolicy } from './types.js';
 
 export const DETECTION_SCHEMA_VERSION = 1;
 
 const ALLOWED_SCHEMES = new Set(['http:', 'https:', 'ws:', 'wss:', 'openclaw+ws:', 'openclaw+wss:', 'hermes+http:', 'hermes+https:']);
-const SECRET_KEY_RE = /(token|authorization|cookie|password|secret|credential|private.?key|device.?token|signature|api.?key)/i;
 const SECRET_QUERY_KEYS = new Set(['token', 'access_token', 'api_key', 'password', 'secret', 'authorization', 'device_token']);
 const SECRET_VALUE_PATTERNS = [
   /\bAuthorization\s*:\s*Bearer\s+[A-Za-z0-9._~+/=-]+/gi,
@@ -29,13 +28,19 @@ export class DefaultRuntimeNetworkPolicy implements RuntimeNetworkPolicy {
     if (!url.hostname) {
       throw policyError('Runtime endpoint host is required');
     }
+    if (url.port) {
+      const port = Number(url.port);
+      if (!Number.isSafeInteger(port) || port < 1 || port > 65_535) {
+        throw policyError('Runtime endpoint port is invalid', { hostname: url.hostname });
+      }
+    }
   }
 
   async validateRedirect(from: URL, to: URL): Promise<void> {
     if (from.protocol === 'https:' && to.protocol === 'http:') {
       throw policyError('HTTPS to HTTP redirects are not allowed', { from: from.hostname, to: to.hostname });
     }
-    if (from.hostname !== to.hostname) {
+    if (from.host !== to.host) {
       throw policyError('Cross-host runtime redirects are not allowed', { from: from.hostname, to: to.hostname });
     }
   }
@@ -53,31 +58,23 @@ export async function detectionFingerprint(
   deps: RuntimeAdapterDependencies,
   input: { target: RuntimeTarget; adapterId?: string | 'auto'; credentialRef?: string },
 ): Promise<string> {
-  const url = new URL(normalizeDetectionEndpoint(input.target.endpoint));
+  let url: URL;
+  try {
+    url = new URL(normalizeDetectionEndpoint(input.target.endpoint));
+  } catch {
+    throw policyError('Runtime endpoint URL is invalid');
+  }
   const canonical = {
     schemaVersion: DETECTION_SCHEMA_VERSION,
     endpoint: normalizeEndpoint(`${url.protocol}//${url.hostname}${url.port ? `:${url.port}` : ''}${url.pathname}`),
     adapterId: input.adapterId ?? input.target.adapterHint ?? 'auto',
-    credentialRef: input.credentialRef ?? '',
     transportHint: input.target.transportHint ?? '',
   };
   return hex(await deps.crypto.sha256(JSON.stringify(canonical)));
 }
 
 export function sanitizeDetectionValue(value: unknown): unknown {
-  if (value == null) return value;
-  if (typeof value === 'string') return sanitizeString(value);
-  if (typeof value === 'number' || typeof value === 'boolean') return value;
-  if (Array.isArray(value)) return value.slice(0, 50).map(sanitizeDetectionValue);
-  if (typeof value === 'object') {
-    return Object.fromEntries(
-      Object.entries(value as Record<string, unknown>).map(([key, nested]) => [
-        key,
-        SECRET_KEY_RE.test(key) ? '[redacted]' : sanitizeDetectionValue(nested),
-      ]),
-    );
-  }
-  return String(value);
+  return sanitizeProviderPayload(value);
 }
 
 export function sanitizeString(value: string): string {

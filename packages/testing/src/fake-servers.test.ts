@@ -50,7 +50,7 @@ describe('testing-only fake runtime controllers', () => {
   it('normalizes malformed fake OpenClaw frames and releases the socket', async () => {
     const server = new FakeOpenClawV3Server({ failureMode: 'malformed-frame' });
     const adapter = new OpenClawAdapter(createTestDependencies({ webSockets: server }), { protocols: [openClawV3Codec()] });
-    await expect(adapter.connect(server.createTarget().connection)).rejects.toMatchObject({ code: 'PROVIDER_ERROR' });
+    await expect(adapter.connect(server.createTarget().connection)).rejects.toMatchObject({ code: 'INVALID_RESPONSE' });
     expect(server.openConnectionCount).toBe(0);
     expect(server.pendingRequestCount).toBe(0);
   });

@@ -1,5 +1,6 @@
 import {
   RuntimeError,
+  resolveSecureLimit,
   withDeadline,
   type RuntimeAdapterDependencies,
   type RuntimeAuthInput,
@@ -55,8 +56,8 @@ export class RuntimeDetector {
 
   async detect(input: RuntimeDetectionInput): Promise<RuntimeDetectionResult> {
     const startedAt = this.options.dependencies.clock.now();
-    const detectionOptions = { ...DEFAULT_OPTIONS, ...input.options };
-    const operation = createLinkedController(detectionOptions.signal);
+    const detectionOptions = validateDetectionOptions({ ...DEFAULT_OPTIONS, ...input.options });
+    const operation = createLinkedController(input.options?.signal);
     const overallTimeout = setTimeout(() => {
       operation.controller.abort(timeoutError(`Runtime detection timed out after ${detectionOptions.overallTimeoutMs}ms`, 'overall'));
     }, detectionOptions.overallTimeoutMs);
@@ -268,7 +269,11 @@ export class RuntimeDetector {
   }
 
   private emit(event: RuntimeDetectionDiagnostic): void {
-    this.options.diagnostics?.(sanitizeDetectionValue(event) as RuntimeDetectionDiagnostic);
+    try {
+      this.options.diagnostics?.(sanitizeDetectionValue(event) as RuntimeDetectionDiagnostic);
+    } catch {
+      // Diagnostics are observational. A host logger must never break detection.
+    }
   }
 }
 
@@ -387,6 +392,20 @@ function parseManifest(payload: unknown): RuntimeProbeResult | undefined {
     capabilities: manifestCapabilities(product),
     evidence: [{ kind: 'well-known.manifest', message: 'validated agent runtime manifest', confidence: 0.95, runtimeProduct: product }],
   };
+}
+
+function validateDetectionOptions(
+  options: Required<Pick<RuntimeDetectionOptions, 'overallTimeoutMs' | 'probeTimeoutMs' | 'minimumConfidence' | 'ambiguityDelta' | 'allowManifest'>>,
+): Required<Pick<RuntimeDetectionOptions, 'overallTimeoutMs' | 'probeTimeoutMs' | 'minimumConfidence' | 'ambiguityDelta' | 'allowManifest'>> {
+  const overallTimeoutMs = resolveSecureLimit('maxReconciliationMs', options.overallTimeoutMs);
+  const probeTimeoutMs = resolveSecureLimit('maxReconciliationMs', options.probeTimeoutMs);
+  if (!Number.isFinite(options.minimumConfidence) || options.minimumConfidence < 0 || options.minimumConfidence > 1) {
+    throw new RuntimeError({ code: 'INVALID_CONFIGURATION', retryable: false, message: 'Detection minimumConfidence must be between zero and one', adapterId: 'detection' });
+  }
+  if (!Number.isFinite(options.ambiguityDelta) || options.ambiguityDelta < 0 || options.ambiguityDelta > 1) {
+    throw new RuntimeError({ code: 'INVALID_CONFIGURATION', retryable: false, message: 'Detection ambiguityDelta must be between zero and one', adapterId: 'detection' });
+  }
+  return { ...options, overallTimeoutMs, probeTimeoutMs };
 }
 
 function manifestCapabilities(product: string): RuntimeCapabilities | undefined {

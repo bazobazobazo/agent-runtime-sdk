@@ -54,6 +54,11 @@ The new live harness does not upgrade any row merely by existing. A row may use
 `sanitized live validated` only after a report from the protected workflow is
 reviewed and recorded for the exact SDK commit and runtime version.
 
+Security fuzzing, resource stress, fixture validation, and CodeQL strengthen the
+evidence for bounded SDK behavior but do not upgrade fake or synthetic runtime
+evidence to live compatibility. The compatibility labels in this table remain
+unchanged by the security-resilience phase.
+
 ## OpenClaw Stream Reconciliation
 
 OpenClaw provider events are correlated to the active SDK run by provider run ID

@@ -1,6 +1,9 @@
 import {
   RuntimeError,
+  SECURE_RUNTIME_LIMITS,
   isRuntimeError,
+  resolveSecureLimit,
+  sanitizeProviderPayload,
   sanitizeDetails,
   type AgentRuntimeAdapter,
   type RuntimeCapabilities,
@@ -183,11 +186,13 @@ export async function runLiveCompatibility(
   options: RunLiveCompatibilityOptions,
 ): Promise<LiveCompatibilityReport> {
   const now = options.now ?? (() => new Date());
+  const overallTimeoutMs = validateLiveTimeout(options.overallTimeoutMs ?? 60_000, 'overallTimeoutMs');
+  const defaultCheckTimeoutMs = validateLiveTimeout(options.defaultCheckTimeoutMs ?? 10_000, 'defaultCheckTimeoutMs');
   const operationLink = linkedController(options.signal);
   const controller = operationLink.controller;
   const overallTimer = setTimeout(
     () => controller.abort(timeoutError('Live compatibility validation exceeded its overall timeout')),
-    options.overallTimeoutMs ?? 60_000,
+    overallTimeoutMs,
   );
   const state = new Map<string, unknown>();
   const results: LiveCheckResult[] = [];
@@ -201,7 +206,7 @@ export async function runLiveCompatibility(
       const checkController = checkLink.controller;
       const timer = setTimeout(
         () => checkController.abort(timeoutError(`Live check ${check.id} timed out`)),
-        check.timeoutMs ?? options.defaultCheckTimeoutMs ?? 10_000,
+        validateLiveTimeout(check.timeoutMs ?? defaultCheckTimeoutMs, `check ${check.id} timeoutMs`),
       );
       try {
         const outcome = await Promise.race([
@@ -289,6 +294,7 @@ export async function runLiveCompatibility(
 }
 
 export function validateLiveCompatibilityReport(value: unknown): asserts value is LiveCompatibilityReport {
+  assertSerializedSize(value, SECURE_RUNTIME_LIMITS.maxCompatibilityReportBytes, 'Live compatibility report');
   if (!isRecord(value) || value.schemaVersion !== 1 || value.evidenceType !== 'sanitized-live') {
     throw invalidReport('Live compatibility report identity is invalid');
   }
@@ -361,11 +367,13 @@ export function createLiveFixtureCandidate(input: {
     },
     payload: sanitizeLiveValue(input.payload, { replaceIdentifiers: true }),
   };
+  assertSerializedSize(candidate, SECURE_RUNTIME_LIMITS.maxFixtureCandidateBytes, 'Live fixture candidate');
   assertNoLiveReportSecrets(candidate);
   return candidate;
 }
 
 export function validateLiveFixtureCandidate(value: unknown): asserts value is LiveFixtureCandidate {
+  assertSerializedSize(value, SECURE_RUNTIME_LIMITS.maxFixtureCandidateBytes, 'Live fixture candidate');
   if (!isRecord(value) || !isRecord(value.metadata)) throw invalidReport('Fixture candidate is malformed');
   if (value.metadata.source !== 'sanitized-live-candidate' || value.metadata.manualReviewRequired !== true) {
     throw invalidReport('Fixture candidate metadata is invalid');
@@ -427,7 +435,7 @@ export function sanitizeLiveValue(
   value: unknown,
   options: { replaceIdentifiers?: boolean } = {},
 ): unknown {
-  return sanitizeUnknown(value, options, new WeakSet<object>());
+  return sanitizeUnknown(sanitizeProviderPayload(value), options, new WeakSet<object>());
 }
 
 export function formatLiveCompatibilityReport(report: LiveCompatibilityReport): string {
@@ -565,6 +573,26 @@ function timeoutError(message: string): RuntimeError {
 
 function invalidReport(message: string): RuntimeError {
   return new RuntimeError({ code: 'INVALID_RESPONSE', retryable: false, message });
+}
+
+function assertSerializedSize(value: unknown, maximum: number, label: string): void {
+  let serialized: string;
+  try {
+    serialized = JSON.stringify(value);
+  } catch {
+    throw invalidReport(`${label} could not be serialized safely`);
+  }
+  if (new TextEncoder().encode(serialized).byteLength > maximum) {
+    throw invalidReport(`${label} exceeded its maximum size`);
+  }
+}
+
+function validateLiveTimeout(value: number, label: string): number {
+  try {
+    return resolveSecureLimit('maxReconciliationMs', value);
+  } catch {
+    throw new RuntimeError({ code: 'INVALID_CONFIGURATION', retryable: false, message: `Live compatibility ${label} is invalid` });
+  }
 }
 
 function linkedController(parent?: AbortSignal): { controller: AbortController; unlink: () => void } {

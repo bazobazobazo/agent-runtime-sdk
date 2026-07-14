@@ -2,7 +2,9 @@
   "runtime": "openclaw",
   "protocol": 4,
   "capturedAt": "2026-07-13T19:13:12.254Z",
-  "source": "live handshake capture",
+  "source": "sanitized-live-capture",
+  "fixtureSchemaVersion": 1,
+  "sanitizerVersion": "capture-1",
   "frames": [
     {
       "direction": "client.open",

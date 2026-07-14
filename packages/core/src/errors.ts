@@ -1,4 +1,5 @@
 import type { RuntimeErrorCode } from './types.js';
+import { SECURE_RUNTIME_LIMITS } from './security-limit-values.js';
 
 export interface RuntimeErrorInput {
   message: string;
@@ -17,6 +18,10 @@ const SENSITIVE_VALUE_PATTERNS = [
   /\bBearer\s+[A-Za-z0-9._~+/=-]+/gi,
   /\b(token|access_token|api_key|password|cookie|secret|authorization|device_token)=([^&\s]+)/gi,
   /\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\b/g,
+  /\bBasic\s+[A-Za-z0-9+/=]{8,}/gi,
+  /\b(?:gh[opusr]_[A-Za-z0-9_]{16,}|github_pat_[A-Za-z0-9_]{16,})\b/g,
+  /\b(token|access_token|api_key|password|cookie|secret|authorization|device_token)%3[Dd]([^&\s]+)/gi,
+  /\b(?:https?|wss?):\/\/[^\s"',)]+/gi,
 ];
 
 export class RuntimeError extends Error {
@@ -28,44 +33,84 @@ export class RuntimeError extends Error {
   override readonly cause?: unknown;
 
   constructor(input: RuntimeErrorInput) {
-    super(input.message, { cause: input.cause });
+    const safeMessage = sanitizeString(input.message);
+    const safeCause = input.cause instanceof RuntimeError ? input.cause : undefined;
+    super(safeMessage, safeCause ? { cause: safeCause } : undefined);
     this.name = 'RuntimeError';
     this.code = input.code;
     this.retryable = input.retryable;
     this.retryAfterMs = input.retryAfterMs;
     this.adapterId = input.adapterId;
     this.details = input.details ? sanitizeDetails(input.details) : undefined;
-    this.cause = input.cause;
+    this.cause = safeCause;
   }
 }
 
 export function sanitizeDetails(
   details: Readonly<Record<string, unknown>>,
 ): Readonly<Record<string, unknown>> {
-  return Object.fromEntries(
-    Object.entries(details).map(([key, value]) => [
-      key,
-      SENSITIVE_KEY_PATTERN.test(key) ? '[redacted]' : sanitizeValue(value),
-    ]),
-  );
+  return boundDetails(sanitizeObject(details, 0, new WeakSet<object>()));
 }
 
-function sanitizeValue(value: unknown): unknown {
+export function sanitizeProviderPayload(value: unknown): unknown {
+  return sanitizeValue(value, 0, new WeakSet<object>());
+}
+
+function sanitizeValue(value: unknown, depth: number, seen: WeakSet<object>): unknown {
   if (value == null) return value;
   if (typeof value === 'string') return sanitizeString(value);
   if (typeof value === 'number' || typeof value === 'boolean') return value;
-  if (Array.isArray(value)) return value.slice(0, 20).map(sanitizeValue);
-  if (typeof value === 'object') return sanitizeDetails(value as Record<string, unknown>);
-  return String(value);
+  if (typeof value !== 'object') return sanitizeString(String(value));
+  if (depth >= SECURE_RUNTIME_LIMITS.maxRawPayloadDepth) return '[max-depth]';
+  if (seen.has(value)) return '[circular]';
+  if (Array.isArray(value)) {
+    seen.add(value);
+    return value
+      .slice(0, SECURE_RUNTIME_LIMITS.maxDiagnosticArrayItems)
+      .map((item) => sanitizeValue(item, depth + 1, seen));
+  }
+  return sanitizeObject(value as Record<string, unknown>, depth + 1, seen);
+}
+
+function sanitizeObject(value: Readonly<Record<string, unknown>>, depth: number, seen: WeakSet<object>): Readonly<Record<string, unknown>> {
+  if (seen.has(value)) return { value: '[circular]' };
+  seen.add(value);
+  return Object.fromEntries(
+    Object.entries(value)
+      .slice(0, SECURE_RUNTIME_LIMITS.maxRawPayloadKeys)
+      .map(([key, nested]) => [
+        key.slice(0, 256),
+        SENSITIVE_KEY_PATTERN.test(key) ? '[redacted]' : sanitizeValue(nested, depth, seen),
+      ]),
+  );
 }
 
 function sanitizeString(value: string): string {
   const redacted = SENSITIVE_VALUE_PATTERNS.reduce((current, pattern) => current.replace(pattern, (match, key) => {
     if (typeof key === 'string' && key) return `${key}=[redacted]`;
     if (/^authorization\s*:/i.test(match)) return 'Authorization: Bearer [redacted]';
-    return 'Bearer [redacted]';
+    if (/^basic\s/i.test(match)) return 'Basic [redacted]';
+    if (/^(?:https?|wss?):\/\//i.test(match)) return '[redacted-url]';
+    return '[redacted]';
   }), value);
-  return redacted.length > 500 ? `${redacted.slice(0, 500)}...` : redacted;
+  return redacted.length > SECURE_RUNTIME_LIMITS.maxDiagnosticStringLength
+    ? `${redacted.slice(0, SECURE_RUNTIME_LIMITS.maxDiagnosticStringLength)}...`
+    : redacted;
+}
+
+function boundDetails(value: Readonly<Record<string, unknown>>): Readonly<Record<string, unknown>> {
+  const output: Record<string, unknown> = {};
+  let bytes = 2;
+  for (const [key, nested] of Object.entries(value)) {
+    const entryBytes = new TextEncoder().encode(JSON.stringify([key, nested])).byteLength;
+    if (bytes + entryBytes > SECURE_RUNTIME_LIMITS.maxErrorDetailBytes) {
+      output.truncated = true;
+      break;
+    }
+    output[key] = nested;
+    bytes += entryBytes;
+  }
+  return output;
 }
 
 export function isRuntimeError(error: unknown): error is RuntimeError {

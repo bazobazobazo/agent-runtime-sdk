@@ -81,3 +81,25 @@ credentials only through environment-backed references, writes sanitized
 versioned reports, and keeps all mutation behind explicit gates. It is excluded
 from normal pull-request CI; normal CI tests it only with fake runtimes. See
 `docs/live-compatibility.md`.
+
+## Security and resilience
+
+All runtime traffic is untrusted. Central secure defaults bound JSON bodies,
+WebSocket frames, SSE parsing, raw diagnostics, subscriber queues,
+deduplication, reconnect/reconciliation, fixture candidates, and compatibility
+reports. Node transports reject credential-bearing URLs and do not follow
+redirects. Runtime errors and optional raw diagnostics are recursively bounded
+and sanitized.
+
+Normal CI runs deterministic fuzz/property tests and resource guardrails without
+runtime credentials or external endpoints:
+
+```bash
+pnpm test:fuzz
+pnpm test:resilience
+pnpm security:check
+```
+
+Use `pnpm test:fuzz:extended` for the reproducible 5,000-case manual corpus.
+See `docs/security.md`, `docs/security-threat-model.md`, `docs/error-model.md`,
+and `SECURITY.md`.

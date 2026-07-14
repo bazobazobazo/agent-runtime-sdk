@@ -8,6 +8,7 @@ import {
   parseLiveEnvironment,
   runLiveCompatibility,
   sanitizeLiveValue,
+  validateLiveFixtureCandidate,
   validateLiveCompatibilityReport,
   type LiveCompatibilityReport,
 } from './live-compatibility.js';
@@ -140,6 +141,20 @@ describe('live compatibility harness', () => {
     expect(candidate.metadata.manualReviewRequired).toBe(true);
     expect(JSON.stringify(candidate.payload)).not.toContain('sensitive-value');
     expect(JSON.stringify(candidate.payload)).not.toContain(LIVE_COMPATIBILITY_PROMPT);
+  });
+
+  it('rejects malicious or oversized report and fixture artifacts', async () => {
+    const report = await passingReport();
+    const oversized = structuredClone(report);
+    oversized.limitations = ['x'.repeat(2_100_000)];
+    expect(() => validateLiveCompatibilityReport(oversized)).toThrow(/maximum size/i);
+    expect(() => validateLiveFixtureCandidate({
+      metadata: {
+        source: 'sanitized-live-candidate', manualReviewRequired: true,
+        sanitizerVersion: 'live-compatibility-v1', adapterId: 'fake', sdkCommitSha: 'abc', captureDate: report.generatedAt,
+      },
+      payload: { authorization: 'Bearer malicious-fixture-secret-marker' },
+    })).toThrow(/secret scan/i);
   });
 
   it('detects capability removals and required-check regressions', async () => {

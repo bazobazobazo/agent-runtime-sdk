@@ -18,7 +18,25 @@ describe('core helpers', () => {
         nested: { password: 'hidden', status: 'ok', url: 'https://example.test?access_token=secret' },
         headers: ['Authorization: Bearer header-secret'],
       }),
-    ).toEqual({ token: '[redacted]', nested: { password: '[redacted]', status: 'ok', url: 'https://example.test?access_token=[redacted]' }, headers: ['Authorization: Bearer [redacted]'] });
+    ).toEqual({ token: '[redacted]', nested: { password: '[redacted]', status: 'ok', url: '[redacted-url]' }, headers: ['Authorization: Bearer [redacted]'] });
+  });
+
+  it('sanitizes public error messages and discards unsafe causes', () => {
+    const error = new RuntimeError({
+      code: 'PROVIDER_ERROR', retryable: false,
+      message: `provider failed Authorization: ${'Bearer'} marker-secret-token`,
+      cause: new Error('password=marker-secret-password'),
+    });
+    expect(error.message).not.toContain('marker-secret-token');
+    expect(error.cause).toBeUndefined();
+    expect(JSON.stringify(error)).not.toContain('marker-secret-password');
+  });
+
+  it('bounds serialized public error details', () => {
+    const details = Object.fromEntries(Array.from({ length: 1_000 }, (_, index) => [`field-${index}`, 'x'.repeat(4_000)]));
+    const error = new RuntimeError({ code: 'PROVIDER_ERROR', retryable: false, message: 'bounded', details });
+    expect(new TextEncoder().encode(JSON.stringify(error.details)).byteLength).toBeLessThanOrEqual(64_000);
+    expect(error.details?.truncated).toBe(true);
   });
 
   it('keeps canonical json stable across key order', () => {

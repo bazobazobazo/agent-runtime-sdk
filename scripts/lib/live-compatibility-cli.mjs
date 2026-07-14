@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
-import { link, mkdir, readFile, unlink, writeFile } from 'node:fs/promises';
+import { link, mkdir, readFile, stat, unlink, writeFile } from 'node:fs/promises';
 import { basename, dirname, join, resolve } from 'node:path';
 import { createDefaultRuntimeRegistry } from '../../packages/node/dist/index.js';
 import { RuntimeError } from '../../packages/core/dist/index.js';
@@ -93,9 +93,11 @@ export function validateLiveEndpoint(endpoint, provider) {
 export async function writeJsonAtomic(path, value) {
   const safeValue = sanitizeLiveValue(value);
   if (safeValue && typeof safeValue === 'object' && safeValue.schemaVersion === 1) validateLiveCompatibilityReport(safeValue);
+  const output = `${JSON.stringify(safeValue, null, 2)}\n`;
+  if (Buffer.byteLength(output) > 2_000_000) throw configError('Live artifact exceeded its maximum size');
   await mkdir(dirname(path), { recursive: true, mode: 0o700 });
   const temp = `${path}.${process.pid}.${randomUUID()}.tmp`;
-  await writeFile(temp, `${JSON.stringify(safeValue, null, 2)}\n`, { encoding: 'utf8', mode: 0o600, flag: 'wx' });
+  await writeFile(temp, output, { encoding: 'utf8', mode: 0o600, flag: 'wx' });
   try {
     await link(temp, path);
   } finally {
@@ -104,6 +106,8 @@ export async function writeJsonAtomic(path, value) {
 }
 
 export async function readReport(path) {
+  const metadata = await stat(path);
+  if (!metadata.isFile() || metadata.size > 2_000_000) throw configError('Live report input exceeded its maximum size');
   const value = JSON.parse(await readFile(path, 'utf8'));
   validateLiveCompatibilityReport(value);
   return value;

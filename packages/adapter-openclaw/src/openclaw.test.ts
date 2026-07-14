@@ -167,7 +167,7 @@ describe('OpenClaw protocol scaffolding', () => {
     const second = handshakeConnection(3);
     const adapter = adapterWithConnections([first, second]);
 
-    await expect(adapter.connect(connectionConfig())).rejects.toMatchObject({ code: 'PROVIDER_ERROR' });
+    await expect(adapter.connect(connectionConfig())).rejects.toMatchObject({ code: 'INVALID_RESPONSE' });
     expect(second.sent).toHaveLength(0);
   });
 
@@ -195,7 +195,7 @@ describe('OpenClaw protocol scaffolding', () => {
     });
 
     expect(mapped.code).toBe('PROTOCOL_MISMATCH');
-    expect(mapped.message).toBe('protocol mismatch');
+    expect(mapped.message).toBe('OpenClaw protocol negotiation failed');
     expect(mapped.details?.expectedProtocol).toBe(3);
   });
 
@@ -212,7 +212,7 @@ describe('OpenClaw protocol scaffolding', () => {
     });
 
     expect(mapped.code).toBe('PAIRING_REQUIRED');
-    expect(mapped.message).toContain('pairing required');
+    expect(mapped.message).toContain('pairing is required');
     expect(mapped.details?.requestId).toBe('pairing-request-1');
   });
 
@@ -389,7 +389,7 @@ describe('OpenClawRequestManager dispatcher behavior', () => {
 
     connection.pushMessage(responseFrame('req-oversized', { value: 'too-large' }));
 
-    await expect(request).rejects.toMatchObject({ code: 'PROVIDER_ERROR' });
+    await expect(request).rejects.toMatchObject({ code: 'INVALID_RESPONSE' });
     expect(dispatcherStats(dispatcher).pendingRequestCount).toBe(0);
   });
 

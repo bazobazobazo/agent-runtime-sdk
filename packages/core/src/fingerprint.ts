@@ -1,4 +1,5 @@
 import type { RuntimeCrypto } from './ports.js';
+import { RuntimeError } from './errors.js';
 
 export function canonicalJson(value: unknown): string {
   return JSON.stringify(sortValue(value));
@@ -25,8 +26,14 @@ export async function connectionFingerprint(
 }
 
 export function normalizeEndpoint(endpoint: string): string {
-  const url = new URL(endpoint.replace(/^openclaw\+/, '').replace(/^hermes\+/, '').replace(/^agent\+/, ''));
+  let url: URL;
+  try {
+    url = new URL(endpoint.replace(/^openclaw\+/, '').replace(/^hermes\+/, '').replace(/^agent\+/, ''));
+  } catch {
+    throw new RuntimeError({ code: 'INVALID_CONFIGURATION', retryable: false, message: 'Runtime endpoint URL is invalid' });
+  }
   url.hash = '';
+  url.search = '';
   url.username = '';
   url.password = '';
   if ((url.protocol === 'https:' && url.port === '443') || (url.protocol === 'http:' && url.port === '80')) {
