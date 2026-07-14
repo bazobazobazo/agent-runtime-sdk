@@ -75,3 +75,9 @@ OpenClaw v4, and Hermes servers prove shared lifecycle, session, run, stream,
 status, cancellation, security, concurrency, and cleanup behavior. This
 fake-server evidence remains distinct from live compatibility evidence. See
 `docs/adapter-conformance.md`.
+
+The opt-in live compatibility harness is read-only by default, accepts
+credentials only through environment-backed references, writes sanitized
+versioned reports, and keeps all mutation behind explicit gates. It is excluded
+from normal pull-request CI; normal CI tests it only with fake runtimes. See
+`docs/live-compatibility.md`.

@@ -7,11 +7,11 @@ integration suite in the target release environment.
 The SDK supports OpenClaw wire protocol versions explicitly registered and
 validated by the codec registry.
 
-| SDK adapter | Wire protocol | Status | Validation |
-|---|---:|---|---|
-| OpenClaw | v3 | supported | fixtures + shared fake-server conformance + provider tests |
-| OpenClaw | v4 | supported | fixtures + shared fake-server conformance + provider tests |
-| Hermes | HTTP/SSE Runs API | implemented — synthetic/fake-server validated; live validation pending | upstream contract inspection + synthetic fixtures + shared fake-server conformance |
+| SDK adapter | Protocol | Runtime version | Recorded SDK commit | Evidence type | Date | Checks completed | Status / limitations |
+|---|---|---|---|---|---|---|---|
+| OpenClaw | v3 | pinned fixture targets | `7ba46df` | synthetic fixture validated; fake-server conformance validated | 2026-07-14 | connection, sessions, runs, stream, status, history, cancellation, cleanup | supported; new harness report pending for each deployment |
+| OpenClaw | v4 | pinned fixture targets | `7ba46df` | synthetic fixture validated; fake-server conformance validated | 2026-07-14 | connection, sessions, runs, stream, status, history, cancellation, cleanup | supported; new harness report pending for each deployment |
+| Hermes | HTTP/SSE Runs v1 | documented target `0.18.2`; no live run report | `7ba46df` | synthetic fixture validated; fake-server conformance validated; live validation pending | 2026-07-14 | capabilities, health, sessions, runs, SSE recovery, approvals, cancellation, cleanup | implemented; live validation pending |
 
 Runtime auto-detection currently supports only OpenClaw and Hermes. Codex and Pi
 remain private placeholders and are not registered probes.
@@ -49,6 +49,10 @@ live-supported.
 Live captures are intentionally separate from normal unit tests. The live
 commands require explicit environment variables and should run only from a
 trusted developer or CI environment with scoped credentials.
+
+The new live harness does not upgrade any row merely by existing. A row may use
+`sanitized live validated` only after a report from the protected workflow is
+reviewed and recorded for the exact SDK commit and runtime version.
 
 ## OpenClaw Stream Reconciliation
 
@@ -111,7 +115,7 @@ stream disconnect it polls run status, performs bounded reconnects, then falls
 back to bounded status polling. Caller-provided `Idempotency-Key` values are
 preserved exactly and are not replaced by the adapter.
 
-## Commands
+## Current commands
 
 OpenClaw capture:
 
@@ -123,24 +127,15 @@ OPENCLAW_DEVICE_PAIRING=disabled \
 pnpm fixtures:capture:openclaw
 ```
 
-OpenClaw live adapter validation:
+OpenClaw read-only live validation:
 
 ```bash
-OPENCLAW_GATEWAY_URL=wss://example.invalid/ \
-OPENCLAW_GATEWAY_TOKEN=... \
-OPENCLAW_PROTOCOL=3 \
+RUNTIME_LIVE_ENABLED=true \
+OPENCLAW_ENDPOINT=wss://example.invalid/ \
+OPENCLAW_CREDENTIAL_REF=env:OPENCLAW_GATEWAY_TOKEN \
+OPENCLAW_GATEWAY_TOKEN='<environment secret>' \
+OPENCLAW_PROTOCOL=auto \
 pnpm live:openclaw
-```
-
-OpenClaw write-flow validation with opt-in SDK device pairing:
-
-```bash
-OPENCLAW_GATEWAY_URL=wss://example.invalid/ \
-OPENCLAW_GATEWAY_TOKEN=... \
-OPENCLAW_PROTOCOL=4 \
-OPENCLAW_DEVICE_PAIRING=request \
-OPENCLAW_SDK_STATE_DIR=.runtime-state/live-openclaw-bfp1 \
-pnpm live:openclaw-flow
 ```
 
 Hermes capture:
@@ -151,13 +146,16 @@ HERMES_BEARER_TOKEN=... \
 pnpm fixtures:capture:hermes
 ```
 
-Hermes live adapter validation:
+Hermes read-only live validation:
 
 ```bash
-HERMES_BASE_URL=https://example.invalid \
-HERMES_BEARER_TOKEN=... \
+RUNTIME_LIVE_ENABLED=true \
+HERMES_ENDPOINT=https://example.invalid \
+HERMES_CREDENTIAL_REF=env:HERMES_API_TOKEN \
+HERMES_API_TOKEN='<environment secret>' \
 pnpm live:hermes
 ```
 
-Review captured fixtures before committing. The sanitizer is defensive, but it
-does not replace human review.
+See `live-compatibility.md` for mutation gates, reports, fixture candidates,
+comparison, and the protected manual workflow. Review every candidate before
+committing; sanitization does not replace human review.

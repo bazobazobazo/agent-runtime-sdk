@@ -20,6 +20,8 @@
     "test:openclaw:v4": "vitest run packages/testing/src/openclaw-v4-conformance.test.ts",
     "test:hermes": "vitest run packages/adapter-hermes/src/hermes.test.ts packages/testing/src/hermes-conformance.test.ts",
     "test:conformance": "vitest run packages/testing/src/*-conformance.test.ts",
+    "test:live": "vitest run packages/testing/src/live-compatibility.test.ts packages/testing/src/live-fake-runtime.test.ts",
+    "test:live:cli": "node ./scripts/test-live-cli.mjs",
     "lint": "tsc -b packages/*/tsconfig.json --pretty false",
     "api:snapshot": "UPDATE_API_SNAPSHOT=1 node ./scripts/check-api-snapshot.mjs",
     "api:check": "node ./scripts/check-api-snapshot.mjs",
@@ -31,10 +33,11 @@
     "release:gate": "node ./scripts/release-gate.mjs",
     "fixtures:capture:openclaw": "node ./scripts/capture-openclaw-fixtures.mjs",
     "fixtures:capture:hermes": "node ./scripts/capture-hermes-fixtures.mjs",
-    "live:openclaw": "node ./scripts/live-openclaw-validate.mjs",
-    "live:openclaw-flow": "node ./scripts/live-openclaw-flow.mjs",
-    "live:hermes": "node ./scripts/live-hermes-validate.mjs",
-    "live:hermes-flow": "node ./scripts/live-hermes-flow.mjs"
+    "live:openclaw": "node ./scripts/live-compatibility.mjs openclaw",
+    "live:hermes": "node ./scripts/live-compatibility.mjs hermes",
+    "live:compatibility": "node ./scripts/live-compatibility.mjs both",
+    "live:fixtures": "node ./scripts/live-fixtures.mjs",
+    "live:compare": "node ./scripts/live-compare.mjs"
   },
   "devDependencies": {
     "@changesets/cli": "^2.29.7",

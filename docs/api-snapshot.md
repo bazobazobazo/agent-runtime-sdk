@@ -1955,5 +1955,156 @@ export * from './deterministic.js';
 export * from './fake-adapter.js';
 export * from './fake-hermes-server.js';
 export * from './fake-openclaw-server.js';
+export * from './live-compatibility.js';
+```
+
+### live-compatibility.d.ts
+
+```ts
+import { type AgentRuntimeAdapter, type RuntimeCapabilities } from '@banzae/agent-runtime-core';
+export declare const LIVE_COMPATIBILITY_REPORT_SCHEMA_VERSION: 1;
+export declare const LIVE_COMPATIBILITY_PROMPT = "Reply with exactly: BANZAE_RUNTIME_COMPATIBILITY_OK";
+export declare const LIVE_COMPATIBILITY_PREFIX = "banzae-sdk-compat-";
+export declare const LIVE_FIXTURE_SANITIZER_VERSION = "live-compatibility-v1";
+export type LiveProvider = 'openclaw' | 'hermes';
+export type LiveEnvironmentConfig = {
+    provider: LiveProvider;
+    endpoint: string;
+    credentialRef?: string;
+    expectedProtocol?: string;
+    mutationPolicy: LiveMutationPolicy;
+    captureFixtures: boolean;
+};
+export declare function parseLiveEnvironment(provider: LiveProvider, environment: Readonly<Record<string, string | undefined>>): LiveEnvironmentConfig;
+export declare function validateLiveEndpoint(endpoint: string, provider: LiveProvider): void;
+export type LiveMutationPolicy = {
+    allowSessionCreation: boolean;
+    allowRunCreation: boolean;
+    allowCancellation: boolean;
+    allowApproval: boolean;
+};
+export type LiveCompatibilityTarget = {
+    adapterId: string;
+    endpoint: string;
+    credentialRef?: string;
+    expectedProtocol?: string;
+    mutationPolicy: LiveMutationPolicy;
+};
+export type LiveCheckResult = {
+    id: string;
+    category: string;
+    required: boolean;
+    destructive: boolean;
+    status: 'passed' | 'failed' | 'skipped';
+    durationMs: number;
+    message: string;
+    errorCode?: string;
+    safeDetails?: Readonly<Record<string, unknown>>;
+};
+export type LiveCompatibilityCheckContext = {
+    adapter: AgentRuntimeAdapter;
+    target: LiveCompatibilityTarget;
+    signal: AbortSignal;
+    state: Map<string, unknown>;
+};
+export type LiveCompatibilityCheck = {
+    id: string;
+    category: string;
+    required: boolean;
+    destructive: boolean;
+    timeoutMs?: number;
+    run(context: LiveCompatibilityCheckContext): Promise<Omit<LiveCheckResult, 'id' | 'category' | 'required' | 'destructive' | 'durationMs'> | void>;
+};
+export type LiveCompatibilityReport = {
+    schemaVersion: 1;
+    generatedAt: string;
+    evidenceType: 'sanitized-live';
+    sdk: {
+        commitSha: string;
+        packageVersion: string;
+        nodeVersion: string;
+        platform: string;
+    };
+    target: {
+        adapterId: string;
+        endpointFingerprint: string;
+        safeHostname?: string;
+        runtimeProduct?: string;
+        runtimeVersion?: string;
+        protocolName?: string;
+        protocolVersion?: string;
+        adapterVersion?: string;
+    };
+    capabilities: RuntimeCapabilities;
+    checks: readonly LiveCheckResult[];
+    summary: {
+        passed: number;
+        failed: number;
+        skipped: number;
+        requiredChecksPassed: boolean;
+    };
+    limitations: readonly string[];
+};
+export type LiveCompatibilityReportMetadata = {
+    commitSha: string;
+    packageVersion: string;
+    nodeVersion: string;
+    platform: string;
+    endpointFingerprint: string;
+    safeHostname?: string;
+    limitations?: readonly string[];
+};
+export type RunLiveCompatibilityOptions = {
+    adapter: AgentRuntimeAdapter;
+    target: LiveCompatibilityTarget;
+    checks: readonly LiveCompatibilityCheck[];
+    metadata: LiveCompatibilityReportMetadata;
+    overallTimeoutMs?: number;
+    defaultCheckTimeoutMs?: number;
+    signal?: AbortSignal;
+    now?: () => Date;
+};
+export declare function runLiveCompatibility(options: RunLiveCompatibilityOptions): Promise<LiveCompatibilityReport>;
+export declare function validateLiveCompatibilityReport(value: unknown): asserts value is LiveCompatibilityReport;
+export declare function assertNoLiveReportSecrets(value: unknown, markers?: readonly string[]): void;
+export type LiveFixtureCandidate = {
+    metadata: {
+        adapterId: string;
+        runtimeProduct?: string;
+        runtimeVersion?: string;
+        protocolName?: string;
+        protocolVersion?: string;
+        sdkCommitSha: string;
+        captureDate: string;
+        sanitizerVersion: string;
+        source: 'sanitized-live-candidate';
+        manualReviewRequired: true;
+    };
+    payload: unknown;
+};
+export declare function createLiveFixtureCandidate(input: {
+    report: LiveCompatibilityReport;
+    payload: unknown;
+}): LiveFixtureCandidate;
+export declare function validateLiveFixtureCandidate(value: unknown): asserts value is LiveFixtureCandidate;
+export type LiveCompatibilityDiff = {
+    runtimeVersionChanged: boolean;
+    protocolVersionChanged: boolean;
+    capabilityAdditions: readonly string[];
+    capabilityRemovals: readonly string[];
+    newlyFailingChecks: readonly string[];
+    requiredChecksNowSkipped: readonly string[];
+    errorClassificationChanges: readonly {
+        id: string;
+        before?: string;
+        after?: string;
+    }[];
+    breakingRegression: boolean;
+};
+export declare function compareLiveCompatibilityReports(previous: LiveCompatibilityReport, current: LiveCompatibilityReport): LiveCompatibilityDiff;
+export declare function sanitizeLiveValue(value: unknown, options?: {
+    replaceIdentifiers?: boolean;
+}): unknown;
+export declare function formatLiveCompatibilityReport(report: LiveCompatibilityReport): string;
 ```
 

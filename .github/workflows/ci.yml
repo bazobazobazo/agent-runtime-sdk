@@ -68,8 +68,14 @@ jobs:
       - name: Shared conformance group
         run: pnpm test:conformance
 
+      - name: Live harness with fake runtimes
+        run: pnpm test:live
+
       - name: Build
         run: pnpm build
+
+      - name: Live CLI safety tests
+        run: pnpm test:live:cli
 
       - name: Check API snapshot
         run: pnpm api:check

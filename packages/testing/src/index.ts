@@ -3,3 +3,4 @@ export * from './deterministic.js';
 export * from './fake-adapter.js';
 export * from './fake-hermes-server.js';
 export * from './fake-openclaw-server.js';
+export * from './live-compatibility.js';
