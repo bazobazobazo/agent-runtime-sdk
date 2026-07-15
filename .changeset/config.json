@@ -1,0 +1,23 @@
+{
+  "$schema": "https://unpkg.com/@changesets/config@3.1.1/schema.json",
+  "changelog": "@changesets/cli/changelog",
+  "commit": false,
+  "fixed": [[
+    "@banzae/agent-runtime-core",
+    "@banzae/agent-runtime-detection",
+    "@banzae/agent-runtime-openclaw",
+    "@banzae/agent-runtime-hermes",
+    "@banzae/agent-runtime-testing",
+    "@banzae/agent-runtime-node"
+  ]],
+  "linked": [],
+  "access": "public",
+  "baseBranch": "main",
+  "updateInternalDependencies": "patch",
+  "bumpVersionsWithWorkspaceProtocolOnly": true,
+  "ignore": [
+    "@banzae/agent-runtime-codex-placeholder",
+    "@banzae/agent-runtime-pi-placeholder",
+    "@banzae/agent-runtime-adapter-template"
+  ]
+}

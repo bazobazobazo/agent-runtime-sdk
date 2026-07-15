@@ -5,7 +5,7 @@ provider-neutral runtime contract.
 
 ## Install and entrypoints
 
-Install with `pnpm add @banzae/agent-runtime-openclaw @banzae/agent-runtime-core`.
+After publication, install matching `@banzae/agent-runtime-openclaw@0.1.0-alpha.1` and core versions.
 Applications use the root adapter/factory exports. `/experimental` contains
 unstable version-codec and wire authoring utilities; do not use it in application code.
 

@@ -29,6 +29,11 @@ Run the focused checks while editing, then `pnpm release:gate`. Documentation
 work must also pass `pnpm examples:typecheck`, `pnpm examples:test`, and
 `pnpm docs:check`.
 
+Public package changes require a Changeset. Review `pnpm release:plan` and run
+`pnpm release:dry-run`; only the final release-candidate phase applies versions.
+Publication is restricted to the manually dispatched, protected OIDC workflow
+described in `docs/releasing.md`.
+
 The opt-in live harness is excluded from normal CI and requires explicit target,
 credential-reference, and mutation gates. Never publish packages, tag a
 release, or change compatibility claims merely because fake tests pass.

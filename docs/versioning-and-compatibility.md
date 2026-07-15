@@ -7,6 +7,12 @@ stable `1.0` or production-final promise. Breaking `0.x` changes require an API
 report update and migration note. Experimental/testing entrypoints can change
 more frequently.
 
+The six public packages use a fixed synchronized version for the initial alpha
+series. Adapters and core release together. Internal workspace ranges are exact
+during development and become exact candidate versions in packed artifacts.
+Runtime product and wire protocol versions remain independent. See
+[Release engineering](releasing.md).
+
 Keep these version domains separate:
 
 - SDK package version;

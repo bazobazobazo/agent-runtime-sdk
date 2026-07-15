@@ -27,6 +27,8 @@ This documentation set is intended for SDK users who do not want to inspect sour
 - [live-compatibility.md](./live-compatibility.md)
 - [compatibility.md](./compatibility.md)
 - [versioning-and-compatibility.md](./versioning-and-compatibility.md)
+- [releasing.md](./releasing.md)
+- [release-audit.md](./release-audit.md)
 
 ## Migration and operations
 

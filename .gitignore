@@ -2,6 +2,7 @@ node_modules/
 dist/
 coverage/
 .release-pack/
+artifacts/release/
 .runtime-state/
 .DS_Store
 *.log
