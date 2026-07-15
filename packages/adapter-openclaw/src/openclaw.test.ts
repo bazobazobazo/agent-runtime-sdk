@@ -41,11 +41,11 @@ describe('OpenClaw protocol scaffolding', () => {
   it('passes caller idempotency key through chat.send', () => {
     const request = openClawV4Codec().buildRunStart({
       applicationRunId: 'run-1',
-      idempotencyKey: 'forge-runtime-run:run-1',
+      idempotencyKey: 'host-runtime-run:run-1',
       session: { applicationSessionId: 'thread-1', externalSessionId: 'session-1', created: false },
       input: { text: 'hello' },
     });
-    expect(request.params?.idempotencyKey).toBe('forge-runtime-run:run-1');
+    expect(request.params?.idempotencyKey).toBe('host-runtime-run:run-1');
   });
 
   it.each([

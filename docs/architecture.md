@@ -13,6 +13,14 @@ Applications remain responsible for durable state, user authorization, files,
 schedules, billing, tenancy, product-specific audit records, and retries across
 worker crashes.
 
+## Product independence
+
+The SDK is independent of any Banzae product. It contains runtime communication
+contracts and adapters, not application logic for users, seats, organizations,
+billing, chat threads, files, or schedules. Any compatible host can embed it.
+The `@banzae` package scope identifies the publisher; it does not create a
+dependency on another Banzae product or control plane.
+
 ## Packages
 
 - `core`: provider-neutral contracts and helpers.

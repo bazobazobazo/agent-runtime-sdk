@@ -23,7 +23,7 @@ This documentation set is intended for SDK users who do not want to inspect sour
 
 - [architecture.md](./architecture.md)
 - [adapter-authoring.md](./adapter-authoring.md)
-- [banzaeforge-integration.md](./banzaeforge-integration.md)
+- [host-application-integration.md](./host-application-integration.md)
 - [live-compatibility.md](./live-compatibility.md)
 - [compatibility.md](./compatibility.md)
 - [versioning-and-compatibility.md](./versioning-and-compatibility.md)

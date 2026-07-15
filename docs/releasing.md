@@ -30,7 +30,8 @@ Run `pnpm release:plan` to review the six-package plan and `pnpm
 release:dry-run` to build ignored artifacts under `artifacts/release/`. The dry
 run clears stale staging, builds, extracts/checks API reports, packs all six
 packages, installs them into an external clean consumer, executes fake flows,
-generates SPDX/checksums/manifest/release-note preview, and scans the result.
+generates SPDX/checksums/manifest/release-note preview, verifies product
+independence across sources and tarballs, and scans the result.
 
 `pnpm release:gate` adds repository tests, bounded fuzzing, resilience,
 documentation/examples, dependency/license/security checks, and two-build

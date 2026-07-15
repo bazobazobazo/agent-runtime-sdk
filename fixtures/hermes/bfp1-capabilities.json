@@ -27,7 +27,7 @@
     "body": {
       "object": "hermes.api_server.capabilities",
       "platform": "hermes-agent",
-      "model": "banzaeforge-assistant",
+      "model": "runtime-assistant",
       "auth": {
         "type": "bearer",
         "required": true

@@ -21,13 +21,15 @@ per reviewed phase.
 - New adapters must pass shared conformance, fuzz/resilience, cleanup, package,
   consumer, and documentation checks before any support claim.
 - Do not add real endpoints, credentials, raw provider payloads, or customer data.
+- Keep application-product logic out of the SDK; `@banzae` is publisher
+  branding, not a dependency on another product or control plane.
 - Do not deep-import package `src`, `dist`, codec, parser, transport, or dispatcher internals.
 
 ## Validation
 
 Run the focused checks while editing, then `pnpm release:gate`. Documentation
 work must also pass `pnpm examples:typecheck`, `pnpm examples:test`, and
-`pnpm docs:check`.
+`pnpm docs:check`. Product-boundary changes must pass `pnpm independence:check`.
 
 Public package changes require a Changeset. Review `pnpm release:plan` and run
 `pnpm release:dry-run`; only the final release-candidate phase applies versions.

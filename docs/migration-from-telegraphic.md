@@ -1,7 +1,7 @@
 # Migration from `@telegraphic-dev/openclaw-gateway-client`
 
-Migrate behind feature flags while preserving application authorization,
-durability, and rollback. The replacement package is
+Migrate an existing host integration behind rollout controls while preserving
+application authorization, durability, and rollback. The replacement package is
 `@banzae/agent-runtime-openclaw`, normally composed through
 `@banzae/agent-runtime-node` and provider-neutral core contracts.
 
@@ -23,8 +23,8 @@ Do not import adapter codecs, transports, parsers, dispatchers, provider DTOs,
 | Gateway client construction | `RuntimeRegistry.create('openclaw')` |
 | Token/device credentials | Authorized `credentialRef` or `RuntimeAuthInput` |
 | Protocol selection | Adapter negotiation for implemented v3/v4 codecs |
-| Conversation/session | `ensureSession()` and durable `RuntimeSession` state |
-| Prompt/run | `startRun()` with caller IDs and idempotency key |
+| Application session | `ensureSession()` and durable `RuntimeSession` state |
+| Application run | `startRun()` with caller IDs and idempotency key |
 | Gateway events | `streamRun()` normalized `RuntimeEvent` values |
 | History | Capability-gated `getHistory()` |
 | Abort | `cancelRun()` plus terminal reconciliation |
@@ -50,20 +50,24 @@ different runtime.
 
 Suggested flags:
 
-- `RUNTIME_SDK_ENABLED`
-- `RUNTIME_SDK_AGENT_ALLOWLIST`
-- `RUNTIME_SDK_OPENCLAW_ENABLED`
-- `RUNTIME_LEGACY_OPENCLAW_FALLBACK`
-- `RUNTIME_SDK_SHADOW_MODE`
+- `AGENT_RUNTIME_SDK_ENABLED`
+- `AGENT_RUNTIME_ADAPTER_ALLOWLIST`
+- `AGENT_RUNTIME_LEGACY_FALLBACK`
+- `AGENT_RUNTIME_READ_ONLY_SHADOW`
+- `AGENT_RUNTIME_ROLLOUT_PERCENTAGE`
+
+These are host-application examples and are not consumed by the SDK. An
+existing host may use any rollout configuration or adapter registry.
 
 Fallback is safe only before a side-effecting SDK request is accepted or after
 reconciliation proves it was not accepted. Preserve IDs and idempotency keys
 across worker retries. Never send the same side-effecting prompt through both
 implementations.
 
-Safe shadow mode is limited to health, protocol/capability detection, and
-read-only metadata/history comparisons authorized for the same account. Do not
-compare secrets, raw provider payloads, or customer prompts in logs.
+Safe comparison is limited to connection health, protocol discovery,
+capabilities, authorized read-only history, normalized metadata, and errors from
+non-mutating probes. Do not compare secrets, raw provider payloads, or customer
+prompts in logs.
 
 ## Exit criteria
 

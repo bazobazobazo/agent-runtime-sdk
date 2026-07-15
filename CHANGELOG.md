@@ -15,8 +15,8 @@ fixed version for the six public packages during the initial alpha series.
   opt-in live compatibility harness.
 - Six ESM-only Node.js packages, testing utilities, strict package boundaries,
   deterministic release artifacts, and protected trusted-publishing preparation.
-- Migration guidance from the Telegraphic client and a separate Forge
-  integration handoff.
+- Migration guidance from the Telegraphic client and product-neutral host
+  application integration guidance.
 
 ### Known limitations
 
@@ -25,7 +25,7 @@ fixed version for the six public packages during the initial alpha series.
 - Codex and Pi are unsupported private placeholders.
 - ACP is not implemented. Image/file input is capability-dependent, and no
   common scheduling API exists in the core SDK.
-- BanzaeForge application integration is a separate ownership layer.
+- Durable host application integration remains a separate ownership layer.
 - Runtime-specific behavior may change in upstream products.
 
 No package, tag, or GitHub release has been published by this candidate.

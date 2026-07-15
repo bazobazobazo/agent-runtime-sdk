@@ -14,6 +14,7 @@ const commands = [
   ['pnpm', ['package:check']],
   ['pnpm', ['package:contents']],
   [process.execPath, ['./scripts/prepare-release-packages.mjs']],
+  ['pnpm', ['independence:check']],
   [process.execPath, ['./scripts/test-packed-consumer.mjs', '--use-existing']],
   ['pnpm', ['sbom:generate']],
   [process.execPath, ['./scripts/generate-release-manifest.mjs']],

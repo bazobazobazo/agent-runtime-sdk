@@ -11,8 +11,8 @@ Status: release-candidate limitations; publication has not occurred.
 - The core SDK has no common scheduling API.
 - Image and file input support is capability-dependent and may be rejected
   before provider activity.
-- Forge integration, durable orchestration, persistence, billing, authorization,
-  and scheduling remain outside this SDK release.
+- Host integration, durable orchestration, persistence, billing, authorization,
+  and product scheduling remain outside this SDK release.
 - Runtime-specific behavior may change in upstream OpenClaw or Hermes products.
 - The six new npm package records require a one-time short-lived-token bootstrap;
   npm trusted-publishing and GitHub protection settings still require operator

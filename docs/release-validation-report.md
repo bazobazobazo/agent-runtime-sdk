@@ -14,7 +14,7 @@ Status: release candidate ready for pull-request review; publication remains blo
 - Repository: 230 tests in 15 files passed.
 - Examples: strict typecheck and one deterministic example test passed.
 - Bounded fuzz: seed `20260714`, 10 properties at 100 runs, zero failures.
-- Extended fuzz: seed `20260714`, 10 properties at 5,000 runs (50,000 generated cases), zero failures and no shrunk counterexamples. Final suite duration was 7.73 seconds (6.86 seconds in property tests).
+- Extended fuzz: seed `20260714`, 10 properties at 5,000 runs (50,000 generated cases), zero failures and no shrunk counterexamples. Final suite duration was 7.50 seconds (6.69 seconds in property tests).
 - Resilience: 9 tests passed. The measured run used 3.42 seconds wall time and 229,360 KiB peak RSS.
 - Stress coverage includes 10,000 sequential OpenClaw RPCs, 1,000 reverse-order concurrent responses, 1,000 aborts, 10,000 bounded dedupe operations, 10,000 mapped events, 1,000 sanitized reports, and 1,000 detection cycles. Resource counters returned to zero where exposed.
 - Full adapter tests cover concurrent isolation, active-stream close behavior, payload limits, bounded deduplication, and rejection containment without unhandled rejections.
@@ -43,8 +43,9 @@ manifests under the documented normalization rules.
 
 - Dependency audit: no known high-severity production vulnerabilities.
 - Runtime licenses: one external production dependency, compatible.
-- Strict Unicode: all 300 tracked/untracked text files passed.
-- Secret, fixture, artifact, workflow-permission, provenance-preparation, and SBOM validation passed.
+- Strict Unicode: all 302 tracked/untracked text files passed.
+- Secret, fixture, artifact, workflow-permission, product-independence,
+  provenance-preparation, and SBOM validation passed.
 - No dedicated OpenClaw or Hermes endpoint, credential reference, or mutation gate was configured. No runtime was contacted, no live report was generated, and compatibility evidence was not upgraded.
 - OpenClaw v3/v4 remain fixture and fake-server conformance validated. Hermes complete live validation remains pending.
 

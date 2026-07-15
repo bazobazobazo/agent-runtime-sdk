@@ -16,8 +16,8 @@ The reviewed prerelease channel is `next`; this alpha must not update `latest`.
   resilience/stress hardening, and a gated live compatibility harness.
 - ESM-only Node.js support, strict package/export boundaries, safe credential
   and network-policy ports, and deterministic release artifacts.
-- Migration guidance from `@telegraphic-dev/openclaw-gateway-client`; Forge
-  integration remains a separate application-owned layer.
+- Migration guidance from `@telegraphic-dev/openclaw-gateway-client`; durable
+  host integration remains a separate application-owned layer.
 
 ## Evidence and limitations
 
@@ -27,7 +27,7 @@ The reviewed prerelease channel is `next`; this alpha must not update `latest`.
 - Codex and Pi are not supported.
 - ACP is not implemented.
 - Image/file input is capability-dependent.
-- Forge integration is separate, and the core SDK has no common scheduling API.
+- Host integration is separate, and the core SDK has no common scheduling API.
 - Runtime-specific behavior may change in upstream products.
 
 Attach the release manifest, SHA-256 checksums, SPDX SBOM, compatibility report,
