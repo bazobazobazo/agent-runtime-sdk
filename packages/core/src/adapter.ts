@@ -25,6 +25,7 @@ import type {
 } from './types.js';
 import type { RuntimeAdapterDependencies } from './ports.js';
 
+/** Public alpha contract for agent runtime adapter. */
 export interface AgentRuntimeAdapter {
   readonly adapterId: string;
   readonly adapterVersion: string;
@@ -48,6 +49,7 @@ export interface AgentRuntimeAdapter {
   close(): Promise<void>;
 }
 
+/** Public alpha contract for runtime adapter factory. */
 export interface RuntimeAdapterFactory {
   readonly adapterId: string;
   create(dependencies: RuntimeAdapterDependencies): AgentRuntimeAdapter;

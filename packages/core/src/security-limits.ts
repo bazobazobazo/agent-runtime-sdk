@@ -3,6 +3,7 @@ import { HARD_RUNTIME_LIMITS, SECURE_RUNTIME_LIMITS, type SecureRuntimeLimitName
 
 export { HARD_RUNTIME_LIMITS, SECURE_RUNTIME_LIMITS, type SecureRuntimeLimitName } from './security-limit-values.js';
 
+/** Public alpha contract for resolve secure limit. */
 export function resolveSecureLimit(
   name: SecureRuntimeLimitName,
   value?: number,

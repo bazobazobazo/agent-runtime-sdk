@@ -1,3 +1,4 @@
+/** Default bounds applied to untrusted runtime input and diagnostics. */
 export const SECURE_RUNTIME_LIMITS = Object.freeze({
   maxJsonBodyBytes: 1_000_000,
   maxHttpHeaderBytes: 32_000,
@@ -19,8 +20,10 @@ export const SECURE_RUNTIME_LIMITS = Object.freeze({
   maxCompatibilityReportBytes: 2_000_000,
 });
 
+/** Public alpha contract for secure runtime limit name. */
 export type SecureRuntimeLimitName = keyof typeof SECURE_RUNTIME_LIMITS;
 
+/** Maximum configurable bounds that callers cannot exceed. */
 export const HARD_RUNTIME_LIMITS: Readonly<Record<SecureRuntimeLimitName, number>> = Object.freeze({
   maxJsonBodyBytes: 16_000_000,
   maxHttpHeaderBytes: 256_000,

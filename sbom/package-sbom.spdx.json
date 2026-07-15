@@ -3,7 +3,7 @@
   "dataLicense": "CC0-1.0",
   "SPDXID": "SPDXRef-DOCUMENT",
   "name": "agent-runtime-sdk-0.0.0-sbom",
-  "documentNamespace": "https://banzae.dev/sbom/agent-runtime-sdk/0.0.0/c926d480e687b718",
+  "documentNamespace": "https://banzae.dev/sbom/agent-runtime-sdk/0.0.0/cf174b197258e4fd",
   "creationInfo": {
     "created": "1970-01-01T00:00:00.000Z",
     "creators": [
@@ -142,9 +142,29 @@
       "copyrightText": "NOASSERTION"
     },
     {
-      "SPDXID": "SPDXRef-Package-------banzae-agent-runtime-node-",
+      "SPDXID": "SPDXRef-Package-------banzae-agent-runtime-core-",
       "name": "    '",
-      "versionInfo": "banzae/agent-runtime-node'",
+      "versionInfo": "banzae/agent-runtime-core'",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "copyrightText": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-------banzae-agent-runtime-detection-",
+      "name": "    '",
+      "versionInfo": "banzae/agent-runtime-detection'",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "copyrightText": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-------banzae-agent-runtime-testing-",
+      "name": "    '",
+      "versionInfo": "banzae/agent-runtime-testing'",
       "downloadLocation": "NOASSERTION",
       "filesAnalyzed": false,
       "licenseConcluded": "NOASSERTION",

@@ -2,6 +2,7 @@ import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import type { RuntimeSecret, RuntimeSecretStore, RuntimeStateStore } from '@banzae/agent-runtime-core';
 
+/** Public alpha contract for node file state store. */
 export class NodeFileStateStore implements RuntimeStateStore {
   constructor(private readonly rootDir: string) {}
 
@@ -29,6 +30,7 @@ export class NodeFileStateStore implements RuntimeStateStore {
   }
 }
 
+/** Public alpha contract for node memory secret store. */
 export class NodeMemorySecretStore implements RuntimeSecretStore {
   private readonly values = new Map<string, RuntimeSecret>();
 

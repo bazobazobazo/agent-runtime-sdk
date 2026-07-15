@@ -1,6 +1,7 @@
 import type { RuntimeErrorCode } from './types.js';
 import { SECURE_RUNTIME_LIMITS } from './security-limit-values.js';
 
+/** Public alpha contract for runtime error input. */
 export interface RuntimeErrorInput {
   message: string;
   code: RuntimeErrorCode;
@@ -29,6 +30,7 @@ const SENSITIVE_VALUE_PATTERNS = [
   /\b(?:https?|wss?):\/\/[^\s"',)]+/gi,
 ];
 
+/** Public alpha contract for runtime error. */
 export class RuntimeError extends Error {
   readonly code: RuntimeErrorCode;
   readonly retryable: boolean;
@@ -128,10 +130,12 @@ function boundDetails(value: Readonly<Record<string, unknown>>): Readonly<Record
   return output;
 }
 
+/** Public alpha contract for is runtime error. */
 export function isRuntimeError(error: unknown): error is RuntimeError {
   return error instanceof RuntimeError;
 }
 
+/** Public alpha contract for has runtime error code. */
 export function hasRuntimeErrorCode<C extends import('./types.js').RuntimeErrorCode>(
   error: unknown,
   code: C,
@@ -139,10 +143,12 @@ export function hasRuntimeErrorCode<C extends import('./types.js').RuntimeErrorC
   return isRuntimeError(error) && error.code === code;
 }
 
+/** Public alpha contract for create runtime error. */
 export function createRuntimeError(input: RuntimeErrorInput): RuntimeError {
   return new RuntimeError(input);
 }
 
+/** Public alpha contract for to runtime error. */
 export function toRuntimeError(
   error: unknown,
   fallback: Omit<RuntimeErrorInput, 'cause'>,
@@ -151,6 +157,7 @@ export function toRuntimeError(
   return new RuntimeError({ ...fallback, cause: error });
 }
 
+/** Public alpha contract for unsupported capability. */
 export function unsupportedCapability(message: string, details?: Record<string, unknown>): RuntimeError {
   return new RuntimeError({
     code: 'UNSUPPORTED_CAPABILITY',
@@ -160,6 +167,7 @@ export function unsupportedCapability(message: string, details?: Record<string, 
   });
 }
 
+/** Public alpha contract for invalid configuration. */
 export function invalidConfiguration(message: string, details?: Record<string, unknown>): RuntimeError {
   return new RuntimeError({
     code: 'INVALID_CONFIGURATION',

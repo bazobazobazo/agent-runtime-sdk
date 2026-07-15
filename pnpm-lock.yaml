@@ -39,9 +39,15 @@ importers:
 
   examples/detect-runtime:
     dependencies:
-      '@banzae/agent-runtime-node':
+      '@banzae/agent-runtime-core':
         specifier: workspace:*
-        version: link:../../packages/node
+        version: link:../../packages/core
+      '@banzae/agent-runtime-detection':
+        specifier: workspace:*
+        version: link:../../packages/detection
+      '@banzae/agent-runtime-testing':
+        specifier: workspace:*
+        version: link:../../packages/testing
 
   examples/hermes-chat:
     dependencies:

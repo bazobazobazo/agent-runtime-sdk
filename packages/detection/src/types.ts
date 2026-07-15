@@ -6,6 +6,7 @@ import type {
   RuntimeTarget,
 } from '@banzae/agent-runtime-core';
 
+/** Public alpha contract for runtime probe evidence. */
 export type RuntimeProbeEvidence = {
   kind: string;
   message: string;
@@ -18,6 +19,7 @@ export type RuntimeProbeEvidence = {
   safeDetails?: Readonly<Record<string, unknown>>;
 };
 
+/** Public alpha contract for runtime detection options. */
 export type RuntimeDetectionOptions = {
   overallTimeoutMs?: number;
   probeTimeoutMs?: number;
@@ -28,6 +30,7 @@ export type RuntimeDetectionOptions = {
   signal?: AbortSignal;
 };
 
+/** Public alpha contract for persisted runtime detection. */
 export type PersistedRuntimeDetection = {
   schemaVersion: number;
   adapterId: string;
@@ -41,6 +44,7 @@ export type PersistedRuntimeDetection = {
   expiresAt?: string;
 };
 
+/** Public alpha contract for runtime detection input. */
 export type RuntimeDetectionInput = {
   target: RuntimeTarget;
   adapterId?: string | 'auto';
@@ -50,6 +54,7 @@ export type RuntimeDetectionInput = {
   options?: RuntimeDetectionOptions;
 };
 
+/** Public alpha contract for runtime probe result. */
 export type RuntimeProbeResult = {
   adapterId: string;
   matched: boolean;
@@ -64,6 +69,7 @@ export type RuntimeProbeResult = {
   durationMs?: number;
 };
 
+/** Public alpha contract for runtime detection result. */
 export type RuntimeDetectionResult = {
   status: 'detected' | 'ambiguous' | 'failed';
   selected?: RuntimeProbeResult;
@@ -82,22 +88,26 @@ export type RuntimeProbeContext = {
   emitDiagnostic(event: RuntimeDetectionDiagnostic): void;
 };
 
+/** Public alpha contract for runtime probe. */
 export interface RuntimeProbe {
   readonly adapterId: string;
   probe(input: RuntimeDetectionInput, context: RuntimeProbeContext): Promise<RuntimeProbeResult>;
   supportsDetectionCache?(detection: PersistedRuntimeDetection): boolean;
 }
 
+/** Public alpha contract for runtime detection store. */
 export interface RuntimeDetectionStore {
   get(key: string): Promise<PersistedRuntimeDetection | undefined>;
   set(key: string, value: PersistedRuntimeDetection): Promise<void>;
   delete(key: string): Promise<void>;
 }
 
+/** Public alpha contract for runtime credential provider. */
 export interface RuntimeCredentialProvider {
   resolve(reference: string): Promise<RuntimeAuthInput>;
 }
 
+/** Public alpha contract for runtime network policy. */
 export interface RuntimeNetworkPolicy {
   validateTarget(url: URL): Promise<void>;
   validateRedirect(from: URL, to: URL): Promise<void>;

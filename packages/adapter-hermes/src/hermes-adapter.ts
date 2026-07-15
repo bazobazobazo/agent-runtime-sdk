@@ -59,8 +59,10 @@ import {
 } from './schemas.js';
 import { parseSseStream } from './sse/parser.js';
 
+/** Public alpha contract for hermes session mode. */
 export type HermesSessionMode = 'auto' | 'client-scoped' | 'rest-session';
 
+/** Public alpha contract for hermes adapter options. */
 export type HermesAdapterOptions = {
   baseUrl?: string;
   bearerToken?: string;
@@ -106,6 +108,7 @@ type ApprovalState = {
 const DEFAULT_RECONNECT_DELAY_MS = 250;
 const DEFAULT_POLLING_INTERVAL_MS = 1_000;
 
+/** Public alpha contract for hermes adapter. */
 export class HermesAdapter implements AgentRuntimeAdapter {
   readonly adapterId = 'hermes';
   readonly adapterVersion = '0.1.0';
@@ -578,6 +581,7 @@ export class HermesAdapter implements AgentRuntimeAdapter {
   }
 }
 
+/** Public alpha contract for create hermes adapter factory. */
 export function createHermesAdapterFactory(options?: HermesAdapterOptions) {
   return { adapterId: 'hermes', create: (dependencies: RuntimeAdapterDependencies) => new HermesAdapter(dependencies, options) };
 }

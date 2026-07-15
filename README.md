@@ -1,110 +1,174 @@
 # Banzae Agent Runtime SDK
 
-Provider-neutral TypeScript SDK for connecting applications to supported agent
-runtimes.
+Provider-neutral TypeScript contracts and adapters for communicating with
+supported agent runtimes.
 
-Initial package set:
+> **Pre-alpha:** the public API is frozen only for `v0.1.0-alpha.1`. This is not
+> a stable `1.0` or production-final contract. Compatibility is evidence-based
+> and can differ by runtime product, release, and wire protocol.
 
-- `@banzae/agent-runtime-core`
-- `@banzae/agent-runtime-detection`
-- `@banzae/agent-runtime-openclaw`
-- `@banzae/agent-runtime-hermes`
-- `@banzae/agent-runtime-testing`
-- `@banzae/agent-runtime-node`
+## Purpose
 
-The SDK owns runtime communication. Applications own users, tenancy, durable
-runs, schedules, files, authorization, and audit records.
+The SDK gives host applications one lifecycle for runtime discovery,
+connection, sessions, runs, normalized events, approvals, cancellation,
+history, health, capabilities, and errors. The SDK owns runtime communication;
+the host continues to own application-domain authorization and durability.
 
-## Status
+## Supported runtimes
 
-The pre-alpha public API is frozen for `v0.1.0-alpha.1`; it is not a stable 1.0
-or production-final contract. OpenClaw and Hermes adapters include
-protocol foundations, detection, capability mapping, idempotency enforcement,
-SSE parsing and recovery, cancellation, approvals, session history, and
-injectable transport boundaries. Compatibility
-claims are fixture-backed for the pinned targets documented in
-`docs/compatibility.md`, but this SDK should still be treated as an initial
-pre-alpha implementation until the live OpenClaw and Hermes integration suites are confirmed in
-the target release environment.
+- **OpenClaw:** wire protocols v3 and v4 are implemented.
+- **Hermes:** Runs HTTP/SSE is implemented and fixture/fake-server validated;
+  full live run, stream, approval, and cancellation validation is still pending.
 
-Public entrypoints, lifecycle rules, identifiers, errors, and API review are
-documented in `docs/public-api.md`. This alpha is ESM-only; the Node package and
-repository tooling require Node.js `>=22.13`.
+See [`docs/compatibility.md`](docs/compatibility.md) for the exact fixture,
+fake-server, provider, and live evidence attached to each claim.
 
-## Quick Start
+## Packages
 
-```ts
-import { createDefaultRuntimeRegistry } from '@banzae/agent-runtime-node';
-import { createHermesProbe, createOpenClawProbe, createRuntimeDetector } from '@banzae/agent-runtime-detection';
+| Package | Purpose |
+|---|---|
+| `@banzae/agent-runtime-core` | Provider-neutral contracts, capabilities, events, errors, ports, and registry |
+| `@banzae/agent-runtime-detection` | Bounded, side-effect-free runtime detection |
+| `@banzae/agent-runtime-openclaw` | OpenClaw v3/v4 Gateway adapter |
+| `@banzae/agent-runtime-hermes` | Hermes Runs HTTP/SSE adapter |
+| `@banzae/agent-runtime-testing` | Conformance suite, deterministic fakes, and live-report utilities |
+| `@banzae/agent-runtime-node` | Node.js transports, stores, credential provider, and default registry |
 
-const registry = createDefaultRuntimeRegistry({
-  stateStore,
-  secretStore,
-  logger,
-});
+All packages are ESM-only. Node-specific packages and repository tooling require
+Node.js `>=22.13`.
 
-const detector = createRuntimeDetector({
-  dependencies,
-  probes: [createOpenClawProbe(), createHermesProbe()],
-});
-
-const result = await detector.detect({
-  target: {
-    endpoint: 'https://agent.example.com',
-  },
-  adapterId: 'auto',
-});
-```
-
-Runtime detection never sends the first user prompt and never starts a run.
-Explicit adapter selection is a configuration override, not discovery; actual
-reachability is validated by the adapter connection path. Detection aborts
-underlying HTTP requests, response iterators, WebSocket connections, and event
-iterators on caller cancellation and timeouts. Redirects remain unsupported. See
-`docs/architecture.md`, `docs/adapter-authoring.md`, `docs/detection.md`, and
-`docs/compatibility.md`.
-
-Hermes uses the Runs HTTP/SSE API as its primary transport. It supports
-capability discovery, health checks, text run creation, status polling, bounded
-SSE recovery, cancellation, approval resolution, and REST session history when
-advertised. Images, files, Hermes Jobs, scheduling, Codex, Pi, and
-BanzaeForge-specific integration are outside this adapter.
-
-Hermes compatibility is currently implemented and synthetic/fake-server
-validated; a full live validation run is still required before it is labeled
-supported.
-
-All implemented adapters run through the exported provider-neutral conformance
-suite in `@banzae/agent-runtime-testing`. Controlled fake OpenClaw v3,
-OpenClaw v4, and Hermes servers prove shared lifecycle, session, run, stream,
-status, cancellation, security, concurrency, and cleanup behavior. This
-fake-server evidence remains distinct from live compatibility evidence. See
-`docs/adapter-conformance.md`.
-
-The opt-in live compatibility harness is read-only by default, accepts
-credentials only through environment-backed references, writes sanitized
-versioned reports, and keeps all mutation behind explicit gates. It is excluded
-from normal pull-request CI; normal CI tests it only with fake runtimes. See
-`docs/live-compatibility.md`.
-
-## Security and resilience
-
-All runtime traffic is untrusted. Central secure defaults bound JSON bodies,
-WebSocket frames, SSE parsing, raw diagnostics, subscriber queues,
-deduplication, reconnect/reconciliation, fixture candidates, and compatibility
-reports. Node transports reject credential-bearing URLs and do not follow
-redirects. Runtime errors and optional raw diagnostics are recursively bounded
-and sanitized.
-
-Normal CI runs deterministic fuzz/property tests and resource guardrails without
-runtime credentials or external endpoints:
+## Install
 
 ```bash
-pnpm test:fuzz
-pnpm test:resilience
-pnpm security:check
+pnpm add @banzae/agent-runtime-core @banzae/agent-runtime-openclaw @banzae/agent-runtime-hermes @banzae/agent-runtime-node
 ```
 
-Use `pnpm test:fuzz:extended` for the reproducible 5,000-case manual corpus.
-See `docs/security.md`, `docs/security-threat-model.md`, `docs/error-model.md`,
-and `SECURITY.md`.
+Add `@banzae/agent-runtime-detection` for discovery and
+`@banzae/agent-runtime-testing` only for test/conformance code.
+
+## Minimal lifecycle
+
+```ts
+import { isRuntimeError } from '@banzae/agent-runtime-core';
+import {
+  createDefaultRuntimeRegistry,
+  NodeFileStateStore,
+  NodeMemorySecretStore,
+} from '@banzae/agent-runtime-node';
+
+const controller = new AbortController();
+const registry = createDefaultRuntimeRegistry({
+  stateStore: new NodeFileStateStore('.runtime-state'),
+  secretStore: new NodeMemorySecretStore(),
+});
+const adapter = registry.create('openclaw');
+
+try {
+  const connection = await adapter.connect({
+    target: { endpoint: 'wss://runtime.example.com' },
+    credentialRef: 'env:OPENCLAW_GATEWAY_TOKEN',
+  }, { signal: controller.signal });
+  const session = await adapter.ensureSession({
+    applicationSessionId: 'application-session-1',
+  }, { signal: controller.signal });
+  const run = await adapter.startRun({
+    applicationRunId: 'application-run-1',
+    idempotencyKey: 'caller-owned-key-1',
+    session,
+    input: { text: 'Hello' },
+  }, { signal: controller.signal });
+  console.log(connection.descriptor.protocolVersion, run.externalRunId);
+} catch (error) {
+  if (isRuntimeError(error)) console.error(error.code, error.retryable);
+  else throw error;
+} finally {
+  controller.abort();
+  await adapter.close();
+}
+```
+
+Credential values must be resolved by a configured provider/store; do not put
+them in source, endpoint URLs, logs, or CLI arguments.
+
+## Detection
+
+```ts
+import { createTestDependencies } from '@banzae/agent-runtime-core/testing';
+import { createRuntimeDetector, type RuntimeProbe } from '@banzae/agent-runtime-detection';
+
+const controller = new AbortController();
+const deterministicProbe: RuntimeProbe = {
+  adapterId: 'example',
+  async probe() {
+    return {
+      adapterId: 'example',
+      matched: true,
+      confidence: 1,
+      runtimeProduct: 'example-runtime',
+      protocolName: 'example',
+      evidence: [{ kind: 'example', message: 'deterministic evidence' }],
+    };
+  },
+};
+const detector = createRuntimeDetector({
+  dependencies: createTestDependencies(),
+  probes: [deterministicProbe],
+});
+const result = await detector.detect({
+  target: { endpoint: 'https://runtime.example.com' },
+  options: { allowManifest: false, signal: controller.signal },
+});
+controller.abort();
+console.log(result.selected?.adapterId);
+```
+
+Detection is discovery only: it does not send a prompt or start a run.
+
+## Compatibility evidence model
+
+Claims distinguish implementation, sanitized fixtures, deterministic
+fake-server conformance, inspected provider source, and opt-in live reports.
+One evidence class never silently upgrades another. A fake-server pass does not
+prove a live runtime release, and protocol support does not imply every runtime
+version is supported.
+
+## Security principles
+
+- Treat all runtime traffic as untrusted and validate it before normalization.
+- Keep credentials behind references; redact and bound errors and diagnostics.
+- Reject credentials in URLs and unsafe redirects.
+- Fail closed on unknown protocols, malformed capabilities, and unsupported input.
+- Require caller-owned idempotency keys and reconcile `OUTCOME_UNKNOWN` before retry.
+- Bound frames, bodies, streams, queues, retries, deduplication, and recovery time.
+
+## Documentation
+
+- [Documentation index](docs/README.md)
+- [Getting started](docs/getting-started.md)
+- [Public API](docs/public-api.md)
+- [Lifecycle](docs/lifecycle.md)
+- [Capabilities](docs/capabilities.md)
+- [Sessions](docs/sessions.md)
+- [Runs](docs/runs.md)
+- [Streaming](docs/streaming.md)
+- [Approvals](docs/approvals.md)
+- [Errors](docs/error-model.md)
+- [Detection](docs/detection.md)
+- [Security](docs/security.md)
+- [Live compatibility](docs/live-compatibility.md)
+- [Adapter conformance](docs/adapter-conformance.md)
+- [Adapter authoring](docs/adapter-authoring.md)
+- [BanzaeForge integration handoff](docs/banzaeforge-integration.md)
+- [Telegraphic migration](docs/migration-from-telegraphic.md)
+- [Versioning and compatibility](docs/versioning-and-compatibility.md)
+- [Runnable examples](examples/README.md)
+
+## Contributing
+
+See [`CONTRIBUTING.md`](CONTRIBUTING.md). Do not add compatibility claims,
+credentials, real endpoints, or public exports without their required evidence
+and review.
+
+## License
+
+Apache-2.0

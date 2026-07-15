@@ -1,14 +1,25 @@
+/** Public alpha contract for application session id. */
 export type ApplicationSessionId = string;
+/** Public alpha contract for external session id. */
 export type ExternalSessionId = string;
+/** Public alpha contract for application run id. */
 export type ApplicationRunId = string;
+/** Public alpha contract for external run id. */
 export type ExternalRunId = string;
+/** Public alpha contract for normalized event id. */
 export type NormalizedEventId = string;
+/** Public alpha contract for provider event id. */
 export type ProviderEventId = string;
+/** Public alpha contract for runtime approval id. */
 export type RuntimeApprovalId = string;
+/** Public alpha contract for runtime idempotency key. */
 export type RuntimeIdempotencyKey = string;
+/** Public alpha contract for runtime endpoint fingerprint. */
 export type RuntimeEndpointFingerprint = string;
+/** Public alpha contract for runtime credential reference. */
 export type RuntimeCredentialReference = string;
 
+/** Public alpha contract for runtime target. */
 export type RuntimeTarget = {
   /** Absolute runtime endpoint. Strings are normalized and validated before network use. */
   endpoint: string;
@@ -18,6 +29,7 @@ export type RuntimeTarget = {
   metadata?: Readonly<Record<string, string>>;
 };
 
+/** Public alpha contract for runtime connection config. */
 export type RuntimeConnectionConfig = {
   target: RuntimeTarget;
   credentialRef?: RuntimeCredentialReference;
@@ -26,6 +38,7 @@ export type RuntimeConnectionConfig = {
   options?: Readonly<Record<string, unknown>>;
 };
 
+/** Public alpha contract for runtime descriptor. */
 export type RuntimeDescriptor = {
   schemaVersion: 1;
   adapterId: string;
@@ -40,6 +53,7 @@ export type RuntimeDescriptor = {
   observedAt?: string;
 };
 
+/** Public alpha contract for runtime capabilities. */
 export type RuntimeCapabilities = {
   schemaVersion: 1;
   sessions: {
@@ -75,10 +89,12 @@ export type RuntimeCapabilities = {
 
 /** Provider extensions are namespaced and remain outside the common model. */
 export type RuntimeCapabilityExtensionValue = boolean | string | number;
+/** Public alpha contract for runtime capability extensions. */
 export type RuntimeCapabilityExtensions = Readonly<
   Record<`${string}.${string}`, RuntimeCapabilityExtensionValue>
 >;
 
+/** Public alpha contract for runtime capability name. */
 export type RuntimeCapabilityName =
   | 'sessions.create'
   | 'sessions.resume'
@@ -99,6 +115,7 @@ export type RuntimeCapabilityName =
   | 'health.liveness'
   | 'health.readiness';
 
+/** Public alpha contract for runtime adapter lifecycle state. */
 export type RuntimeAdapterLifecycleState =
   | 'created'
   | 'connecting'
@@ -106,6 +123,7 @@ export type RuntimeAdapterLifecycleState =
   | 'closing'
   | 'closed';
 
+/** Public alpha contract for runtime auth input. */
 export type RuntimeAuthInput =
   | { kind: 'bearer'; token: string }
   | { kind: 'token'; token: string }
@@ -113,20 +131,24 @@ export type RuntimeAuthInput =
   | { kind: 'device-token'; token: string; deviceId?: string }
   | { kind: 'none' };
 
+/** Public alpha contract for operation options. */
 export type OperationOptions = {
   signal?: AbortSignal;
   timeoutMs?: number;
   traceId?: string;
 };
 
+/** Public alpha contract for probe options. */
 export type ProbeOptions = OperationOptions & {
   allowAuthentication?: boolean;
 };
 
+/** Public alpha contract for connect options. */
 export type ConnectOptions = OperationOptions & {
   forceReconnect?: boolean;
 };
 
+/** Public alpha contract for runtime connection info. */
 export type RuntimeConnectionInfo = {
   descriptor: RuntimeDescriptor;
   connectedAt: string;
@@ -134,6 +156,7 @@ export type RuntimeConnectionInfo = {
   warnings: string[];
 };
 
+/** Public alpha contract for runtime health. */
 export type RuntimeHealth = {
   status: 'healthy' | 'degraded' | 'unavailable';
   checkedAt: string;
@@ -143,6 +166,7 @@ export type RuntimeHealth = {
   checks?: readonly RuntimeHealthCheck[];
 };
 
+/** Public alpha contract for runtime health check. */
 export type RuntimeHealthCheck = {
   name: string;
   status: 'healthy' | 'degraded' | 'unavailable';
@@ -150,6 +174,7 @@ export type RuntimeHealthCheck = {
   message?: string;
 };
 
+/** Public alpha contract for runtime probe result. */
 export type RuntimeProbeResult = {
   matched: boolean;
   confidence: number;
@@ -165,6 +190,7 @@ export type RuntimeProbeResult = {
   durationMs: number;
 };
 
+/** Public alpha contract for ensure session input. */
 export type EnsureSessionInput = {
   applicationSessionId: ApplicationSessionId;
   title?: string;
@@ -172,6 +198,7 @@ export type EnsureSessionInput = {
   providerState?: Readonly<Record<string, unknown>>;
 };
 
+/** Public alpha contract for runtime session. */
 export type RuntimeSession = {
   applicationSessionId: ApplicationSessionId;
   externalSessionId: ExternalSessionId;
@@ -179,11 +206,13 @@ export type RuntimeSession = {
   created: boolean;
 };
 
+/** Public alpha contract for runtime user input. */
 export type RuntimeUserInput = {
   text: string;
   attachments?: RuntimeAttachment[];
 };
 
+/** Public alpha contract for runtime attachment. */
 export type RuntimeAttachment =
   | {
       kind: 'image';
@@ -203,6 +232,7 @@ export type RuntimeAttachment =
       uri?: string;
     };
 
+/** Public alpha contract for start runtime run input. */
 export type StartRuntimeRunInput = {
   applicationRunId: ApplicationRunId;
   idempotencyKey: RuntimeIdempotencyKey;
@@ -214,6 +244,7 @@ export type StartRuntimeRunInput = {
   metadata?: Readonly<Record<string, string>>;
 };
 
+/** Public alpha contract for runtime run handle. */
 export type RuntimeRunHandle = {
   applicationRunId: ApplicationRunId;
   externalRunId: ExternalRunId;
@@ -222,12 +253,14 @@ export type RuntimeRunHandle = {
   providerState?: Readonly<Record<string, unknown>>;
 };
 
+/** Public alpha contract for runtime session state patch. */
 export type RuntimeSessionStatePatch = {
   previousResponseId?: string;
   externalSessionId?: ExternalSessionId;
   providerState?: Readonly<Record<string, unknown>>;
 };
 
+/** Public alpha contract for runtime run status. */
 export type RuntimeRunStatus =
   | 'queued'
   | 'running'
@@ -238,6 +271,7 @@ export type RuntimeRunStatus =
   | 'cancelled'
   | 'unknown';
 
+/** Public alpha contract for stream runtime run input. */
 export type StreamRuntimeRunInput = {
   applicationRunId: ApplicationRunId;
   externalRunId: ExternalRunId;
@@ -246,6 +280,7 @@ export type StreamRuntimeRunInput = {
   providerState?: Readonly<Record<string, unknown>>;
 };
 
+/** Public alpha contract for get runtime run input. */
 export type GetRuntimeRunInput = {
   applicationRunId: ApplicationRunId;
   externalRunId: ExternalRunId;
@@ -253,8 +288,10 @@ export type GetRuntimeRunInput = {
   providerState?: Readonly<Record<string, unknown>>;
 };
 
+/** Public alpha contract for cancel runtime run input. */
 export type CancelRuntimeRunInput = GetRuntimeRunInput;
 
+/** Public alpha contract for runtime approval decision. */
 export type RuntimeApprovalDecision =
   | {
       action: 'allow';
@@ -264,6 +301,7 @@ export type RuntimeApprovalDecision =
       action: 'deny';
     };
 
+/** Public alpha contract for resolve runtime approval input. */
 export type ResolveRuntimeApprovalInput = {
   applicationRunId: ApplicationRunId;
   externalRunId: ExternalRunId;
@@ -272,6 +310,7 @@ export type ResolveRuntimeApprovalInput = {
   comment?: string;
 };
 
+/** Public alpha contract for get runtime history input. */
 export type GetRuntimeHistoryInput = {
   applicationSessionId: ApplicationSessionId;
   externalSessionId: ExternalSessionId;
@@ -280,6 +319,7 @@ export type GetRuntimeHistoryInput = {
   providerState?: Readonly<Record<string, unknown>>;
 };
 
+/** Public alpha contract for runtime run snapshot. */
 export type RuntimeRunSnapshot = {
   applicationRunId: ApplicationRunId;
   externalRunId: ExternalRunId;
@@ -291,17 +331,20 @@ export type RuntimeRunSnapshot = {
   providerState?: Readonly<Record<string, unknown>>;
 };
 
+/** Public alpha contract for runtime usage. */
 export type RuntimeUsage = Readonly<Record<string, number>>;
 
 /** Normalized text output for the alpha Runs contract. */
 export type RuntimeRunOutput = string;
 
+/** Public alpha contract for runtime run failure. */
 export type RuntimeRunFailure = {
   code: RuntimeErrorCode;
   message: string;
   retryable: boolean;
 };
 
+/** Public alpha contract for runtime message. */
 export type RuntimeMessage = {
   id?: string;
   role: 'user' | 'assistant' | 'system' | 'tool';
@@ -316,13 +359,16 @@ export type RuntimeMessage = {
   metadata?: Readonly<Record<string, unknown>>;
 };
 
+/** Public alpha contract for runtime history message. */
 export type RuntimeHistoryMessage = RuntimeMessage;
 
+/** Public alpha contract for runtime history page. */
 export type RuntimeHistoryPage = {
   messages: readonly RuntimeHistoryMessage[];
   nextCursor?: string;
 };
 
+/** Public alpha contract for runtime event name. */
 export type RuntimeEventName =
   | 'run.queued'
   | 'run.started'
@@ -341,6 +387,7 @@ export type RuntimeEventName =
   | 'transport.warning'
   | 'transport.gap';
 
+/** Public alpha contract for runtime event base. */
 export type RuntimeEventBase = {
   schemaVersion: 1;
   eventId: NormalizedEventId;
@@ -359,35 +406,44 @@ export type RuntimeEventBase = {
   duplicate?: boolean;
 };
 
+/** Public alpha contract for runtime queued event. */
 export type RuntimeQueuedEvent = RuntimeEventBase & { type: 'run.queued' };
+/** Public alpha contract for runtime started event. */
 export type RuntimeStartedEvent = RuntimeEventBase & { type: 'run.started' };
+/** Public alpha contract for assistant delta event. */
 export type AssistantDeltaEvent = RuntimeEventBase & {
   type: 'assistant.delta';
   delta: string;
 };
+/** Public alpha contract for assistant completed event. */
 export type AssistantCompletedEvent = RuntimeEventBase & {
   type: 'assistant.completed';
   text: string;
 };
+/** Public alpha contract for reasoning delta event. */
 export type ReasoningDeltaEvent = RuntimeEventBase & {
   type: 'reasoning.delta';
   delta: string;
 };
+/** Public alpha contract for tool started event. */
 export type ToolStartedEvent = RuntimeEventBase & {
   type: 'tool.started';
   toolCallId: string;
   name?: string;
 };
+/** Public alpha contract for tool updated event. */
 export type ToolUpdatedEvent = RuntimeEventBase & {
   type: 'tool.updated';
   toolCallId: string;
   status?: string;
 };
+/** Public alpha contract for tool completed event. */
 export type ToolCompletedEvent = RuntimeEventBase & {
   type: 'tool.completed';
   toolCallId: string;
   result?: unknown;
 };
+/** Public alpha contract for approval required event. */
 export type ApprovalRequiredEvent = RuntimeEventBase & {
   type: 'approval.required';
   approvalId: string;
@@ -398,6 +454,7 @@ export type ApprovalRequiredEvent = RuntimeEventBase & {
   sanitizedArgumentPreview?: unknown;
 };
 
+/** Public alpha contract for runtime approval request. */
 export type RuntimeApprovalRequest = Pick<
   ApprovalRequiredEvent,
   | 'approvalId'
@@ -410,6 +467,7 @@ export type RuntimeApprovalRequest = Pick<
   | 'sanitizedArgumentPreview'
 >;
 
+/** Public alpha contract for runtime approval resolution. */
 export type RuntimeApprovalResolution = {
   approvalId: string;
   applicationRunId: string;
@@ -417,21 +475,25 @@ export type RuntimeApprovalResolution = {
   decision: RuntimeApprovalDecision;
   resolvedAt: string;
 };
+/** Public alpha contract for approval resolved event. */
 export type ApprovalResolvedEvent = RuntimeEventBase & {
   type: 'approval.resolved';
   approvalId: string;
   decision: RuntimeApprovalDecision;
 };
+/** Public alpha contract for usage updated event. */
 export type UsageUpdatedEvent = RuntimeEventBase & {
   type: 'usage.updated';
   usage: Readonly<Record<string, number>>;
 };
+/** Public alpha contract for run completed event. */
 export type RunCompletedEvent = RuntimeEventBase & {
   type: 'run.completed';
   output?: string;
   usage?: Readonly<Record<string, number>>;
   sessionStatePatch?: RuntimeSessionStatePatch;
 };
+/** Public alpha contract for run failed event. */
 export type RunFailedEvent = RuntimeEventBase & {
   type: 'run.failed';
   error: {
@@ -441,20 +503,24 @@ export type RunFailedEvent = RuntimeEventBase & {
   };
   sessionStatePatch?: RuntimeSessionStatePatch;
 };
+/** Public alpha contract for run cancelled event. */
 export type RunCancelledEvent = RuntimeEventBase & {
   type: 'run.cancelled';
   sessionStatePatch?: RuntimeSessionStatePatch;
 };
+/** Public alpha contract for transport warning event. */
 export type TransportWarningEvent = RuntimeEventBase & {
   type: 'transport.warning';
   warning: string;
 };
+/** Public alpha contract for transport gap event. */
 export type TransportGapEvent = RuntimeEventBase & {
   type: 'transport.gap';
   expected?: number;
   actual?: number;
 };
 
+/** Public alpha contract for runtime event. */
 export type RuntimeEvent =
   | RuntimeQueuedEvent
   | RuntimeStartedEvent
@@ -473,6 +539,7 @@ export type RuntimeEvent =
   | TransportWarningEvent
   | TransportGapEvent;
 
+/** Public alpha contract for runtime error code. */
 export type RuntimeErrorCode =
   | 'DETECTION_FAILED'
   | 'DETECTION_AMBIGUOUS'
@@ -497,6 +564,7 @@ export type RuntimeErrorCode =
   | 'NETWORK_POLICY_REJECTED'
   | 'INTERNAL';
 
+/** Public alpha contract for runtime http request. */
 export type RuntimeHttpRequest = {
   url: string;
   method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE' | 'HEAD';
@@ -505,18 +573,21 @@ export type RuntimeHttpRequest = {
   signal?: AbortSignal;
 };
 
+/** Public alpha contract for runtime http response. */
 export type RuntimeHttpResponse = {
   status: number;
   headers: Readonly<Record<string, string>>;
   body: AsyncIterable<Uint8Array>;
 };
 
+/** Public alpha contract for runtime web socket event. */
 export type RuntimeWebSocketEvent =
   | { type: 'open' }
   | { type: 'message'; data: string | Uint8Array }
   | { type: 'error'; error: unknown }
   | { type: 'close'; code?: number; reason?: string };
 
+/** Public alpha contract for runtime secret. */
 export type RuntimeSecret = {
   value: string | Uint8Array;
   contentType?: string;

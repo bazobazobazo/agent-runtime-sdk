@@ -24,6 +24,7 @@ OPENCLAW_CODECS.register(openClawV4Codec());
 OPENCLAW_CODECS.register(openClawV3Codec());
 const OPENCLAW_DETECTION_ORDER = [4, 3] as const;
 
+/** Public alpha contract for create open claw probe. */
 export function createOpenClawProbe(): RuntimeProbe {
   return {
     adapterId: 'openclaw',
@@ -72,6 +73,7 @@ export function createOpenClawProbe(): RuntimeProbe {
   };
 }
 
+/** Public alpha contract for create hermes probe. */
 export function createHermesProbe(): RuntimeProbe {
   return {
     adapterId: 'hermes',

@@ -1,14 +1,19 @@
 import { createDefaultRuntimeRegistry, NodeFileStateStore, NodeMemorySecretStore } from '@banzae/agent-runtime-node';
+import { runExample } from '../shared.js';
 
-const endpoint = process.env.HERMES_BASE_URL;
-const token = process.env.HERMES_BEARER_TOKEN;
-if (!endpoint) throw new Error('Set HERMES_BASE_URL');
-
-const registry = createDefaultRuntimeRegistry({
-  stateStore: new NodeFileStateStore('.runtime-state'),
-  secretStore: new NodeMemorySecretStore(),
-});
-const adapter = registry.create('hermes');
-await adapter.connect({ target: { endpoint }, auth: token ? { kind: 'bearer', token } : undefined });
-console.log(await adapter.health());
-await adapter.close();
+export async function explicitHermesExample(): Promise<string> {
+  return runExample(async (signal) => {
+    const registry = createDefaultRuntimeRegistry({
+      stateStore: new NodeFileStateStore('.runtime-state'),
+      secretStore: new NodeMemorySecretStore(),
+    });
+    const adapter = registry.create('hermes');
+    try {
+      signal.throwIfAborted();
+      // Construction-only: no external endpoint is contacted.
+      return `${adapter.adapterId}:${adapter.lifecycleState}`;
+    } finally {
+      await adapter.close();
+    }
+  });
+}

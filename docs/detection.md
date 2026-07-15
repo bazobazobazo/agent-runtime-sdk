@@ -116,16 +116,6 @@ provider-supplied messages are not exposed in public detection errors.
 
 ## Example
 
-```ts
-const detector = createRuntimeDetector({
-  dependencies,
-  probes: [createOpenClawProbe(), createHermesProbe()],
-});
-
-const result = await detector.detect({
-  target: {
-    endpoint: 'https://agent.example.com',
-  },
-  adapterId: 'auto',
-});
-```
+The compile-checked [deterministic detection example](../examples/detect-runtime/index.ts)
+uses a public `RuntimeProbe`, caller `AbortSignal`, reserved endpoint, and fake
+dependencies. It disables manifest access so normal CI makes no network request.

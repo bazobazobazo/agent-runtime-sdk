@@ -1,6 +1,7 @@
 import { RuntimeError, type RuntimeAuthInput } from '@banzae/agent-runtime-core';
 import type { RuntimeCredentialProvider } from '@banzae/agent-runtime-detection';
 
+/** Public alpha contract for environment credential provider options. */
 export type EnvironmentCredentialProviderOptions = {
   environment?: Readonly<Record<string, string | undefined>>;
   defaultKind?: 'bearer' | 'token';
