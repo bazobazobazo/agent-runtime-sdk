@@ -9,6 +9,7 @@ describe('release engineering policy', () => {
   it('defines a synchronized six-package alpha target', async () => {
     const config = await readJson('release.config.json');
     expect(config.sdkVersion).toBe('0.1.0-alpha.1');
+    expect(config.distTags).toEqual({ prerelease: 'next', stable: 'latest' });
     expect(config.publicPackages).toHaveLength(6);
     expect(new Set(config.publicPackages).size).toBe(6);
   });
@@ -51,6 +52,7 @@ describe('release engineering policy', () => {
   it('keeps dry-run code publication-free', async () => {
     const source = await readFile(join(root, 'scripts/release-dry-run.mjs'), 'utf8');
     expect(source).not.toMatch(/npm\s+publish|pnpm\s+publish|npm\s+dist-tag|git\s+tag|gh\s+release\s+create/);
+    expect(source).toMatch(/with dist-tag \$\{manifest\.distTag\}/);
   });
 
   it('requires manual protected OIDC publication', async () => {
@@ -60,6 +62,22 @@ describe('release engineering policy', () => {
     expect(workflow).toContain('environment: npm-release');
     expect(workflow.match(/id-token:\s*write/g)).toHaveLength(1);
     expect(workflow).not.toMatch(/NODE_AUTH_TOKEN|NPM_TOKEN/);
+    const publishLines = workflow.split(/\r?\n/).filter((line) => /\bnpm\s+publish\b/.test(line));
+    expect(publishLines.length).toBeGreaterThan(0);
+    for (const line of publishLines) expect(line).toMatch(/--tag\s+next\b/);
+    expect(workflow).toMatch(/node-version:\s*['"]22\.14\.0['"]/);
+    expect(workflow).toContain('npm install --global npm@11.5.1');
+    expect(workflow).toContain('const minimum = [22, 14, 0]');
+    expect(workflow).toContain('const minimum = [11, 5, 1]');
+    expect(workflow).toMatch(/package-manager-cache:\s*['"]false['"]/);
+  });
+
+  it('documents one-time bootstrap revocation and required OIDC transition', async () => {
+    const docs = await readFile(join(root, 'docs/releasing.md'), 'utf8');
+    expect(docs).toMatch(/immediately revoke/i);
+    expect(docs).toMatch(/OIDC.*required|must use.*OIDC/is);
+    expect(docs).toContain('bazobazobazo');
+    expect(docs).toMatch(/workflow filename.*release\.yml/is);
   });
 
   it('runs current CodeQL on pull requests and main pushes', async () => {

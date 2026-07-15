@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { join } from 'node:path';
-import { publicPackages, releaseConfig, releaseManifestFor, root } from './lib/release-config.mjs';
+import { distTagForVersion, publicPackages, releaseConfig, releaseManifestFor, root } from './lib/release-config.mjs';
 
 const packages = await publicPackages();
 const applied = packages.every((pkg) => pkg.manifest.version === releaseConfig.sdkVersion);
@@ -10,6 +10,7 @@ const plan = {
   sourceVersion: releaseConfig.sourceVersion,
   targetVersion: releaseConfig.sdkVersion,
   prerelease: true,
+  distTag: distTagForVersion(releaseConfig.sdkVersion),
   publicationStatus: 'not-published',
   versionStatus: applied ? 'applied-for-review' : 'pending',
   packages: packages.map((pkg) => {

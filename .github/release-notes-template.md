@@ -2,6 +2,7 @@
 
 This is a release-candidate preview. Publication has not occurred until the protected
 release workflow completes and the resulting npm/GitHub records are verified.
+The reviewed prerelease channel is `next`; this alpha must not update `latest`.
 
 ## Highlights
 
@@ -31,4 +32,5 @@ release workflow completes and the resulting npm/GitHub records are verified.
 
 Attach the release manifest, SHA-256 checksums, SPDX SBOM, compatibility report,
 and migration notes to a future draft GitHub release before final publication.
-After approved publication, all six packages will use `{{VERSION}}`.
+After approved publication, all six packages will use `{{VERSION}}` under the
+`next` dist-tag.

@@ -2,6 +2,10 @@
   "schemaVersion": 1,
   "sdkVersion": "0.1.0-alpha.1",
   "sourceVersion": "0.1.0-alpha.1",
+  "distTags": {
+    "prerelease": "next",
+    "stable": "latest"
+  },
   "artifactDirectory": "artifacts/release",
   "publicPackages": [
     "@banzae/agent-runtime-core",

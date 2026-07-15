@@ -8,6 +8,18 @@ export const artifactRoot = join(root, releaseConfig.artifactDirectory);
 export const publicPackageNames = new Set(releaseConfig.publicPackages);
 export const privatePackageNames = new Set(releaseConfig.privatePackages);
 
+export function distTagForVersion(version) {
+  if (!/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(version)) {
+    throw new Error(`Invalid release version: ${version}`);
+  }
+  const prerelease = version.includes('-');
+  const tag = prerelease ? releaseConfig.distTags.prerelease : releaseConfig.distTags.stable;
+  if (!tag || (prerelease && tag === 'latest')) {
+    throw new Error(`Unsafe dist-tag policy for ${version}`);
+  }
+  return tag;
+}
+
 export async function readJson(path) {
   return JSON.parse(await readFile(path, 'utf8'));
 }

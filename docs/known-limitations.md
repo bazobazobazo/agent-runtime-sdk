@@ -14,5 +14,6 @@ Status: release-candidate limitations; publication has not occurred.
 - Forge integration, durable orchestration, persistence, billing, authorization,
   and scheduling remain outside this SDK release.
 - Runtime-specific behavior may change in upstream OpenClaw or Hermes products.
-- npm trusted-publishing and GitHub protection settings require operator
+- The six new npm package records require a one-time short-lived-token bootstrap;
+  npm trusted-publishing and GitHub protection settings still require operator
   verification before publication can be approved.

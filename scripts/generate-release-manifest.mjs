@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { promisify } from 'node:util';
 import {
   artifactRoot,
+  distTagForVersion,
   publicPackages,
   readJson,
   relativeArtifact,
@@ -66,6 +67,7 @@ for (const document of documents) {
 const manifest = {
   schemaVersion: 1,
   sdkVersion: releaseConfig.sdkVersion,
+  distTag: distTagForVersion(releaseConfig.sdkVersion),
   commitSha,
   packages,
   sbom: relativeArtifact(sbomPath),

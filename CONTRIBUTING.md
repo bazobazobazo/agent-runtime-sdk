@@ -31,8 +31,9 @@ work must also pass `pnpm examples:typecheck`, `pnpm examples:test`, and
 
 Public package changes require a Changeset. Review `pnpm release:plan` and run
 `pnpm release:dry-run`; only the final release-candidate phase applies versions.
-Publication is restricted to the manually dispatched, protected OIDC workflow
-described in `docs/releasing.md`.
+Publication is restricted to the protected process in `docs/releasing.md`: a
+documented one-time bootstrap for brand-new npm package records, followed by the
+manually dispatched OIDC workflow for all subsequent publications.
 
 The opt-in live harness is excluded from normal CI and requires explicit target,
 credential-reference, and mutation gates. Never publish packages, tag a
