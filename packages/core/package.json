@@ -3,8 +3,16 @@
   "version": "0.1.0",
   "description": "Provider-neutral contracts for Banzae agent runtime adapters.",
   "license": "Apache-2.0",
+  "author": "Banzae",
+  "repository": { "type": "git", "url": "git+https://github.com/bazobazobazo/agent-runtime-sdk.git", "directory": "packages/core" },
+  "homepage": "https://github.com/bazobazobazo/agent-runtime-sdk#readme",
+  "bugs": { "url": "https://github.com/bazobazobazo/agent-runtime-sdk/issues" },
+  "keywords": ["agent", "runtime", "sdk", "typescript", "provider-neutral"],
   "engines": { "node": ">=22.13" },
   "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "sideEffects": false,
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
@@ -23,7 +31,8 @@
       "import": "./dist/diagnostics.js"
     }
   },
-  "files": ["dist", "README.md"],
+  "files": ["dist", "README.md", "LICENSE", "THIRD_PARTY_NOTICES.md"],
+  "publishConfig": { "access": "public", "provenance": true },
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "clean": "rm -rf dist tsconfig.tsbuildinfo",

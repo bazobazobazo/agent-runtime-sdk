@@ -5,7 +5,7 @@ cancellation, approvals, history, and health.
 
 ## Install and entrypoints
 
-Install with `pnpm add @banzae/agent-runtime-hermes @banzae/agent-runtime-core`.
+After publication, install matching `@banzae/agent-runtime-hermes@0.1.0-alpha.1` and core versions.
 Applications use the root adapter/factory/options exports. `/experimental`
 contains unstable schemas and SSE utilities for adapter authors.
 

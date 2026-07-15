@@ -5,7 +5,7 @@ transports, file/in-memory stores, crypto, and environment credential provider.
 
 ## Install and entrypoint
 
-Install with `pnpm add @banzae/agent-runtime-node`. The ESM-only package root is
+After publication, install with `pnpm add @banzae/agent-runtime-node@0.1.0-alpha.1`. The ESM-only package root is
 the only supported entrypoint and requires Node.js `>=22.13`.
 
 ## Minimal example

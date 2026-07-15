@@ -6,7 +6,7 @@ const repository = new URL('../', import.meta.url).pathname;
 const packageEntries = await readdir(join(repository, 'packages'), { withFileTypes: true });
 const roots = [
   ...packageEntries.filter((entry) => entry.isDirectory()).map((entry) => join('packages', entry.name, 'dist')),
-  'sbom', 'docs', 'fixtures',
+  'sbom', 'docs', 'fixtures', 'artifacts/release',
 ];
 const failures = [];
 let scanned = 0;

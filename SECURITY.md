@@ -22,3 +22,7 @@ line on `main`; older unreleased snapshots may not receive backports.
 
 Coordinated disclosure is requested. Publish technical details only after a fix
 or mitigation is available, or after agreeing on timing with maintainers.
+
+For a package or release incident, follow the stop/deprecate/forward-fix and
+credential-rotation checklist in `docs/releasing.md`. Do not silently replace a
+published artifact or reuse a published version.

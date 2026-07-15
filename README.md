@@ -7,6 +7,10 @@ supported agent runtimes.
 > a stable `1.0` or production-final contract. Compatibility is evidence-based
 > and can differ by runtime product, release, and wire protocol.
 
+The repository is prepared for a controlled `0.1.0-alpha.1` candidate, but no
+package availability is implied. After publication, all six public packages
+will use the same prerelease version. See [Release engineering](docs/releasing.md).
+
 ## Purpose
 
 The SDK gives host applications one lifecycle for runtime discovery,
@@ -162,6 +166,8 @@ version is supported.
 - [Telegraphic migration](docs/migration-from-telegraphic.md)
 - [Versioning and compatibility](docs/versioning-and-compatibility.md)
 - [Runnable examples](examples/README.md)
+- [Release engineering](docs/releasing.md)
+- [Changelog](CHANGELOG.md)
 
 ## Contributing
 

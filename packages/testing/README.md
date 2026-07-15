@@ -5,8 +5,8 @@ and sanitized live-compatibility report utilities.
 
 ## Install and entrypoint
 
-Install as a development dependency with
-`pnpm add -D @banzae/agent-runtime-testing`. The package root is the only
+After publication, install as a development dependency with
+`pnpm add -D @banzae/agent-runtime-testing@0.1.0-alpha.1`. The package root is the only
 supported entrypoint. It is not production runtime infrastructure.
 
 ## Minimal example

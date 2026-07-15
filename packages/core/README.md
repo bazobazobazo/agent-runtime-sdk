@@ -6,7 +6,7 @@ runtime dependency.
 
 ## Install and entrypoints
 
-Install with `pnpm add @banzae/agent-runtime-core`. Supported entrypoints are
+After publication, install with `pnpm add @banzae/agent-runtime-core@0.1.0-alpha.1`. Supported entrypoints are
 the stable-for-alpha root, advanced `/diagnostics`, unstable `/experimental`,
 and testing-only `/testing`. Never import `src` or `dist` paths.
 

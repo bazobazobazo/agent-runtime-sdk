@@ -1,0 +1,13 @@
+# Release and security-sensitive surfaces require repository-owner review.
+/.github/workflows/ @bazobazobazo
+/.github/CODEOWNERS @bazobazobazo
+/packages/*/package.json @bazobazobazo
+/package.json @bazobazobazo
+/pnpm-lock.yaml @bazobazobazo
+/release.config.json @bazobazobazo
+/.changeset/ @bazobazobazo
+/scripts/*release* @bazobazobazo
+/scripts/*security* @bazobazobazo
+/scripts/check-workflow-security.mjs @bazobazobazo
+/etc/api/ @bazobazobazo
+/SECURITY.md @bazobazobazo

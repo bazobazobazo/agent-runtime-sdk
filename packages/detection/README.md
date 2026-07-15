@@ -5,7 +5,7 @@ provider, diagnostics, and network-policy contracts.
 
 ## Install and entrypoint
 
-Install with `pnpm add @banzae/agent-runtime-detection`. The package root is the
+After publication, install with `pnpm add @banzae/agent-runtime-detection@0.1.0-alpha.1`. The package root is the
 only supported entrypoint; probe registries, frames, parsers, and payloads are internal.
 
 ## Minimal example
