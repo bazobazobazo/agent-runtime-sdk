@@ -47,6 +47,7 @@
     "security:check": "pnpm fixture:check && pnpm test:security:scripts && pnpm workflow:security && pnpm license:check && pnpm secret:scan && pnpm unicode:check",
     "changeset": "changeset",
     "version:check": "node ./scripts/version-check.mjs",
+    "version:apply": "node ./scripts/apply-release-plan.mjs",
     "version:preview": "node ./scripts/release-plan.mjs",
     "release:plan": "node ./scripts/release-plan.mjs --json",
     "artifacts:pack": "node ./scripts/prepare-release-packages.mjs",

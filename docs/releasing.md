@@ -19,10 +19,10 @@ OpenClaw wire protocol, and Hermes protocol/runtime versions remain independent
 from the SDK package version. Alpha `0.x` changes may break API compatibility;
 breaking changes require migration notes. No stable API promise exists before 1.0.
 
-Tracked manifests stay at the reviewed source version until the final
-release-candidate PR. `release.config.json` and the pending Changeset describe
-the target. Release staging rewrites internal workspace ranges to the exact
-candidate version, preventing incompatible package resolution.
+The release-candidate PR applies the exact reviewed version to all six tracked
+manifests, consumes the pending Changeset, and uses exact synchronized workspace
+ranges. Packed metadata resolves those ranges to the concrete candidate version,
+preventing incompatible package resolution.
 
 ## Local preparation
 
@@ -52,7 +52,7 @@ environment approval, and the narrowly scoped `id-token: write` permission.
 
 ## Final release-candidate sequence
 
-1. Apply the exact target version in a reviewed version PR and consume Changesets.
+1. Review the exact target versions and consumed Changeset in the release PR.
 2. Run extended 5,000-case fuzzing plus the full release gate.
 3. Review tarball budgets, SBOM, checksums, manifest, compatibility report,
    migrations, and release-note preview.

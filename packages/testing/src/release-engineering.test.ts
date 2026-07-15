@@ -24,6 +24,7 @@ describe('release engineering policy', () => {
       const suffix = name.replace('@banzae/agent-runtime-', '');
       const directory = suffix === 'openclaw' || suffix === 'hermes' ? `adapter-${suffix}` : suffix;
       const manifest = await readJson(`packages/${directory}/package.json`);
+      expect(manifest.version).toBe(config.sdkVersion);
       expect(manifest.license).toBe('Apache-2.0');
       expect(manifest.engines.node).toBe('>=22.13');
       expect(manifest.publishConfig).toEqual({ access: 'public', provenance: true });
@@ -44,11 +45,12 @@ describe('release engineering policy', () => {
     const config = await readJson('release.config.json');
     const changesets = await readJson('.changeset/config.json');
     expect(changesets.fixed).toEqual([config.publicPackages]);
+    await expect(readFile(join(root, '.changeset/initial-alpha-packages.md'), 'utf8')).rejects.toThrow();
   });
 
   it('keeps dry-run code publication-free', async () => {
     const source = await readFile(join(root, 'scripts/release-dry-run.mjs'), 'utf8');
-    expect(source).not.toMatch(/npm\s+publish|pnpm\s+publish|gh\s+release\s+create/);
+    expect(source).not.toMatch(/npm\s+publish|pnpm\s+publish|npm\s+dist-tag|git\s+tag|gh\s+release\s+create/);
   });
 
   it('requires manual protected OIDC publication', async () => {

@@ -7,11 +7,11 @@ integration suite in the target release environment.
 The SDK supports OpenClaw wire protocol versions explicitly registered and
 validated by the codec registry.
 
-| SDK adapter | Protocol | Runtime version | Recorded SDK commit | Evidence type | Date | Checks completed | Status / limitations |
-|---|---|---|---|---|---|---|---|
-| OpenClaw | v3 | pinned fixture targets | `7ba46df` | synthetic fixture validated; fake-server conformance validated | 2026-07-14 | connection, sessions, runs, stream, status, history, cancellation, cleanup | supported; new harness report pending for each deployment |
-| OpenClaw | v4 | pinned fixture targets | `7ba46df` | synthetic fixture validated; fake-server conformance validated | 2026-07-14 | connection, sessions, runs, stream, status, history, cancellation, cleanup | supported; new harness report pending for each deployment |
-| Hermes | HTTP/SSE Runs v1 | documented target `0.18.2`; no live run report | `7ba46df` | synthetic fixture validated; fake-server conformance validated; live validation pending | 2026-07-14 | capabilities, health, sessions, runs, SSE recovery, approvals, cancellation, cleanup | implemented; live validation pending |
+| SDK adapter | SDK version | Evidence SDK commit | Protocol | Runtime version | Evidence type | Date | Checks completed / skipped | Status / limitations |
+|---|---|---|---|---|---|---|---|---|
+| OpenClaw | `0.1.0-alpha.1` | `d629ade` | v3 | pinned fixture targets | synthetic fixture validated; fake-server conformance validated | 2026-07-15 | connection, sessions, runs, stream, status, history, cancellation, cleanup; release live check skipped because no dedicated target was configured | supported protocol implementation; sanitized live validation pending for each exact deployment/runtime version |
+| OpenClaw | `0.1.0-alpha.1` | `d629ade` | v4 | pinned fixture targets | synthetic fixture validated; fake-server conformance validated | 2026-07-15 | connection, sessions, runs, stream, status, history, cancellation, cleanup; release live check skipped because no dedicated target was configured | supported protocol implementation; sanitized live validation pending for each exact deployment/runtime version |
+| Hermes | `0.1.0-alpha.1` | `d629ade` | HTTP/SSE Runs v1 | documented target `0.18.2`; no complete live run report | synthetic fixture validated; fake-server conformance validated; live validation pending | 2026-07-15 | capabilities, health, sessions, runs, SSE recovery, approvals, cancellation, cleanup in synthetic conformance; release live checks skipped because no dedicated target was configured | implemented; complete live validation pending |
 
 Runtime auto-detection currently supports only OpenClaw and Hermes. Codex and Pi
 remain private placeholders and are not registered probes.

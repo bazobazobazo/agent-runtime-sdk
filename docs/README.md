@@ -29,6 +29,12 @@ This documentation set is intended for SDK users who do not want to inspect sour
 - [versioning-and-compatibility.md](./versioning-and-compatibility.md)
 - [releasing.md](./releasing.md)
 - [release-audit.md](./release-audit.md)
+- [release-candidate-baseline.md](./release-candidate-baseline.md)
+- [release-operator-checklist.md](./release-operator-checklist.md)
+- [known-limitations.md](./known-limitations.md)
+- [release-migration-summary.md](./release-migration-summary.md)
+- [release-security-summary.md](./release-security-summary.md)
+- [release-validation-report.md](./release-validation-report.md)
 
 ## Migration and operations
 

@@ -37,6 +37,8 @@ const forbiddenCommands = [
   ['npm', 'publish'],
   ['pnpm', 'publish'],
   ['gh', 'release', 'create'],
+  ['npm', 'dist-tag'],
+  ['git', 'tag'],
 ].map((parts) => parts.join(' '));
 for (const path of ['./scripts/release-dry-run.mjs', './scripts/prepare-release-packages.mjs', './scripts/generate-release-manifest.mjs']) {
   const source = await readFile(new URL(`../${path.replace('./', '')}`, import.meta.url), 'utf8');

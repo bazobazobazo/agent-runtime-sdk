@@ -12,6 +12,7 @@ assert.equal(new Set(releaseConfig.publicPackages).size, 6);
 assert.equal(releaseConfig.sdkVersion, '0.1.0-alpha.1');
 for (const pkg of await publicPackages()) {
   assert.equal(pkg.manifest.private, undefined);
+  assert.equal(pkg.manifest.version, releaseConfig.sdkVersion);
   assert.equal(pkg.manifest.license, 'Apache-2.0');
   assert.equal(pkg.manifest.engines.node, '>=22.13');
   assert.equal(pkg.manifest.publishConfig.access, 'public');
@@ -27,7 +28,7 @@ for (const name of releaseConfig.privatePackages) {
   assert.equal(manifest.exports, undefined);
 }
 const dryRun = await readFile(join(root, 'scripts', 'release-dry-run.mjs'), 'utf8');
-assert.doesNotMatch(dryRun, /npm\s+publish|pnpm\s+publish|gh\s+release\s+create/);
+assert.doesNotMatch(dryRun, /npm\s+publish|pnpm\s+publish|npm\s+dist-tag|git\s+tag|gh\s+release\s+create/);
 const workflow = await readFile(join(root, '.github', 'workflows', 'release.yml'), 'utf8');
 assert.match(workflow, /workflow_dispatch:/);
 assert.doesNotMatch(workflow, /NODE_AUTH_TOKEN|NPM_TOKEN/);

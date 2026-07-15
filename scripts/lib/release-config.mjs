@@ -73,7 +73,7 @@ export async function stagePublicPackage(pkg, stagingRoot) {
   const destination = join(stagingRoot, pkg.directory);
   await rm(destination, { recursive: true, force: true });
   await mkdir(destination, { recursive: true });
-  for (const name of ['dist', 'README.md', 'LICENSE', 'THIRD_PARTY_NOTICES.md']) {
+  for (const name of ['dist', 'README.md', 'CHANGELOG.md', 'LICENSE', 'THIRD_PARTY_NOTICES.md']) {
     const source = join(pkg.path, name);
     if (!await exists(source)) throw new Error(`${pkg.name} is missing ${name}`);
     await cp(source, join(destination, name), { recursive: true });
