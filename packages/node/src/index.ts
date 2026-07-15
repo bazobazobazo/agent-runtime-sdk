@@ -30,6 +30,7 @@ import { createOpenClawAdapterFactory, type OpenClawAdapterOptions } from '@banz
 import { nodeCrypto } from './crypto.js';
 import { FetchHttpTransport, WsWebSocketFactory } from './transports.js';
 
+/** Public alpha contract for create node runtime registry options. */
 export type CreateNodeRuntimeRegistryOptions = {
   stateStore: RuntimeStateStore;
   secretStore: RuntimeSecretStore;
@@ -38,6 +39,7 @@ export type CreateNodeRuntimeRegistryOptions = {
   hermes?: HermesAdapterOptions | false;
 };
 
+/** Public alpha contract for create default runtime registry. */
 export function createDefaultRuntimeRegistry(options: CreateNodeRuntimeRegistryOptions): RuntimeRegistry {
   const dependencies: RuntimeAdapterDependencies = {
     state: options.stateStore,

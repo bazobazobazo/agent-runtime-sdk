@@ -1,5 +1,6 @@
 import type { PersistedRuntimeDetection, RuntimeDetectionStore } from './types.js';
 
+/** Public alpha contract for memory runtime detection store. */
 export class MemoryRuntimeDetectionStore implements RuntimeDetectionStore {
   private readonly values = new Map<string, PersistedRuntimeDetection>();
 

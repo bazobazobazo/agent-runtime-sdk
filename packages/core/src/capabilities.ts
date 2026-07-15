@@ -5,6 +5,7 @@ import type {
   RuntimeUserInput,
 } from './types.js';
 
+/** Fail-closed capability set used before runtime evidence is available. */
 export const NO_CAPABILITIES: RuntimeCapabilities = {
   schemaVersion: 1,
   sessions: { create: false, resume: false, history: false, fork: false },
@@ -37,6 +38,7 @@ export const TEXT_RUN_CAPABILITIES: RuntimeCapabilities = {
   extensions: {},
 };
 
+/** Public alpha contract for supports capability. */
 export function supportsCapability(
   capabilities: RuntimeCapabilities,
   capability: RuntimeCapabilityName,
@@ -49,6 +51,7 @@ export function supportsCapability(
   return groupValue?.[name] === true;
 }
 
+/** Public alpha contract for require capability. */
 export function requireCapability(
   capabilities: RuntimeCapabilities,
   capability: RuntimeCapabilityName,

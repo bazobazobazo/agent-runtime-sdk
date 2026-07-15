@@ -40,6 +40,7 @@ export class MemorySecretStore implements RuntimeSecretStore {
   }
 }
 
+/** Logger implementation that intentionally discards every record. */
 export const noopLogger: RuntimeLogger = {
   debug() {},
   info() {},
@@ -47,6 +48,7 @@ export const noopLogger: RuntimeLogger = {
   error() {},
 };
 
+/** Runtime clock backed by the host system clock and cancellable timers. */
 export const systemClock: RuntimeClock = {
   now: () => new Date(),
   sleep: (ms, signal) =>
@@ -67,6 +69,7 @@ export const systemClock: RuntimeClock = {
     }),
 };
 
+/** Public alpha contract for incrementing id generator. */
 export class IncrementingIdGenerator implements RuntimeIdGenerator {
   private value = 0;
 

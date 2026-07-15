@@ -19,6 +19,9 @@
     "baseUrl": ".",
     "paths": {
       "@banzae/agent-runtime-core": ["packages/core/src/index.ts"],
+      "@banzae/agent-runtime-core/diagnostics": ["packages/core/src/diagnostics.ts"],
+      "@banzae/agent-runtime-core/experimental": ["packages/core/src/experimental.ts"],
+      "@banzae/agent-runtime-core/testing": ["packages/core/src/testing.ts"],
       "@banzae/agent-runtime-detection": ["packages/detection/src/index.ts"],
       "@banzae/agent-runtime-openclaw": ["packages/adapter-openclaw/src/index.ts"],
       "@banzae/agent-runtime-hermes": ["packages/adapter-hermes/src/index.ts"],

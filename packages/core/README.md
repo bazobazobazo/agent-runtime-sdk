@@ -1,16 +1,38 @@
-# @banzae/agent-runtime-core
+# `@banzae/agent-runtime-core`
 
-Provider-neutral runtime contracts, capability types, events, errors, registry
-helpers, and dependency ports for Banzae agent runtime adapters.
+Provider-neutral adapter, lifecycle, capability, session, run, event, error,
+registry, security-limit, and dependency-port contracts. It has no Node-only
+runtime dependency.
 
-This package has no Node-only runtime dependency.
+## Install and entrypoints
 
-The root entrypoint is the stable-for-alpha provider-neutral contract.
-`/diagnostics` contains bounded sanitizers, `/experimental` contains unstable
-adapter-authoring helpers, and `/testing` contains test ports and deterministic
-dependencies. Applications should not deep-import `dist` or `src` files.
+Install with `pnpm add @banzae/agent-runtime-core`. Supported entrypoints are
+the stable-for-alpha root, advanced `/diagnostics`, unstable `/experimental`,
+and testing-only `/testing`. Never import `src` or `dist` paths.
 
-Adapters expose the shared `created -> connecting -> connected -> closing ->
-closed` lifecycle. Timestamps are ISO-8601 UTC strings; timeout configuration is
-numeric milliseconds. See `docs/public-api.md` and the generated `etc/api`
-reports.
+## Minimal example
+
+```ts
+import { NO_CAPABILITIES, supportsCapability } from '@banzae/agent-runtime-core';
+
+const canStream = supportsCapability(NO_CAPABILITIES, 'runs.stream');
+console.log(canStream);
+```
+
+## Lifecycle, limits, and cleanup
+
+Adapters follow `created -> connecting -> connected -> closing -> closed`.
+Capabilities fail closed; optional methods throw `UNSUPPORTED_CAPABILITY`.
+Caller signals cancel individual operations, while idempotent `close()` releases
+all adapter resources. Hosts must persist application/provider IDs separately.
+
+## Errors and security
+
+All operational failures normalize to bounded, sanitized `RuntimeError` values.
+Use `isRuntimeError()` or `hasRuntimeErrorCode()`. Treat `OUTCOME_UNKNOWN` as a
+reconciliation state. Keep credentials, complete endpoints, raw payloads,
+prompts, and attachments out of logs and durable provider state.
+
+See [Public API](../../docs/public-api.md), [Lifecycle](../../docs/lifecycle.md),
+[Capabilities](../../docs/capabilities.md), [Errors](../../docs/error-model.md),
+and [Security](../../docs/security.md).

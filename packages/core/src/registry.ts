@@ -2,6 +2,7 @@ import type { AgentRuntimeAdapter, RuntimeAdapterFactory } from './adapter.js';
 import type { RuntimeAdapterDependencies } from './ports.js';
 import { invalidConfiguration } from './errors.js';
 
+/** Public alpha contract for runtime registry. */
 export class RuntimeRegistry {
   private readonly factories = new Map<string, RuntimeAdapterFactory>();
 

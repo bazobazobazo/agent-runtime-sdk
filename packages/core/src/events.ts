@@ -23,14 +23,17 @@ export function runtimeEventBase(input: {
   };
 }
 
+/** Public alpha contract for is terminal event. */
 export function isTerminalEvent(event: RuntimeEvent): boolean {
   return event.type === 'run.completed' || event.type === 'run.failed' || event.type === 'run.cancelled';
 }
 
+/** Public alpha contract for is terminal runtime run status. */
 export function isTerminalRuntimeRunStatus(status: import('./types.js').RuntimeRunStatus): boolean {
   return status === 'completed' || status === 'failed' || status === 'cancelled';
 }
 
+/** Public alpha contract for is active runtime run status. */
 export function isActiveRuntimeRunStatus(status: import('./types.js').RuntimeRunStatus): boolean {
   return status === 'queued' || status === 'running' || status === 'waiting_for_approval' || status === 'stopping';
 }

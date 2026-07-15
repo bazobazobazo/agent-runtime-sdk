@@ -11,6 +11,7 @@ import {
 } from '@banzae/agent-runtime-core';
 const CREDENTIAL_QUERY_KEYS = new Set(['token', 'access_token', 'api_key', 'password', 'secret', 'authorization', 'device_token']);
 
+/** Public alpha contract for fetch http transport. */
 export class FetchHttpTransport implements RuntimeHttpTransport {
   async request(input: RuntimeHttpRequest): Promise<RuntimeHttpResponse> {
     validateTransportUrl(input.url, new Set(['http:', 'https:']));
@@ -40,6 +41,7 @@ export class FetchHttpTransport implements RuntimeHttpTransport {
   }
 }
 
+/** Public alpha contract for ws web socket factory. */
 export class WsWebSocketFactory implements RuntimeWebSocketFactory {
   async connect(input: {
     url: string;

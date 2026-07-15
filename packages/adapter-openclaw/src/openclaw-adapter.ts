@@ -44,6 +44,7 @@ import { openClawV4Codec } from './protocol/v4/codec.js';
 import type { OpenClawFrame, OpenClawHello, OpenClawProtocolCodec } from './protocol/types.js';
 import { normalizeOpenClawHistory } from './mapping/transcript.js';
 
+/** Public alpha contract for open claw adapter options. */
 export type OpenClawAdapterOptions = {
   protocols?: OpenClawProtocolCodec[];
   requestTimeoutMs?: number;
@@ -77,6 +78,7 @@ type StoredOpenClawDeviceIdentity = {
   privateKeyDer: string;
 };
 
+/** Public alpha contract for open claw adapter. */
 export class OpenClawAdapter implements AgentRuntimeAdapter {
   readonly adapterId = 'openclaw';
   readonly adapterVersion = '0.1.0';
@@ -535,6 +537,7 @@ export class OpenClawAdapter implements AgentRuntimeAdapter {
   }
 }
 
+/** Public alpha contract for create open claw adapter factory. */
 export function createOpenClawAdapterFactory(options?: OpenClawAdapterOptions) {
   return {
     adapterId: 'openclaw',

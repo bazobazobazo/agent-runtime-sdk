@@ -1,5 +1,6 @@
 import type { RuntimeApprovalDecision, RuntimeMessage } from '@banzae/agent-runtime-core';
 
+/** Public alpha contract for runtime approval capability. */
 export interface RuntimeApprovalCapability {
   resolveApproval(input: {
     externalRunId: string;
@@ -9,6 +10,7 @@ export interface RuntimeApprovalCapability {
   }): Promise<void>;
 }
 
+/** Public alpha contract for hermes sessions extension. */
 export interface HermesSessionsExtension {
   list(input?: { limit?: number; offset?: number }): Promise<unknown>;
   create(input?: { title?: string }): Promise<{ id: string }>;

@@ -1,6 +1,7 @@
 import { createHash, createPrivateKey, generateKeyPairSync, randomBytes, sign } from 'node:crypto';
 import type { RuntimeCrypto } from '@banzae/agent-runtime-core';
 
+/** Public alpha contract for Node.js cryptographic operations. */
 export const nodeCrypto: RuntimeCrypto = {
   randomBytes(size) {
     return new Uint8Array(randomBytes(size));

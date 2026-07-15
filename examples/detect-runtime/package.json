@@ -3,6 +3,8 @@
   "private": true,
   "type": "module",
   "dependencies": {
-    "@banzae/agent-runtime-node": "workspace:*"
+    "@banzae/agent-runtime-core": "workspace:*",
+    "@banzae/agent-runtime-detection": "workspace:*",
+    "@banzae/agent-runtime-testing": "workspace:*"
   }
 }

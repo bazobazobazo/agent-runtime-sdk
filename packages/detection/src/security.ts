@@ -3,6 +3,7 @@ import { normalizeEndpoint } from '@banzae/agent-runtime-core/experimental';
 import { sanitizeProviderPayload } from '@banzae/agent-runtime-core/diagnostics';
 import type { RuntimeNetworkPolicy } from './types.js';
 
+/** Schema version used for persisted runtime detections. */
 export const DETECTION_SCHEMA_VERSION = 1;
 
 const ALLOWED_SCHEMES = new Set(['http:', 'https:', 'ws:', 'wss:', 'openclaw+ws:', 'openclaw+wss:', 'hermes+http:', 'hermes+https:']);
@@ -14,6 +15,7 @@ const SECRET_VALUE_PATTERNS = [
   /\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\b/g,
 ];
 
+/** Public alpha contract for default runtime network policy. */
 export class DefaultRuntimeNetworkPolicy implements RuntimeNetworkPolicy {
   async validateTarget(url: URL): Promise<void> {
     if (!ALLOWED_SCHEMES.has(url.protocol)) {

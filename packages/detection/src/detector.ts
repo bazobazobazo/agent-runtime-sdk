@@ -26,6 +26,7 @@ import type {
   RuntimeProbeResult,
 } from './types.js';
 
+/** Public alpha contract for runtime detector options. */
 export type RuntimeDetectorOptions = {
   dependencies: RuntimeAdapterDependencies;
   probes?: readonly RuntimeProbe[];
@@ -43,6 +44,7 @@ const DEFAULT_OPTIONS: Required<Pick<RuntimeDetectionOptions, 'overallTimeoutMs'
   allowManifest: true,
 };
 
+/** Public alpha contract for runtime detector. */
 export class RuntimeDetector {
   readonly registry: RuntimeProbeRegistry;
   private readonly store: RuntimeDetectionStore;
@@ -277,10 +279,12 @@ export class RuntimeDetector {
   }
 }
 
+/** Public alpha contract for create runtime detector. */
 export function createRuntimeDetector(options: RuntimeDetectorOptions): RuntimeDetector {
   return new RuntimeDetector(options);
 }
 
+/** Public alpha contract for detect runtime. */
 export async function detectRuntime(input: RuntimeDetectionInput, options: RuntimeDetectorOptions): Promise<RuntimeDetectionResult> {
   return new RuntimeDetector(options).detect(input);
 }

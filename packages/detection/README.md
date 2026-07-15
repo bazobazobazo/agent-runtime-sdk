@@ -1,21 +1,35 @@
-# @banzae/agent-runtime-detection
+# `@banzae/agent-runtime-detection`
 
-Safe runtime detection helpers for Banzae agent runtimes.
+Bounded runtime discovery with confidence selection, versioned cache, credential
+provider, diagnostics, and network-policy contracts.
 
-Detection uses bounded probes and must not submit user prompts to multiple
-runtimes. Explicit adapter selection bypasses probing and does not prove
-reachability; adapter `connect()` validates the endpoint later.
+## Install and entrypoint
 
-OpenClaw authenticated detection tries codec-validated v4 first and v3 only
-after a confirmed protocol mismatch. Hermes detection requires Hermes-specific
-identity evidence. Cached detections are reused only when schema, fingerprint,
-expiration, adapter, protocol name, and protocol version are still valid.
+Install with `pnpm add @banzae/agent-runtime-detection`. The package root is the
+only supported entrypoint; probe registries, frames, parsers, and payloads are internal.
 
-Detection aborts HTTP requests, response iterators, WebSocket connections, and
-event iterators on caller cancellation, overall timeout, or per-probe timeout.
-Redirects are not supported.
+## Minimal example
 
-The package root is the only supported entrypoint. Probe registry internals,
-provider frames, parser helpers, and raw payloads are not public API. Inline
-authentication takes precedence over a credential reference; credentials never
-enter fingerprints or descriptors.
+```ts
+import { DefaultRuntimeNetworkPolicy } from '@banzae/agent-runtime-detection';
+
+const policy = new DefaultRuntimeNetworkPolicy();
+await policy.validateTarget(new URL('https://runtime.example.com'));
+```
+
+## Lifecycle, limits, and cleanup
+
+Detection is not an adapter lifecycle and never starts runs. Each detect call is
+bounded by caller signal, overall timeout, and probe timeout. It aborts HTTP
+bodies, iterators, and sockets when cancelled. Explicit adapter selection does
+not prove endpoint reachability.
+
+## Capabilities, errors, and security
+
+Capabilities are returned only from validated evidence. Ambiguous/failed results
+remain explicit; operational failures use `RuntimeError`. Credentials never
+enter fingerprints/descriptors, redirects are rejected, and credential-bearing
+URLs fail network policy.
+
+See [Detection](../../docs/detection.md), [Capabilities](../../docs/capabilities.md),
+[Errors](../../docs/error-model.md), and the [deterministic example](../../examples/detect-runtime/index.ts).

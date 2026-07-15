@@ -1,14 +1,19 @@
 import { createDefaultRuntimeRegistry, NodeFileStateStore, NodeMemorySecretStore } from '@banzae/agent-runtime-node';
+import { runExample } from '../shared.js';
 
-const endpoint = process.env.OPENCLAW_GATEWAY_URL;
-const token = process.env.OPENCLAW_GATEWAY_TOKEN;
-if (!endpoint || !token) throw new Error('Set OPENCLAW_GATEWAY_URL and OPENCLAW_GATEWAY_TOKEN');
-
-const registry = createDefaultRuntimeRegistry({
-  stateStore: new NodeFileStateStore('.runtime-state'),
-  secretStore: new NodeMemorySecretStore(),
-});
-const adapter = registry.create('openclaw');
-await adapter.connect({ target: { endpoint }, auth: { kind: 'token', token } });
-console.log(await adapter.health());
-await adapter.close();
+export async function explicitOpenClawExample(): Promise<string> {
+  return runExample(async (signal) => {
+    const registry = createDefaultRuntimeRegistry({
+      stateStore: new NodeFileStateStore('.runtime-state'),
+      secretStore: new NodeMemorySecretStore(),
+    });
+    const adapter = registry.create('openclaw');
+    try {
+      signal.throwIfAborted();
+      // Construction-only: connect only in an explicitly configured live harness.
+      return `${adapter.adapterId}:${adapter.lifecycleState}`;
+    } finally {
+      await adapter.close();
+    }
+  });
+}

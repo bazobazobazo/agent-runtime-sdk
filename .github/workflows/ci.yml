@@ -90,6 +90,15 @@ jobs:
       - name: Compile clean packed-package consumer
         run: pnpm consumer:check
 
+      - name: Typecheck examples
+        run: pnpm examples:typecheck
+
+      - name: Run deterministic examples
+        run: pnpm examples:test
+
+      - name: Check documentation
+        run: pnpm docs:check
+
       - name: Check package boundaries
         run: pnpm package:check
 
