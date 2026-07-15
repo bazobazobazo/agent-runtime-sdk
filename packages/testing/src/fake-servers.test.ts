@@ -43,7 +43,7 @@ describe('testing-only fake runtime controllers', () => {
 
     expect(first.applicationRunId).toBe('application-one');
     expect(second.applicationRunId).toBe('application-two');
-    expect(server.receivedIdempotencyKeys).toEqual(['idempotency-two', 'idempotency-one']);
+    expect([...server.receivedIdempotencyKeys].sort()).toEqual(['idempotency-one', 'idempotency-two']);
     expect(server.pendingRequestCount).toBe(0);
     expect(server.openConnectionCount).toBe(1);
     await adapter.close();

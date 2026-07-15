@@ -102,6 +102,9 @@ export type OpenClawProviderEventMetadata = {
   providerRunId?: string;
   sessionKey?: string;
   providerEventId?: string;
+  messageId?: string;
+  parentMessageId?: string;
+  rawStatus?: string;
   sequence?: number;
   occurredAt?: string;
   terminal?: 'completed' | 'failed' | 'cancelled' | 'timeout';

@@ -70,6 +70,26 @@ OpenClaw provider events are correlated to the active SDK run by provider run ID
 and, where a run ID is not present, by an explicit session key on recognized
 run-scoped event types. Unrelated gateway events are ignored.
 
+OpenClaw v3 and v4 gateways may report chat lifecycle through one `chat` event
+whose payload state is `delta`, `final`, `error`, or `aborted`; `agent.wait`
+may independently report `pending`, `ok`, `error`, or `timeout`. The adapter
+normalizes both forms. It captures a bounded event cursor before sending the run
+request so a fast final event emitted before `startRun()` returns can be replayed
+to the correct run stream.
+
+Completion evidence is evaluated in this order:
+
+1. a correlated explicit terminal event;
+2. a correlated terminal status with direct final output;
+3. a correlated terminal status plus exactly one unambiguous assistant message
+   added after the pre-run history baseline.
+
+The history fallback requires a terminal `agent.wait` result for the exact run
+and either an exact history `runId` match or one unambiguous new assistant
+message. Multiple candidates, another run/session, partial output, `pending`,
+or `timeout` cannot prove completion and remain `unknown`. The SDK never invents
+a run ID or uses timing alone as completion evidence.
+
 When OpenClaw supplies sequence numbers, the adapter tracks them per SDK run
 stream. A missing sequence range emits a `transport.gap` event before continuing
 with later events. Callers must treat that stream as requiring reconciliation and

@@ -248,6 +248,16 @@ export class OpenClawAdapter implements AgentRuntimeAdapter {
     if (!capabilities.runs.start) throw unsupported('OpenClaw run start is unavailable');
     validateInputCapabilities(capabilities, input.input);
     const state = this.requireConnected();
+    const eventCursor = state.dispatcher.eventCursor();
+    const historyBaseline = await this.captureHistoryBaseline(state, input, options?.signal);
+    this.deps.logger.debug('OpenClaw run start requested', {
+      adapterId: this.adapterId,
+      protocolVersion: state.codec.protocolVersion,
+      applicationRunIdHash: await diagnosticHash(this.deps, input.applicationRunId),
+      idempotencyKeyHash: await diagnosticHash(this.deps, input.idempotencyKey),
+      sessionIdHash: await diagnosticHash(this.deps, input.session.externalSessionId),
+      eventCursor,
+    });
     let response: Record<string, unknown>;
     try {
       response = await state.dispatcher.request<Record<string, unknown>>(state.codec.buildRunStart(input), {
@@ -257,11 +267,23 @@ export class OpenClawAdapter implements AgentRuntimeAdapter {
       throw this.mapRunStartTransportError(error);
     }
     const parsed = state.codec.parseRunStartResponse(response);
+    this.deps.logger.debug('OpenClaw run start accepted', {
+      adapterId: this.adapterId,
+      protocolVersion: state.codec.protocolVersion,
+      externalRunIdHash: await diagnosticHash(this.deps, parsed.externalRunId),
+      sessionIdHash: await diagnosticHash(this.deps, input.session.externalSessionId),
+      normalizedStatus: parsed.status,
+    });
     return {
       applicationRunId: input.applicationRunId,
       externalRunId: parsed.externalRunId,
       status: parsed.status,
-      providerState: parsed.providerState,
+      providerState: {
+        ...parsed.providerState,
+        externalSessionId: input.session.externalSessionId,
+        eventCursor,
+        ...historyBaseline,
+      },
     };
   }
 
@@ -277,7 +299,21 @@ export class OpenClawAdapter implements AgentRuntimeAdapter {
     const response = await state.dispatcher.request<Record<string, unknown>>(state.codec.buildRunWait(input), {
       signal: options?.signal,
     });
-    return state.codec.parseRunWaitResponse(input, response);
+    const parsed = state.codec.parseRunWaitResponse(input, response);
+    this.deps.logger.debug('OpenClaw run status reconciled', {
+      adapterId: this.adapterId,
+      protocolVersion: state.codec.protocolVersion,
+      requestedRunIdHash: await diagnosticHash(this.deps, input.externalRunId),
+      normalizedStatus: parsed.status,
+      rawStatus: parsed.providerState?.rawStatus,
+      terminal: parsed.status === 'completed' || parsed.status === 'failed' || parsed.status === 'cancelled',
+      containsOutput: parsed.output !== undefined,
+      outputLength: parsed.output?.length ?? 0,
+      outputHash: parsed.output ? await diagnosticHash(this.deps, parsed.output) : undefined,
+    });
+    const terminalWithoutOutput = parsed.providerState?.terminalStatus === 'completed' && parsed.output === undefined;
+    if (!terminalWithoutOutput) return parsed;
+    return this.reconcileCompletedRunFromHistory(state, input, parsed, options?.signal);
   }
 
   async cancelRun(input: CancelRuntimeRunInput, options?: OperationOptions): Promise<void> {
@@ -303,6 +339,98 @@ export class OpenClawAdapter implements AgentRuntimeAdapter {
     await dispatcher?.close().catch(() => undefined);
     await connection?.close().catch(() => undefined);
     this.state = 'closed';
+  }
+
+  private async captureHistoryBaseline(
+    state: ConnectedState,
+    input: StartRuntimeRunInput,
+    signal?: AbortSignal,
+  ): Promise<Readonly<Record<string, unknown>>> {
+    if (!state.codec.capabilities(state.hello).sessions.history) return {};
+    try {
+      const request = state.codec.buildHistory({
+        applicationSessionId: input.session.applicationSessionId,
+        externalSessionId: input.session.externalSessionId,
+        limit: 100,
+      });
+      const payload = await state.dispatcher.request({ ...request, id: `history-baseline:${input.applicationRunId}` }, { signal });
+      const assistants = normalizeOpenClawHistory(payload).filter((message) => message.role === 'assistant');
+      return {
+        historyAssistantCount: assistants.length,
+        historyMessageIds: assistants.flatMap((message) => (message.id ? [message.id] : [])),
+      };
+    } catch (error) {
+      this.deps.logger.debug('OpenClaw history baseline unavailable', {
+        adapterId: this.adapterId,
+        applicationRunIdHash: await diagnosticHash(this.deps, input.applicationRunId),
+        errorCode: error instanceof RuntimeError ? error.code : 'UNKNOWN',
+      });
+      return {};
+    }
+  }
+
+  private async reconcileCompletedRunFromHistory(
+    state: ConnectedState,
+    input: GetRuntimeRunInput,
+    parsed: RuntimeRunSnapshot,
+    signal?: AbortSignal,
+  ): Promise<RuntimeRunSnapshot> {
+    const externalSessionId = input.externalSessionId
+      ?? (typeof input.providerState?.externalSessionId === 'string' ? input.providerState.externalSessionId : undefined);
+    if (!externalSessionId || !state.codec.capabilities(state.hello).sessions.history) {
+      return unresolvedCompletedRun(parsed);
+    }
+    try {
+      const request = state.codec.buildHistory({ applicationSessionId: externalSessionId, externalSessionId, limit: 100 });
+      const payload = await state.dispatcher.request({ ...request, id: `history-reconcile:${input.applicationRunId}` }, { signal });
+      const assistants = normalizeOpenClawHistory(payload).filter((message) => message.role === 'assistant');
+      const exact = assistants.filter((message) => message.metadata?.runId === input.externalRunId);
+      const baselineIds = new Set(
+        Array.isArray(input.providerState?.historyMessageIds)
+          ? input.providerState.historyMessageIds.filter((value): value is string => typeof value === 'string')
+          : [],
+      );
+      const baselineCount = typeof input.providerState?.historyAssistantCount === 'number'
+        ? input.providerState.historyAssistantCount
+        : undefined;
+      const newById = assistants.filter((message) => message.id && !baselineIds.has(message.id));
+      const countCandidate = baselineCount !== undefined && assistants.length === baselineCount + 1
+        ? assistants.at(-1)
+        : undefined;
+      const candidate = exact.length === 1
+        ? exact[0]
+        : exact.length === 0 && newById.length === 1
+          ? newById[0]
+          : exact.length === 0 && newById.length === 0
+            ? countCandidate
+            : undefined;
+      if (!candidate?.content) return unresolvedCompletedRun(parsed);
+      this.deps.logger.debug('OpenClaw completed run reconciled from history', {
+        adapterId: this.adapterId,
+        protocolVersion: state.codec.protocolVersion,
+        externalRunIdHash: await diagnosticHash(this.deps, input.externalRunId),
+        sessionIdHash: await diagnosticHash(this.deps, externalSessionId),
+        messageIdHash: candidate.id ? await diagnosticHash(this.deps, candidate.id) : undefined,
+        containsOutput: true,
+        outputLength: candidate.content.length,
+        outputHash: await diagnosticHash(this.deps, candidate.content),
+        completionEvidence: 'reconciled-session-history',
+      });
+      return {
+        ...parsed,
+        status: 'completed',
+        output: candidate.content,
+        providerState: { ...parsed.providerState, completionEvidence: 'reconciled-session-history' },
+      };
+    } catch (error) {
+      this.deps.logger.debug('OpenClaw completed-run history reconciliation failed', {
+        adapterId: this.adapterId,
+        applicationRunIdHash: await diagnosticHash(this.deps, input.applicationRunId),
+        externalRunIdHash: await diagnosticHash(this.deps, input.externalRunId),
+        errorCode: error instanceof RuntimeError ? error.code : 'UNKNOWN',
+      });
+      return unresolvedCompletedRun(parsed);
+    }
   }
 
   private async connectWithCodec(
@@ -578,7 +706,10 @@ class OpenClawRunEventStream implements AsyncIterableIterator<RuntimeEvent> {
     private readonly input: StreamRuntimeRunInput,
     private readonly includeRawProviderPayload: boolean,
   ) {
-    this.iterator = state.dispatcher.subscribe()[Symbol.asyncIterator]();
+    const eventCursor = typeof input.providerState?.eventCursor === 'number'
+      ? input.providerState.eventCursor
+      : undefined;
+    this.iterator = state.dispatcher.subscribe({ afterCursor: eventCursor })[Symbol.asyncIterator]();
     this.stream = new OpenClawRunStreamState(deps, input);
   }
 
@@ -621,6 +752,30 @@ class OpenClawRunEventStream implements AsyncIterableIterator<RuntimeEvent> {
     if (mapped.length === 0) return;
 
     const metadata = this.state.codec.extractProviderEventMetadata(frame);
+    const completedText = mapped.find((event) => event.type === 'assistant.completed');
+    const deltaText = mapped.find((event) => event.type === 'assistant.delta');
+    const text = completedText?.type === 'assistant.completed'
+      ? completedText.text
+      : deltaText?.type === 'assistant.delta'
+        ? deltaText.delta
+        : undefined;
+    this.deps.logger.debug('OpenClaw run event normalized', {
+      adapterId: 'openclaw',
+      protocolVersion: this.state.codec.protocolVersion,
+      rawEventName: frame.event,
+      normalizedEventNames: mapped.map((event) => event.type),
+      rawStatus: metadata.rawStatus,
+      runIdHash: metadata.providerRunId ? await diagnosticHash(this.deps, metadata.providerRunId) : undefined,
+      sessionIdHash: metadata.sessionKey ? await diagnosticHash(this.deps, metadata.sessionKey) : undefined,
+      messageIdHash: metadata.messageId ? await diagnosticHash(this.deps, metadata.messageId) : undefined,
+      parentMessageIdHash: metadata.parentMessageId ? await diagnosticHash(this.deps, metadata.parentMessageId) : undefined,
+      sequence: metadata.sequence,
+      terminal: metadata.terminal,
+      containsTextOutput: text !== undefined,
+      textLength: text?.length ?? 0,
+      textHash: text ? await diagnosticHash(this.deps, text) : undefined,
+      timestamp: metadata.occurredAt,
+    });
     const gap = this.stream.acceptSequence(metadata.sequence);
     if (gap) this.buffer.push(gap);
 
@@ -640,6 +795,19 @@ class OpenClawRunEventStream implements AsyncIterableIterator<RuntimeEvent> {
     this.stream.close();
     await this.iterator.return?.();
   }
+}
+
+function unresolvedCompletedRun(parsed: RuntimeRunSnapshot): RuntimeRunSnapshot {
+  return {
+    ...parsed,
+    status: 'unknown',
+    output: undefined,
+    providerState: { ...parsed.providerState, completionEvidence: 'terminal-status-output-unresolved' },
+  };
+}
+
+async function diagnosticHash(deps: RuntimeAdapterDependencies, value: string): Promise<string> {
+  return hexEncode(await deps.crypto.sha256(new TextEncoder().encode(value))).slice(0, 16);
 }
 
 class OpenClawRunStreamState {

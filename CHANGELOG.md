@@ -18,6 +18,13 @@ fixed version for the six public packages during the initial alpha series.
 - Migration guidance from the Telegraphic client and product-neutral host
   application integration guidance.
 
+### Fixed
+
+- OpenClaw v3/v4 completion now recognizes stateful `chat` events and
+  `agent.wait` status values used by real gateways, replays bounded events that
+  arrive before stream subscription, and reconciles terminal runs against an
+  unambiguous pre-run history baseline without weakening `OUTCOME_UNKNOWN`.
+
 ### Known limitations
 
 - Pre-alpha API with no stable compatibility guarantee before 1.0.

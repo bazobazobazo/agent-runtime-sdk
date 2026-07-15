@@ -8,6 +8,7 @@ export const openClawV3Mappings: OpenClawProtocolMappings = {
   runWaitMethod: 'agent.wait',
   historyMethod: 'chat.history',
   cancelMethod: 'chat.abort',
+  statefulEvents: ['chat'],
   deltaEvents: ['chat.delta', 'assistant.delta', 'run.delta'],
   completedEvents: ['chat.completed', 'assistant.completed', 'run.completed'],
   failedEvents: ['chat.failed', 'run.failed', 'agent.failed'],

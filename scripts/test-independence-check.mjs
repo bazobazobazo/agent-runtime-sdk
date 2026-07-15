@@ -52,12 +52,12 @@ assert.deepEqual((await publicPackages()).map((pkg) => pkg.name), expectedPackag
 
 for (const [path, expected] of Object.entries({
   'etc/api/public-api-inventory.json': 'd664a7651539112efa324b67f81baa73eb1a7dd502f02a797c15f69cfdb5ca26',
-  'docs/compatibility.md': '5b1b2a876f43987763f0796a360b06d08b672de47a757cb735c2585895c6bbd7',
+  'docs/compatibility.md': '35458ef1d1b72b6a74a7dd744305fdd6222a4756d0e3d5bf5800b8dd1457de99',
   'docs/adapter-conformance.md': 'bd055c8a132efe9eda5f4b2ae5bc5b59bf02e0c4cb016057656dfcca7fc93dd1',
   'docs/live-compatibility.md': '4c1999983596b0ded7cade07df530a958c9f9df869892bf77dc7e326c370da0d',
 })) {
   const digest = createHash('sha256').update(await readFile(join(root, path))).digest('hex');
-  assert.equal(digest, expected, `${path} changed during product-independence cleanup`);
+  assert.equal(digest, expected, `${path} changed without updating the reviewed release invariant`);
 }
 
 const directory = await mkdtemp(join(tmpdir(), 'agent-runtime-independence-'));

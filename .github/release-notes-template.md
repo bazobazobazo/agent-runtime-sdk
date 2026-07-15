@@ -10,6 +10,8 @@ The reviewed prerelease channel is `next`; this alpha must not update `latest`.
   streaming events, approvals, cancellation, history, health, normalized
   errors, and explicit `OUTCOME_UNKNOWN` reconciliation.
 - OpenClaw wire protocol v3/v4 implementation.
+- Bounded OpenClaw immediate-event replay and conservative terminal/history
+  reconciliation for stateful v3/v4 chat completion.
 - Hermes Runs HTTP/SSE implementation.
 - Safe runtime detection and six explicit package boundaries.
 - Shared conformance, deterministic testing utilities, 5,000-run fuzzing,
