@@ -12,6 +12,7 @@ import { publicPackages, releaseConfig, root } from './lib/release-config.mjs';
 const exec = promisify(execFile);
 const productWord = ['for', 'ge'].join('');
 const productName = ['banzae', productWord].join('');
+const consumerName = ['agent', 'hub'].join('');
 const oldDocument = join(root, 'docs', `${productName}-integration.md`);
 assert.equal(existsSync(oldDocument), false);
 
@@ -31,12 +32,14 @@ assert.match(migration, /AGENT_RUNTIME_ADAPTER_ALLOWLIST/);
 assert.match(migration, /Never send the same side-effecting prompt through both/);
 assert.match(packageManifest.scripts['docs:check'], /independence:check/);
 assert.match(packageManifest.scripts['package:check'], /independence:check/);
+assert.match(packageManifest.scripts['package:contents'], /independence:check/);
 assert.match(ciWorkflow, /pnpm independence:check/);
 assert.match(releaseDryRun, /independence:check/);
 assert.match(releaseGate, /independence:check/);
 for (const content of [readme, docsIndex, migration, releaseNotes]) {
-  assert.equal(content.toLowerCase().includes(productName), false);
-  assert.equal(content.toLowerCase().includes(`banzae ${productWord}`), false);
+  for (const term of [consumerName, ['agent', 'hub'].join(' '), productName, `banzae ${productWord}`]) {
+    assert.equal(content.toLowerCase().includes(term), false);
+  }
 }
 
 const expectedPackages = [
@@ -62,12 +65,19 @@ for (const [path, expected] of Object.entries({
 
 const directory = await mkdtemp(join(tmpdir(), 'agent-runtime-independence-'));
 try {
-  const prohibited = join(directory, 'prohibited.txt');
-  await writeFile(prohibited, productName, 'utf8');
-  await assert.rejects(
-    () => exec(process.execPath, ['./scripts/check-independence.mjs', prohibited], { cwd: root }),
-    (error) => String(error?.stderr).includes('Product-independence check failed'),
-  );
+  for (const [index, term] of [
+    consumerName,
+    ['agent', 'hub'].join(' '),
+    productName,
+    ['banzae', productWord].join(' '),
+  ].entries()) {
+    const prohibited = join(directory, `prohibited-${index}.txt`);
+    await writeFile(prohibited, term.toUpperCase(), 'utf8');
+    await assert.rejects(
+      () => exec(process.execPath, ['./scripts/check-independence.mjs', prohibited], { cwd: root }),
+      (error) => String(error?.stderr).includes('Product-independence check failed'),
+    );
+  }
 } finally {
   await rm(directory, { recursive: true, force: true });
 }

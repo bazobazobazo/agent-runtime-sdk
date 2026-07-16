@@ -30,7 +30,7 @@
     "api:extract": "node ./scripts/extract-public-api.mjs --write",
     "api:check": "node ./scripts/extract-public-api.mjs",
     "package:check": "node ./scripts/check-package-boundaries.mjs && pnpm independence:check",
-    "package:contents": "node ./scripts/check-package-contents.mjs",
+    "package:contents": "node ./scripts/check-package-contents.mjs && pnpm independence:check",
     "consumer:check": "node ./scripts/test-packed-consumer.mjs",
     "examples:typecheck": "tsc -p examples/tsconfig.json --noEmit",
     "examples:test": "vitest run --config examples/vitest.config.ts",

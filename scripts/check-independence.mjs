@@ -8,7 +8,10 @@ import { promisify } from 'node:util';
 const exec = promisify(execFile);
 const root = new URL('..', import.meta.url).pathname;
 const productWord = ['for', 'ge'].join('');
+const consumerWord = ['agent', 'hub'].join('');
 const disallowed = [
+  consumerWord,
+  ['agent', 'hub'].join(' '),
   ['banzae', productWord].join(''),
   ['banzae', productWord].join(' '),
   ...['integration', 'service', 'worker', 'owns', 'rollout', 'database', 'feature flag']
