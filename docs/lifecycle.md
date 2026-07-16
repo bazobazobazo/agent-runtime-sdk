@@ -32,4 +32,4 @@ See the deterministic [`lifecycle` example](../examples/lifecycle/index.ts).
 Treat `OUTCOME_UNKNOWN` differently from a known rejection: preserve the same
 idempotency key and reconcile before retry. Never translate a cancelled caller
 operation into successful completion. See [Errors](error-model.md) and
-[BanzaeForge integration](banzaeforge-integration.md).
+[Host application integration](host-application-integration.md).

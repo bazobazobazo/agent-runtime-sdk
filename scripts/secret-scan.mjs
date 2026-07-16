@@ -11,6 +11,8 @@ const patterns = [
   { name: 'authorization-header', re: /Authorization:\s*Bearer\s+[A-Za-z0-9._~+/-]{16,}/i },
   { name: 'long-hex-secret', re: /(?:token|password|secret|api[_-]?key)\s*[:=]\s*["']?[a-f0-9]{32,}["']?/i },
   { name: 'jwt', re: /eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/ },
+  { name: 'npm-token', re: /\bnpm_[A-Za-z0-9]{20,}\b/ },
+  { name: 'npm-auth-config', re: /\/\/registry\.npmjs\.org\/:_authToken\s*=\s*[^\s${][^\s]*/i },
 ];
 
 for (const file of await listFiles(root)) {

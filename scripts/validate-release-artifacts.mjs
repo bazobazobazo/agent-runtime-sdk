@@ -6,6 +6,7 @@ import { promisify } from 'node:util';
 import {
   artifactRoot,
   assertSafeRelativePath,
+  distTagForVersion,
   privatePackageNames,
   publicPackageNames,
   readJson,
@@ -17,6 +18,9 @@ const exec = promisify(execFile);
 const manifest = await readJson(join(artifactRoot, 'release-manifest.json'));
 if (manifest.schemaVersion !== 1 || manifest.sdkVersion !== releaseConfig.sdkVersion) throw new Error('Release manifest schema/version mismatch.');
 if (manifest.publicationStatus !== 'not-published') throw new Error('Release artifacts must remain not-published.');
+if (manifest.distTag !== distTagForVersion(manifest.sdkVersion) || manifest.distTag !== 'next') {
+  throw new Error('Alpha release manifest must use the next dist-tag.');
+}
 if (manifest.packages.length !== 6) throw new Error('Release manifest must contain six packages.');
 if (new Set(manifest.packages.map((pkg) => pkg.name)).size !== 6) throw new Error('Release manifest package names are not unique.');
 for (const pkg of manifest.packages) {
@@ -53,8 +57,19 @@ const checksums = await readFile(join(artifactRoot, 'SHA256SUMS'), 'utf8');
 if (checksums.trim().split('\n').length !== 6) throw new Error('SHA256SUMS must contain six entries.');
 const sbom = await readJson(join(artifactRoot, manifest.sbom));
 if (sbom.spdxVersion !== 'SPDX-2.3' || sbom.packages.length < 6) throw new Error('Release SBOM is invalid.');
-for (const path of [...manifest.apiReports, ...manifest.compatibilityEvidence.map((entry) => entry.path)]) {
+for (const path of [
+  ...manifest.apiReports,
+  ...manifest.compatibilityEvidence.map((entry) => entry.path),
+  ...manifest.documents.map((entry) => entry.path),
+]) {
   assertSafeRelativePath(path, 'Release evidence');
   await readFile(join(artifactRoot, path));
+}
+const index = await readJson(join(artifactRoot, 'artifact-index.json'));
+if (index.schemaVersion !== 1 || index.artifacts.length < 20) throw new Error('Release artifact index is incomplete.');
+for (const entry of index.artifacts) {
+  assertSafeRelativePath(entry.path, 'Artifact index path');
+  if (!entry.purpose || /\/home\/|token|password|private.?key/i.test(entry.path)) throw new Error('Artifact index contains unsafe metadata.');
+  await readFile(join(artifactRoot, entry.path));
 }
 console.log(`Validated release manifest, SBOM, checksums, and ${manifest.packages.length} tarballs.`);

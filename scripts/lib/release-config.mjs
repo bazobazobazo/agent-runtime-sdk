@@ -8,6 +8,18 @@ export const artifactRoot = join(root, releaseConfig.artifactDirectory);
 export const publicPackageNames = new Set(releaseConfig.publicPackages);
 export const privatePackageNames = new Set(releaseConfig.privatePackages);
 
+export function distTagForVersion(version) {
+  if (!/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(version)) {
+    throw new Error(`Invalid release version: ${version}`);
+  }
+  const prerelease = version.includes('-');
+  const tag = prerelease ? releaseConfig.distTags.prerelease : releaseConfig.distTags.stable;
+  if (!tag || (prerelease && tag === 'latest')) {
+    throw new Error(`Unsafe dist-tag policy for ${version}`);
+  }
+  return tag;
+}
+
 export async function readJson(path) {
   return JSON.parse(await readFile(path, 'utf8'));
 }
@@ -73,7 +85,7 @@ export async function stagePublicPackage(pkg, stagingRoot) {
   const destination = join(stagingRoot, pkg.directory);
   await rm(destination, { recursive: true, force: true });
   await mkdir(destination, { recursive: true });
-  for (const name of ['dist', 'README.md', 'LICENSE', 'THIRD_PARTY_NOTICES.md']) {
+  for (const name of ['dist', 'README.md', 'CHANGELOG.md', 'LICENSE', 'THIRD_PARTY_NOTICES.md']) {
     const source = join(pkg.path, name);
     if (!await exists(source)) throw new Error(`${pkg.name} is missing ${name}`);
     await cp(source, join(destination, name), { recursive: true });

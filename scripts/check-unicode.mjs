@@ -18,7 +18,13 @@ const failures = [];
 let scanned = 0;
 
 for (const path of paths) {
-  const bytes = await readFile(path);
+  let bytes;
+  try {
+    bytes = await readFile(path);
+  } catch (error) {
+    if (error?.code === 'ENOENT') continue;
+    throw error;
+  }
   if (bytes.includes(0)) continue;
   let text;
   try {

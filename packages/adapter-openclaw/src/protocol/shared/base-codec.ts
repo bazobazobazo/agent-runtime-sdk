@@ -43,6 +43,7 @@ export type OpenClawProtocolMappings = {
   runWaitMethod: string;
   historyMethod: string;
   cancelMethod: string;
+  statefulEvents: readonly string[];
   deltaEvents: readonly string[];
   completedEvents: readonly string[];
   failedEvents: readonly string[];
@@ -156,7 +157,8 @@ export abstract class MappedOpenClawCodec implements OpenClawProtocolCodec {
     const payload = optionalRecord(event.payload);
     const run = optionalRecord(payload.run);
     const session = optionalRecord(payload.session);
-    const status = stringValue(payload.status ?? run.status);
+    const message = optionalRecord(payload.message);
+    const status = stringValue(payload.status ?? payload.state ?? run.status);
     return {
       eventType: event.event,
       providerRunId:
@@ -179,6 +181,13 @@ export abstract class MappedOpenClawCodec implements OpenClawProtocolCodec {
         stringValue(payload.event_id) ??
         stringValue(payload.providerEventId) ??
         stringValue(payload.id),
+      messageId: stringValue(payload.messageId) ?? stringValue(payload.message_id) ?? stringValue(message.id),
+      parentMessageId:
+        stringValue(payload.parentId) ??
+        stringValue(payload.parent_id) ??
+        stringValue(payload.parentMessageId) ??
+        stringValue(message.parentId),
+      rawStatus: status,
       sequence: event.seq ?? numberValue(payload.seq ?? payload.sequence),
       occurredAt: validTimestamp(event.timestamp) ?? validTimestamp(stringValue(payload.timestamp ?? payload.createdAt ?? payload.created_at ?? payload.time)),
       terminal: terminalOutcome(this.mappings, event.event, status),
@@ -190,7 +199,8 @@ export abstract class MappedOpenClawCodec implements OpenClawProtocolCodec {
     if (!eventMatchesRun(this.mappings, metadata, context)) return [];
 
     const payload = optionalRecord(event.payload);
-    const text = stringValue(payload.text ?? payload.delta ?? payload.message ?? payload.content);
+    const text = eventText(payload);
+    const state = stringValue(payload.state ?? payload.status)?.toLowerCase();
     const occurredAt = metadata.occurredAt ? new Date(metadata.occurredAt) : context.clock.now();
     const provider = {
       adapterId: 'openclaw',
@@ -198,18 +208,24 @@ export abstract class MappedOpenClawCodec implements OpenClawProtocolCodec {
       ...(context.includeRawProviderPayload ? { sanitizedRawPayload: sanitizeOpenClawPayload(event.payload) } : {}),
     };
 
-    if (this.mappings.deltaEvents.includes(event.event) && text) {
+    const isStateful = this.mappings.statefulEvents.includes(event.event);
+    if ((this.mappings.deltaEvents.includes(event.event) || (isStateful && state === 'delta')) && text) {
       return [{ ...eventBase('assistant.delta', context, metadata, occurredAt, provider), type: 'assistant.delta', delta: text }];
     }
-    if (this.mappings.completedEvents.includes(event.event)) {
-      const events: RuntimeEvent[] = [];
-      if (text) {
-        events.push({ ...eventBase('assistant.completed', context, metadata, occurredAt, provider), type: 'assistant.completed', text });
+    if (this.mappings.completedEvents.includes(event.event) || (isStateful && isCompletedStatus(state))) {
+      if (!text) {
+        return [{
+          ...eventBase('transport.warning', context, metadata, occurredAt, provider),
+          type: 'transport.warning',
+          warning: 'OpenClaw terminal event omitted final text; status reconciliation is required',
+        }];
       }
-      events.push({ ...eventBase('run.completed', context, metadata, occurredAt, provider), type: 'run.completed' });
+      const events: RuntimeEvent[] = [];
+      events.push({ ...eventBase('assistant.completed', context, metadata, occurredAt, provider), type: 'assistant.completed', text });
+      events.push({ ...eventBase('run.completed', context, metadata, occurredAt, provider), type: 'run.completed', output: text });
       return events;
     }
-    if (this.mappings.failedEvents.includes(event.event)) {
+    if (this.mappings.failedEvents.includes(event.event) || (isStateful && isFailedStatus(state))) {
       return [
         {
           ...eventBase('run.failed', context, metadata, occurredAt, provider),
@@ -218,7 +234,7 @@ export abstract class MappedOpenClawCodec implements OpenClawProtocolCodec {
         },
       ];
     }
-    if (this.mappings.cancelledEvents.includes(event.event)) {
+    if (this.mappings.cancelledEvents.includes(event.event) || (isStateful && isCancelledStatus(state))) {
       return [{ ...eventBase('run.cancelled', context, metadata, occurredAt, provider), type: 'run.cancelled' }];
     }
     if (this.mappings.timeoutEvents.includes(event.event)) {
@@ -268,9 +284,13 @@ export abstract class MappedOpenClawCodec implements OpenClawProtocolCodec {
       throw protocolError('OpenClaw run-status response returned another run');
     }
     if (typeof response.status !== 'string' || !response.status) throw protocolError('OpenClaw run-status response omitted status');
-    const status = normalizeStatus(response.status);
+    const rawStatus = response.status;
+    const normalizedStatus = normalizeStatus(rawStatus);
     const output = stringValue(response.output ?? response.text ?? response.message);
-    if (status === 'completed' && output === undefined) throw protocolError('OpenClaw completed run omitted output');
+    if (normalizedStatus === 'completed' && output === undefined && String(rawStatus).toLowerCase() !== 'ok') {
+      throw protocolError('OpenClaw completed run omitted output');
+    }
+    const status = normalizedStatus === 'completed' && output === undefined ? 'unknown' : normalizedStatus;
     const usage = response.usage === undefined ? undefined : strictUsage(response.usage);
     return {
       applicationRunId: input.applicationRunId,
@@ -278,7 +298,15 @@ export abstract class MappedOpenClawCodec implements OpenClawProtocolCodec {
       status,
       output,
       usage,
-      providerState: { adapterId: 'openclaw', protocolVersion: this.protocolVersion, status },
+      providerState: {
+        ...input.providerState,
+        adapterId: 'openclaw',
+        protocolVersion: this.protocolVersion,
+        rawStatus,
+        status,
+        terminalStatus: normalizedStatus === 'completed' ? 'completed' : undefined,
+        completionEvidence: status === 'completed' ? 'terminal-status' : undefined,
+      },
     };
   }
 
@@ -321,8 +349,9 @@ export abstract class MappedOpenClawCodec implements OpenClawProtocolCodec {
     const methods = new Set(hello?.methods ?? []);
     const events = new Set(hello?.events ?? []);
     const runStart = methods.has(this.mappings.runStartMethod) || methods.has('sessions.send');
-    const runStream = this.mappings.deltaEvents.some((event) => events.has(event))
-      && this.mappings.completedEvents.some((event) => events.has(event));
+    const runStream = this.mappings.statefulEvents.some((event) => events.has(event))
+      || (this.mappings.deltaEvents.some((event) => events.has(event))
+        && this.mappings.completedEvents.some((event) => events.has(event)));
     return {
       ...NO_CAPABILITIES,
       sessions: {
@@ -434,6 +463,12 @@ function providerEventId(metadata: OpenClawProviderEventMetadata, type: RuntimeE
 }
 
 function terminalOutcome(mappings: OpenClawProtocolMappings, eventType: string, _status?: string): OpenClawProviderEventMetadata['terminal'] {
+  const status = _status?.toLowerCase();
+  if (mappings.statefulEvents.includes(eventType)) {
+    if (isCompletedStatus(status)) return 'completed';
+    if (isFailedStatus(status)) return 'failed';
+    if (isCancelledStatus(status)) return 'cancelled';
+  }
   if (mappings.completedEvents.includes(eventType)) return 'completed';
   if (mappings.failedEvents.includes(eventType)) return 'failed';
   if (mappings.cancelledEvents.includes(eventType)) return 'cancelled';
@@ -471,6 +506,7 @@ function strictUsage(value: unknown): Readonly<Record<string, number>> {
 
 function isSessionScopedRunEvent(mappings: OpenClawProtocolMappings, eventType: string): boolean {
   return (
+    mappings.statefulEvents.includes(eventType) ||
     mappings.deltaEvents.includes(eventType) ||
     mappings.completedEvents.includes(eventType) ||
     mappings.failedEvents.includes(eventType) ||
@@ -480,7 +516,42 @@ function isSessionScopedRunEvent(mappings: OpenClawProtocolMappings, eventType: 
 }
 
 function normalizeStatus(status: unknown): RuntimeRunSnapshot['status'] {
-  if (status === 'queued' || status === 'running' || status === 'waiting_for_approval' || status === 'stopping') return status;
-  if (status === 'completed' || status === 'failed' || status === 'cancelled') return status;
+  if (typeof status !== 'string') return 'unknown';
+  const normalized = status.toLowerCase();
+  if (normalized === 'accepted' || normalized === 'pending') return 'queued';
+  if (normalized === 'in_flight') return 'running';
+  if (normalized === 'queued' || normalized === 'running' || normalized === 'waiting_for_approval' || normalized === 'stopping') return normalized;
+  if (isCompletedStatus(normalized)) return 'completed';
+  if (isFailedStatus(normalized)) return 'failed';
+  if (isCancelledStatus(normalized)) return 'cancelled';
   return 'unknown';
+}
+
+function isCompletedStatus(status?: string): boolean {
+  return status === 'completed' || status === 'complete' || status === 'done' || status === 'final' || status === 'ok';
+}
+
+function isFailedStatus(status?: string): boolean {
+  return status === 'failed' || status === 'error';
+}
+
+function isCancelledStatus(status?: string): boolean {
+  return status === 'cancelled' || status === 'canceled' || status === 'aborted';
+}
+
+function eventText(payload: Record<string, unknown>): string | undefined {
+  const direct = stringValue(payload.text ?? payload.delta ?? payload.deltaText ?? payload.content);
+  if (direct) return direct;
+  const message = optionalRecord(payload.message);
+  return normalizedText(message.content ?? message.text);
+}
+
+function normalizedText(value: unknown): string | undefined {
+  if (typeof value === 'string') return value || undefined;
+  if (!Array.isArray(value)) return undefined;
+  const text = value
+    .map((part) => (typeof part === 'string' ? part : stringValue(optionalRecord(part).text)))
+    .filter((part): part is string => typeof part === 'string')
+    .join('');
+  return text || undefined;
 }

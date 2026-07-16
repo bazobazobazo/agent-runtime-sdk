@@ -7,11 +7,11 @@ integration suite in the target release environment.
 The SDK supports OpenClaw wire protocol versions explicitly registered and
 validated by the codec registry.
 
-| SDK adapter | Protocol | Runtime version | Recorded SDK commit | Evidence type | Date | Checks completed | Status / limitations |
-|---|---|---|---|---|---|---|---|
-| OpenClaw | v3 | pinned fixture targets | `7ba46df` | synthetic fixture validated; fake-server conformance validated | 2026-07-14 | connection, sessions, runs, stream, status, history, cancellation, cleanup | supported; new harness report pending for each deployment |
-| OpenClaw | v4 | pinned fixture targets | `7ba46df` | synthetic fixture validated; fake-server conformance validated | 2026-07-14 | connection, sessions, runs, stream, status, history, cancellation, cleanup | supported; new harness report pending for each deployment |
-| Hermes | HTTP/SSE Runs v1 | documented target `0.18.2`; no live run report | `7ba46df` | synthetic fixture validated; fake-server conformance validated; live validation pending | 2026-07-14 | capabilities, health, sessions, runs, SSE recovery, approvals, cancellation, cleanup | implemented; live validation pending |
+| SDK adapter | SDK version | Evidence SDK commit | Protocol | Runtime version | Evidence type | Date | Checks completed / skipped | Status / limitations |
+|---|---|---|---|---|---|---|---|---|
+| OpenClaw | `0.1.0-alpha.1` | `d629ade` | v3 | pinned fixture targets | synthetic fixture validated; fake-server conformance validated | 2026-07-15 | connection, sessions, runs, stream, status, history, cancellation, cleanup; release live check skipped because no dedicated target was configured | supported protocol implementation; sanitized live validation pending for each exact deployment/runtime version |
+| OpenClaw | `0.1.0-alpha.1` | `d629ade` | v4 | pinned fixture targets | synthetic fixture validated; fake-server conformance validated | 2026-07-15 | connection, sessions, runs, stream, status, history, cancellation, cleanup; release live check skipped because no dedicated target was configured | supported protocol implementation; sanitized live validation pending for each exact deployment/runtime version |
+| Hermes | `0.1.0-alpha.1` | `d629ade` | HTTP/SSE Runs v1 | documented target `0.18.2`; no complete live run report | synthetic fixture validated; fake-server conformance validated; live validation pending | 2026-07-15 | capabilities, health, sessions, runs, SSE recovery, approvals, cancellation, cleanup in synthetic conformance; release live checks skipped because no dedicated target was configured | implemented; complete live validation pending |
 
 Runtime auto-detection currently supports only OpenClaw and Hermes. Codex and Pi
 remain private placeholders and are not registered probes.
@@ -69,6 +69,26 @@ frequently. The contract is “pre-alpha public API frozen for
 OpenClaw provider events are correlated to the active SDK run by provider run ID
 and, where a run ID is not present, by an explicit session key on recognized
 run-scoped event types. Unrelated gateway events are ignored.
+
+OpenClaw v3 and v4 gateways may report chat lifecycle through one `chat` event
+whose payload state is `delta`, `final`, `error`, or `aborted`; `agent.wait`
+may independently report `pending`, `ok`, `error`, or `timeout`. The adapter
+normalizes both forms. It captures a bounded event cursor before sending the run
+request so a fast final event emitted before `startRun()` returns can be replayed
+to the correct run stream.
+
+Completion evidence is evaluated in this order:
+
+1. a correlated explicit terminal event;
+2. a correlated terminal status with direct final output;
+3. a correlated terminal status plus exactly one unambiguous assistant message
+   added after the pre-run history baseline.
+
+The history fallback requires a terminal `agent.wait` result for the exact run
+and either an exact history `runId` match or one unambiguous new assistant
+message. Multiple candidates, another run/session, partial output, `pending`,
+or `timeout` cannot prove completion and remain `unknown`. The SDK never invents
+a run ID or uses timing alone as completion evidence.
 
 When OpenClaw supplies sequence numbers, the adapter tracks them per SDK run
 stream. A missing sequence range emits a `transport.gap` event before continuing

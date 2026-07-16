@@ -23,12 +23,18 @@ This documentation set is intended for SDK users who do not want to inspect sour
 
 - [architecture.md](./architecture.md)
 - [adapter-authoring.md](./adapter-authoring.md)
-- [banzaeforge-integration.md](./banzaeforge-integration.md)
+- [host-application-integration.md](./host-application-integration.md)
 - [live-compatibility.md](./live-compatibility.md)
 - [compatibility.md](./compatibility.md)
 - [versioning-and-compatibility.md](./versioning-and-compatibility.md)
 - [releasing.md](./releasing.md)
 - [release-audit.md](./release-audit.md)
+- [release-candidate-baseline.md](./release-candidate-baseline.md)
+- [release-operator-checklist.md](./release-operator-checklist.md)
+- [known-limitations.md](./known-limitations.md)
+- [release-migration-summary.md](./release-migration-summary.md)
+- [release-security-summary.md](./release-security-summary.md)
+- [release-validation-report.md](./release-validation-report.md)
 
 ## Migration and operations
 

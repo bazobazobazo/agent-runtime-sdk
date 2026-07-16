@@ -31,6 +31,11 @@ Always propagate an `AbortSignal` and close the adapter in `finally`.
 Gateway failures normalize to `RuntimeError`; raw frames are never normal API.
 Frame sizes, event queues, deduplication, correlation, and diagnostics are
 bounded. Credentials and device proof material must remain in authorized stores.
+The adapter replays a bounded pre-subscription event window so immediate chat
+completion is not lost, and it recognizes the stateful `chat` lifecycle used by
+real v3/v4 gateways. A terminal `agent.wait` response without direct output is
+reconciled only against one unambiguous post-start assistant history message;
+ambiguous history remains `unknown`.
 
 See [Compatibility](../../docs/compatibility.md), [Lifecycle](../../docs/lifecycle.md),
 [Security](../../docs/security.md), and the [construction example](../../examples/openclaw-chat/index.ts).

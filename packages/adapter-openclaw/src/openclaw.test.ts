@@ -3,6 +3,7 @@ import { readFile } from 'node:fs/promises';
 import {
   RuntimeError,
   type RuntimeEvent,
+  type RuntimeLogger,
   type RuntimeWebSocketConnection,
   type RuntimeWebSocketEvent,
 } from '@banzae/agent-runtime-core';
@@ -41,11 +42,11 @@ describe('OpenClaw protocol scaffolding', () => {
   it('passes caller idempotency key through chat.send', () => {
     const request = openClawV4Codec().buildRunStart({
       applicationRunId: 'run-1',
-      idempotencyKey: 'forge-runtime-run:run-1',
+      idempotencyKey: 'host-runtime-run:run-1',
       session: { applicationSessionId: 'thread-1', externalSessionId: 'session-1', created: false },
       input: { text: 'hello' },
     });
-    expect(request.params?.idempotencyKey).toBe('forge-runtime-run:run-1');
+    expect(request.params?.idempotencyKey).toBe('host-runtime-run:run-1');
   });
 
   it.each([
@@ -63,6 +64,11 @@ describe('OpenClaw protocol scaffolding', () => {
     const cancelResponse = await readFixture(`${basePath}/cancel-response.json`);
     const providerErrors = await readFixture(`${basePath}/provider-errors.json`);
     const runEvents = await readJsonlFixture(`${basePath}/run-events.jsonl`);
+    const observedCompletion = await readFixture(`${basePath}/observed-chat-completion.json`) as unknown as {
+      events: Array<{ event: string; payload: Record<string, unknown> }>;
+      waitResponse: Record<string, unknown>;
+      historyResponse: unknown;
+    };
 
     expect(codec.parseChallenge(codec.parseFrame(JSON.stringify(challenge.frame)))?.nonce).toBe('fixture-nonce');
     expect(sanitizeOpenClawPayload(codec.createConnectParams({ requestId: 'fixture-connect', auth: { kind: 'token', token: 'secret' } }))).toMatchObject(
@@ -77,6 +83,12 @@ describe('OpenClaw protocol scaffolding', () => {
       stripReqType(cancelRequest.frame),
     );
     expect(codec.parseCancelResponse(cancelResponse.payload).accepted).toBe(true);
+    expect(codec.mapProviderEvent(
+      codec.parseFrame(openClawEvent(observedCompletion.events[0]!.event, observedCompletion.events[0]!.payload)) as Extract<ReturnType<typeof codec.parseFrame>, { type: 'event' }>,
+      eventContext(),
+    ).at(-1)).toMatchObject({ type: 'run.completed', output: 'BANZAE_RUNTIME_COMPATIBILITY_OK' });
+    expect(codec.parseRunWaitResponse(runInput('app-run', 'provider-run-1', 'session-1'), observedCompletion.waitResponse).status).toBe('queued');
+    expect(normalizeOpenClawHistory(observedCompletion.historyResponse)).toMatchObject([{ role: 'assistant', content: 'BANZAE_RUNTIME_COMPATIBILITY_OK' }]);
 
     const context = {
       ...runInput('app-run', 'provider-run-1', 'session-1'),
@@ -597,6 +609,30 @@ describe('OpenClaw run event correlation', () => {
     });
   });
 
+  it('records only hashed completion diagnostics without prompt, output, or credentials', async () => {
+    const diagnostics: Array<{ message: string; fields?: Record<string, unknown> }> = [];
+    const logger: RuntimeLogger = {
+      debug: (message, fields) => diagnostics.push({ message, fields }),
+      info: () => undefined,
+      warn: () => undefined,
+      error: () => undefined,
+    };
+    const harness = createAdapterHarness({ logger });
+    const events = collectRunEvents(harness.adapter.streamRun(runInput('app-1', 'provider-1', 'session-1')));
+    await nextTick();
+    harness.connection.pushMessage(openClawEvent('chat', {
+      runId: 'provider-1', sessionKey: 'session-1', state: 'final', sequence: 1,
+      token: 'credential-value',
+      message: { id: 'message-1', role: 'assistant', content: [{ type: 'text', text: 'private-output' }] },
+    }));
+    await events;
+    const serialized = JSON.stringify(diagnostics);
+    expect(serialized).not.toContain('credential-value');
+    expect(serialized).not.toContain('private-output');
+    expect(serialized).not.toContain('provider-1');
+    expect(diagnostics).toMatchObject([{ message: 'OpenClaw run event normalized', fields: { containsTextOutput: true, textLength: 14 } }]);
+  });
+
   it('does not advertise image support while run-start drops image attachments', async () => {
     const capabilities = openClawV4Codec().capabilities({ protocolVersion: 4, methods: [], events: [], features: { images: true }, raw: {} });
     expect(capabilities.input.images).toBe(false);
@@ -608,6 +644,147 @@ describe('OpenClaw run event correlation', () => {
     expect(capabilities.runs).toEqual({ start: false, status: false, stream: false, cancel: false, approvals: false });
     expect(capabilities.input).toEqual({ text: false, images: false, files: false });
     expect(capabilities.output).toMatchObject({ text: false, reasoning: false, tools: false, usage: false });
+  });
+});
+
+describe.each([
+  { label: 'v3', protocolVersion: 3 as const, codec: openClawV3Codec() },
+  { label: 'v4', protocolVersion: 4 as const, codec: openClawV4Codec() },
+])('observed OpenClaw $label completion behavior', ({ protocolVersion, codec }) => {
+  const context = () => {
+    const deps = createTestDependencies();
+    return { ...runInput('app-1', 'provider-1', 'session-1'), clock: deps.clock, ids: deps.ids };
+  };
+  const finalFrame = (runId = 'provider-1', sessionKey = 'session-1') => codec.parseFrame(
+    openClawEvent('chat', {
+      runId,
+      sessionKey,
+      state: 'final',
+      sequence: 2,
+      message: { id: 'message-2', role: 'assistant', content: [{ type: 'text', text: 'BANZAE_RUNTIME_COMPATIBILITY_OK' }] },
+    }),
+  ) as Extract<ReturnType<typeof codec.parseFrame>, { type: 'event' }>;
+
+  it('maps an explicit terminal event', () => {
+    const events = codec.mapProviderEvent(codec.parseFrame(openClawEvent('chat.completed', {
+      runId: 'provider-1', sessionKey: 'session-1', sequence: 2, text: 'done',
+    })) as Extract<ReturnType<typeof codec.parseFrame>, { type: 'event' }>, context());
+    expect(events.map((event) => event.type)).toEqual(['assistant.completed', 'run.completed']);
+  });
+
+  it('maps observed assistant output followed by a stateful final event', () => {
+    const delta = codec.mapProviderEvent(codec.parseFrame(openClawEvent('chat', {
+      runId: 'provider-1', sessionKey: 'session-1', state: 'delta', sequence: 1,
+      deltaText: 'BANZAE_', message: { role: 'assistant', content: [{ type: 'text', text: 'BANZAE_' }] },
+    })) as Extract<ReturnType<typeof codec.parseFrame>, { type: 'event' }>, context());
+    const terminal = codec.mapProviderEvent(finalFrame(), context());
+    expect(delta).toMatchObject([{ type: 'assistant.delta', delta: 'BANZAE_' }]);
+    expect(terminal).toMatchObject([
+      { type: 'assistant.completed', text: 'BANZAE_RUNTIME_COMPATIBILITY_OK' },
+      { type: 'run.completed', output: 'BANZAE_RUNTIME_COMPATIBILITY_OK' },
+    ]);
+  });
+
+  it('replays output emitted before startRun returns', async () => {
+    const harness = createAdapterHarness({ protocolVersion });
+    harness.connection.onSend = (data) => {
+      const request = JSON.parse(String(data)) as { id: string; method: string };
+      if (request.method === 'chat.history') {
+        harness.connection.pushMessage(responseFrame(request.id, { messages: [] }));
+        return;
+      }
+      if (request.method === 'chat.send') {
+        harness.connection.pushMessage(openClawEvent('chat', {
+          runId: 'provider-1', sessionKey: 'session-1', state: 'final', sequence: 1,
+          message: { id: 'message-1', role: 'assistant', content: [{ type: 'text', text: 'done' }] },
+        }));
+        harness.connection.pushMessage(responseFrame(request.id, { runId: 'provider-1', status: 'accepted' }));
+      }
+    };
+    const run = await harness.adapter.startRun({
+      applicationRunId: 'app-1', idempotencyKey: 'idem-1',
+      session: { applicationSessionId: 'session-1', externalSessionId: 'session-1', created: false },
+      input: { text: 'safe fixture prompt' },
+    });
+    const events = await collectRunEvents(harness.adapter.streamRun({
+      ...runInput('app-1', run.externalRunId, 'session-1'), providerState: run.providerState,
+    }));
+    expect(events.filter((event) => event.type === 'run.completed')).toHaveLength(1);
+  });
+
+  it('correlates stateful output by run and session identifiers', () => {
+    expect(codec.mapProviderEvent(finalFrame('provider-1', 'session-1'), context())).toHaveLength(2);
+    expect(codec.mapProviderEvent(finalFrame('provider-2', 'session-1'), context())).toEqual([]);
+    expect(codec.mapProviderEvent(finalFrame('provider-1', 'session-2'), context())).toEqual([]);
+  });
+
+  it('reconciles terminal ok status with one correlated history message', async () => {
+    const harness = createAdapterHarness({ protocolVersion });
+    harness.connection.onSend = (data) => {
+      const request = JSON.parse(String(data)) as { id: string; method: string };
+      if (request.method === 'agent.wait') {
+        harness.connection.pushMessage(responseFrame(request.id, { runId: 'provider-1', status: 'ok' }));
+      } else if (request.method === 'chat.history') {
+        harness.connection.pushMessage(responseFrame(request.id, { messages: [
+          { id: 'old', role: 'assistant', content: 'old' },
+          { id: 'new', role: 'assistant', runId: 'provider-1', content: 'done' },
+        ] }));
+      }
+    };
+    await expect(harness.adapter.getRun({
+      ...runInput('app-1', 'provider-1', 'session-1'),
+      providerState: { historyAssistantCount: 1, historyMessageIds: ['old'] },
+    })).resolves.toMatchObject({ status: 'completed', output: 'done', providerState: { completionEvidence: 'reconciled-session-history' } });
+  });
+
+  it('prefers a correlated final event when status remains non-terminal', () => {
+    expect(codec.parseRunWaitResponse(runInput('app-1', 'provider-1', 'session-1'), {
+      runId: 'provider-1', status: 'pending',
+    }).status).toBe('queued');
+    expect(codec.mapProviderEvent(finalFrame(), context()).at(-1)).toMatchObject({ type: 'run.completed' });
+  });
+
+  it('rejects ambiguous session history as completion evidence', async () => {
+    const harness = createAdapterHarness({ protocolVersion });
+    harness.connection.onSend = (data) => {
+      const request = JSON.parse(String(data)) as { id: string; method: string };
+      if (request.method === 'agent.wait') harness.connection.pushMessage(responseFrame(request.id, { runId: 'provider-1', status: 'ok' }));
+      if (request.method === 'chat.history') harness.connection.pushMessage(responseFrame(request.id, { messages: [
+        { id: 'new-1', role: 'assistant', content: 'one' },
+        { id: 'new-2', role: 'assistant', content: 'two' },
+      ] }));
+    };
+    await expect(harness.adapter.getRun({
+      ...runInput('app-1', 'provider-1', 'session-1'), providerState: { historyAssistantCount: 0, historyMessageIds: [] },
+    })).resolves.toMatchObject({ status: 'unknown', output: undefined, providerState: { completionEvidence: 'terminal-status-output-unresolved' } });
+  });
+
+  it('ignores output from another concurrent run', () => {
+    expect(codec.mapProviderEvent(finalFrame('provider-2', 'session-1'), context())).toEqual([]);
+  });
+
+  it('deduplicates duplicate observed final messages', async () => {
+    const harness = createAdapterHarness({ protocolVersion });
+    const events = collectRunEvents(harness.adapter.streamRun(runInput('app-1', 'provider-1', 'session-1')));
+    await nextTick();
+    const frame = openClawEvent('chat', {
+      eventId: 'final-1', runId: 'provider-1', sessionKey: 'session-1', state: 'final', sequence: 2,
+      message: { id: 'message-1', role: 'assistant', content: [{ type: 'text', text: 'done' }] },
+    });
+    harness.connection.pushMessage(frame);
+    harness.connection.pushMessage(frame);
+    expect((await events).filter((event) => event.type === 'run.completed')).toHaveLength(1);
+  });
+
+  it('does not infer completion from output without trustworthy finality', () => {
+    const events = codec.mapProviderEvent(codec.parseFrame(openClawEvent('chat', {
+      runId: 'provider-1', sessionKey: 'session-1', state: 'delta', sequence: 1,
+      message: { role: 'assistant', content: [{ type: 'text', text: 'partial' }] },
+    })) as Extract<ReturnType<typeof codec.parseFrame>, { type: 'event' }>, context());
+    expect(events.map((event) => event.type)).toEqual(['assistant.delta']);
+    expect(codec.parseRunWaitResponse(runInput('app-1', 'provider-1', 'session-1'), {
+      runId: 'provider-1', status: 'timeout',
+    }).status).toBe('unknown');
   });
 });
 
@@ -660,11 +837,18 @@ function eventContext() {
   };
 }
 
-function createAdapterHarness(options: { now?: Date; includeRawProviderPayload?: boolean } = {}) {
+function createAdapterHarness(options: {
+  now?: Date;
+  includeRawProviderPayload?: boolean;
+  protocolVersion?: 3 | 4;
+  logger?: RuntimeLogger;
+} = {}) {
   const connection = new FakeWebSocketConnection();
-  const dispatcher = createDispatcher(connection);
+  const codec = options.protocolVersion === 3 ? openClawV3Codec() : openClawV4Codec();
+  const dispatcher = createDispatcher(connection, {}, codec);
   const now = options.now ?? new Date('2026-01-01T00:00:00.000Z');
   const deps = createTestDependencies({
+    ...(options.logger ? { logger: options.logger } : {}),
     clock: {
       now: () => now,
       sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
@@ -677,18 +861,18 @@ function createAdapterHarness(options: { now?: Date; includeRawProviderPayload?:
     adapter as unknown as {
       connected: {
         connection: FakeWebSocketConnection;
-        codec: ReturnType<typeof openClawV4Codec>;
+        codec: ReturnType<typeof openClawV3Codec> | ReturnType<typeof openClawV4Codec>;
         hello: { protocolVersion: number; methods: string[]; events: string[]; features: Record<string, unknown>; raw: unknown };
         dispatcher: OpenClawRequestManager;
       };
     }
   ).connected = {
     connection,
-    codec: openClawV4Codec(),
+    codec,
     hello: {
-      protocolVersion: 4,
+      protocolVersion: codec.protocolVersion,
       methods: ['chat.send', 'agent.wait', 'chat.history', 'chat.abort'],
-      events: ['chat.delta', 'chat.completed', 'chat.failed', 'chat.cancelled'],
+      events: ['chat', 'chat.delta', 'chat.completed', 'chat.failed', 'chat.cancelled'],
       features: {},
       raw: {},
     },
@@ -772,8 +956,9 @@ function openClawEvent(event: string, payload: Record<string, unknown>): string 
 function createDispatcher(
   connection: FakeWebSocketConnection,
   options: Partial<ConstructorParameters<typeof OpenClawRequestManager>[2]> = {},
+  codec: ReturnType<typeof openClawV3Codec> | ReturnType<typeof openClawV4Codec> = openClawV4Codec(),
 ) {
-  return new OpenClawRequestManager(connection, openClawV4Codec(), {
+  return new OpenClawRequestManager(connection, codec, {
     requestTimeoutMs: 100,
     ...options,
   });

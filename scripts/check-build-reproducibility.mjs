@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { execFile } from 'node:child_process';
-import { cp, mkdtemp, readFile, rm } from 'node:fs/promises';
+import { cp, mkdtemp, readFile, readdir, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, relative } from 'node:path';
 import { promisify } from 'node:util';
@@ -9,6 +9,7 @@ import { releaseConfig, root, sha256File } from './lib/release-config.mjs';
 const exec = promisify(execFile);
 const temp = await mkdtemp(join(tmpdir(), 'agent-runtime-repro-'));
 const ignored = new Set(['.git', 'node_modules', 'dist', 'artifacts', '.release-pack', '.runtime-state', 'coverage']);
+const commitSha = (await exec('git', ['rev-parse', 'HEAD'], { cwd: root })).stdout.trim();
 
 try {
   const builds = [];
@@ -25,24 +26,50 @@ try {
       ['pnpm', ['install', '--frozen-lockfile', '--ignore-scripts']],
       ['pnpm', ['build']],
       ['pnpm', ['api:extract']],
+      ['pnpm', ['api:check']],
+      ['pnpm', ['docs:check']],
       [process.execPath, ['./scripts/prepare-release-packages.mjs']],
+      [process.execPath, ['./scripts/test-packed-consumer.mjs', '--use-existing']],
+      ['pnpm', ['sbom:generate']],
+      [process.execPath, ['./scripts/generate-release-manifest.mjs']],
+      [process.execPath, ['./scripts/validate-release-artifacts.mjs']],
     ]) {
-      await exec(command, args, { cwd: directory, maxBuffer: 50 * 1024 * 1024 });
+      await exec(command, args, {
+        cwd: directory,
+        env: { ...process.env, RELEASE_COMMIT_SHA: commitSha, SOURCE_DATE_EPOCH: '0' },
+        maxBuffer: 50 * 1024 * 1024,
+      });
     }
     const pack = JSON.parse(await readFile(join(directory, releaseConfig.artifactDirectory, 'pack-results.json'), 'utf8'));
-    builds.push(Object.fromEntries(await Promise.all(pack.packages.map(async (pkg) => [
-      pkg.name,
-      {
-        sha256: await sha256File(join(directory, releaseConfig.artifactDirectory, pkg.tarball)),
-        files: pkg.files,
-        sizeBytes: pkg.sizeBytes,
-      },
-    ]))));
+    builds.push({
+      packages: Object.fromEntries(await Promise.all(pack.packages.map(async (pkg) => [
+        pkg.name,
+        {
+          sha256: await sha256File(join(directory, releaseConfig.artifactDirectory, pkg.tarball)),
+          files: pkg.files,
+          sizeBytes: pkg.sizeBytes,
+        },
+      ]))),
+      declarations: await hashTree(join(directory, 'packages'), (path) => /\/dist\/.+\.d\.ts(?:\.map)?$/.test(path)),
+      apiReports: await hashTree(join(directory, 'etc', 'api'), () => true),
+      releaseArtifacts: await hashTree(join(directory, releaseConfig.artifactDirectory), () => true),
+    });
   }
   if (JSON.stringify(builds[0]) !== JSON.stringify(builds[1])) {
     throw new Error('Two isolated builds produced different package manifests or checksums.');
   }
-  console.log(`Reproducibility check passed for ${Object.keys(builds[0]).length} package archives across two isolated builds.`);
+  console.log(`Reproducibility check passed for ${Object.keys(builds[0].packages).length} package archives, declarations, API reports, SBOM, dependency inventories, and manifests across two isolated builds.`);
 } finally {
   await rm(temp, { recursive: true, force: true });
+}
+
+async function hashTree(directory, include, prefix = '') {
+  const output = {};
+  for (const entry of await readdir(directory, { withFileTypes: true })) {
+    const relativePath = prefix ? `${prefix}/${entry.name}` : entry.name;
+    const absolutePath = join(directory, entry.name);
+    if (entry.isDirectory()) Object.assign(output, await hashTree(absolutePath, include, relativePath));
+    else if (include(`/${relativePath}`)) output[relativePath] = await sha256File(absolutePath);
+  }
+  return output;
 }

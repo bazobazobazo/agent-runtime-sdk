@@ -77,8 +77,28 @@ jobs:
       - name: Setup Node.js trusted publishing
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
-          node-version: 22.x
+          node-version: '22.14.0'
           registry-url: https://registry.npmjs.org
+          package-manager-cache: 'false'
+      - name: Install supported npm CLI
+        run: npm install --global npm@11.5.1
+      - name: Verify publication toolchain
+        run: |
+          node --version
+          npm --version
+          node -e "
+          const actual = process.versions.node.split('.').map(Number);
+          const minimum = [22, 14, 0];
+          const index = actual.findIndex((part, position) => part !== minimum[position]);
+          if (index >= 0 && actual[index] < minimum[index]) process.exit(1);
+          "
+          node -e "
+          const { execFileSync } = require('node:child_process');
+          const actual = execFileSync('npm', ['--version'], { encoding: 'utf8' }).trim().split('.').map(Number);
+          const minimum = [11, 5, 1];
+          const index = actual.findIndex((part, position) => part !== minimum[position]);
+          if (index >= 0 && actual[index] < minimum[index]) process.exit(1);
+          "
       - name: Download validated artifacts
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
@@ -90,11 +110,12 @@ jobs:
         run: |
           test "$GITHUB_REF" = "refs/tags/v$RELEASE_VERSION"
           test "$(node -p "require('./artifacts/release/release-manifest.json').sdkVersion")" = "$RELEASE_VERSION"
+          test "$(node -p "require('./artifacts/release/release-manifest.json').distTag")" = "next"
           test "$(node -p "require('./artifacts/release/release-manifest.json').publicationStatus")" = "not-published"
       - name: Publish six approved tarballs with provenance
         run: |
           set -euo pipefail
           test "$(find artifacts/release/tarballs -maxdepth 1 -name '*.tgz' | wc -l)" -eq 6
           for tarball in artifacts/release/tarballs/*.tgz; do
-            npm publish "$tarball" --access public --provenance
+            npm publish "$tarball" --access public --tag next --provenance
           done
