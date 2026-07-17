@@ -18,8 +18,8 @@ The reviewed prerelease channel is `next`; this alpha must not update `latest`.
   resilience/stress hardening, and a gated live compatibility harness.
 - ESM-only Node.js support, strict package/export boundaries, safe credential
   and network-policy ports, and deterministic release artifacts.
-- Migration guidance from `@telegraphic-dev/openclaw-gateway-client`; durable
-  host integration remains a separate application-owned layer.
+- Generic adapter-adoption guidance; durable host integration remains a
+  separate application-owned layer.
 
 ## Evidence and limitations
 
@@ -28,11 +28,11 @@ The reviewed prerelease channel is `next`; this alpha must not update `latest`.
 - The API is pre-alpha and has no stable guarantee before 1.0.
 - Codex and Pi are not supported.
 - ACP is not implemented.
-- Image/file input is capability-dependent.
-- Host integration is separate, and the core SDK has no common scheduling API.
+- Image/file input and scheduling are capability-dependent.
+- Host integration remains separate from SDK runtime communication.
 - Runtime-specific behavior may change in upstream products.
 
 Attach the release manifest, SHA-256 checksums, SPDX SBOM, compatibility report,
-and migration notes to a future draft GitHub release before final publication.
+and adoption notes to a future draft GitHub release before final publication.
 After approved publication, all six packages will use `{{VERSION}}` under the
 `next` dist-tag.

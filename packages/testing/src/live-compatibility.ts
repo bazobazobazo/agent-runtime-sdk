@@ -659,6 +659,7 @@ function disabledCapabilities(): RuntimeCapabilities {
     input: { text: false, images: false, files: false },
     output: { text: false, reasoning: false, tools: false, usage: false },
     health: { liveness: false, readiness: false },
+    schedules: { create: false, get: false, list: false, update: false, delete: false, enable: false, pause: false, trigger: false, history: false },
     extensions: {},
   };
 }

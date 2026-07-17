@@ -24,6 +24,7 @@ const commands = [
   ['pnpm', ['package:check']],
   ['pnpm', ['package:contents']],
   ['pnpm', ['consumer:check']],
+  ['pnpm', ['registry:consumer-check']],
   ['pnpm', ['independence:check']],
   ['pnpm', ['secret:scan']],
   ['pnpm', ['unicode:check']],

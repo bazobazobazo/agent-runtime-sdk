@@ -24,6 +24,8 @@ export type FakeOpenClawRun = {
   sequence: number;
 };
 
+export type FakeOpenClawSchedule = Record<string, unknown> & { id: string };
+
 export type FakeOpenClawServerOptions = {
   authToken?: string;
   failureMode?: FakeOpenClawFailureMode;
@@ -32,6 +34,7 @@ export type FakeOpenClawServerOptions = {
   unresolvedRuns?: boolean;
   duplicateEvents?: boolean;
   sequenceGap?: boolean;
+  uncertainScheduleCreation?: boolean;
 };
 
 type RequestFrame = { type: 'req'; id: string; method: string; params?: Record<string, unknown> };
@@ -43,6 +46,8 @@ abstract class FakeOpenClawServerBase implements RuntimeWebSocketFactory {
 
   readonly runs = new Map<string, FakeOpenClawRun>();
   readonly sessions = new Set<string>();
+  readonly schedules = new Map<string, FakeOpenClawSchedule>();
+  readonly receivedAttachments: unknown[] = [];
   readonly receivedIdempotencyKeys: string[] = [];
   readonly receivedProtocolVersions: number[] = [];
   readonly receivedMethods: string[] = [];
@@ -226,6 +231,7 @@ abstract class FakeOpenClawServerBase implements RuntimeWebSocketFactory {
       const sessionKey = stringValue(request.params?.sessionKey) ?? 'session-unknown';
       const idempotencyKey = stringValue(request.params?.idempotencyKey);
       if (idempotencyKey) this.receivedIdempotencyKeys.push(idempotencyKey);
+      if (Array.isArray(request.params?.attachments)) this.receivedAttachments.push(...request.params.attachments);
       this.runs.set(runId, { id: runId, sessionKey, status: 'running', sequence: 0 });
       connection.pushMessage({ type: 'res', id: request.id, ok: true, payload: this.runStartPayload(runId) });
       return;
@@ -247,6 +253,58 @@ abstract class FakeOpenClawServerBase implements RuntimeWebSocketFactory {
       const run = this.runs.get(runId);
       if (run && !terminalStatus(run.status)) run.status = 'cancelled';
       connection.pushMessage({ type: 'res', id: request.id, ok: true, payload: this.cancelPayload(runId) });
+      return;
+    }
+    if (request.method === 'cron.add') {
+      const job = recordValue(request.params?.job);
+      const metadata = recordValue(job.metadata);
+      const idempotencyKey = stringValue(request.params?.idempotencyKey) ?? stringValue(metadata.idempotencyKey);
+      const existing = idempotencyKey ? [...this.schedules.values()].find((item) => stringValue(recordValue(item.metadata).idempotencyKey) === idempotencyKey) : undefined;
+      const schedule = existing ?? { ...job, id: `openclaw-v${this.protocolVersion}-schedule-${this.schedules.size + 1}`, enabled: job.enabled !== false };
+      this.schedules.set(schedule.id, schedule);
+      if (this.options.uncertainScheduleCreation) {
+        this.options.uncertainScheduleCreation = false;
+        connection.pushMessage({ type: 'res', id: request.id, error: { code: 'TIMEOUT', message: 'synthetic acceptance timeout' } });
+        return;
+      }
+      connection.pushMessage({ type: 'res', id: request.id, ok: true, payload: { jobId: schedule.id, job: schedule } });
+      return;
+    }
+    if (request.method === 'cron.list') {
+      connection.pushMessage({ type: 'res', id: request.id, ok: true, payload: { jobs: [...this.schedules.values()] } });
+      return;
+    }
+    if (request.method === 'cron.get') {
+      const jobId = stringValue(request.params?.jobId) ?? '';
+      const job = this.schedules.get(jobId);
+      connection.pushMessage(job ? { type: 'res', id: request.id, ok: true, payload: { jobId, job } } : { type: 'res', id: request.id, error: { code: 'NOT_FOUND', message: 'schedule not found' } });
+      return;
+    }
+    if (request.method === 'cron.update') {
+      const jobId = stringValue(request.params?.jobId) ?? '';
+      const current = this.schedules.get(jobId);
+      if (!current) connection.pushMessage({ type: 'res', id: request.id, error: { code: 'NOT_FOUND', message: 'schedule not found' } });
+      else {
+        const updated = { ...current, ...recordValue(request.params?.patch), id: jobId };
+        this.schedules.set(jobId, updated);
+        connection.pushMessage({ type: 'res', id: request.id, ok: true, payload: { jobId, job: updated } });
+      }
+      return;
+    }
+    if (request.method === 'cron.remove') {
+      const jobId = stringValue(request.params?.jobId ?? request.params?.id) ?? '';
+      this.schedules.delete(jobId);
+      connection.pushMessage({ type: 'res', id: request.id, ok: true, payload: { removed: true, jobId } });
+      return;
+    }
+    if (request.method === 'cron.run') {
+      const jobId = stringValue(request.params?.jobId) ?? '';
+      connection.pushMessage({ type: 'res', id: request.id, ok: true, payload: { jobId, runId: `${jobId}-execution-1`, status: 'completed', completedAt: '2026-07-17T00:00:00.000Z' } });
+      return;
+    }
+    if (request.method === 'cron.runs') {
+      const jobId = stringValue(request.params?.jobId) ?? '';
+      connection.pushMessage({ type: 'res', id: request.id, ok: true, payload: { entries: [{ jobId, runId: `${jobId}-execution-1`, status: 'completed', completedAt: '2026-07-17T00:00:00.000Z' }] } });
       return;
     }
     connection.pushMessage({ type: 'res', id: request.id, error: { code: 'INVALID_REQUEST', message: 'unsupported fake method' } });
@@ -310,9 +368,9 @@ export class FakeOpenClawV3Server extends FakeOpenClawServerBase {
       protocol: 3,
       serverVersion: this.runtimeVersion,
       connectionId: 'fake-v3-connection',
-      methods: ['sessions.create', 'chat.send', 'agent.wait', 'chat.history', 'chat.abort'],
+      methods: ['sessions.create', 'chat.send', 'agent.wait', 'chat.history', 'chat.abort', 'cron.add', 'cron.get', 'cron.list', 'cron.update', 'cron.remove', 'cron.run', 'cron.runs'],
       events: ['connect.challenge', 'chat.delta', 'chat.completed', 'chat.failed', 'chat.cancelled'],
-      features: { wireGeneration: 'v3' },
+      features: { wireGeneration: 'v3', attachments: ['image', 'file'] },
     };
   }
 
@@ -335,9 +393,9 @@ export class FakeOpenClawV4Server extends FakeOpenClawServerBase {
       protocolVersion: 4,
       version: this.runtimeVersion,
       server: { connId: 'fake-v4-connection', version: this.runtimeVersion },
-      methods: ['sessions.create', 'chat.send', 'agent.wait', 'chat.history', 'chat.abort'],
+      methods: ['sessions.create', 'chat.send', 'agent.wait', 'chat.history', 'chat.abort', 'cron.add', 'cron.get', 'cron.list', 'cron.update', 'cron.remove', 'cron.run', 'cron.runs'],
       events: ['connect.challenge', 'session.delta', 'session.completed', 'session.failed', 'session.cancelled'],
-      features: { methods: ['sessions.create', 'chat.send', 'agent.wait', 'chat.history', 'chat.abort'], events: ['session.delta', 'session.completed'], wireGeneration: 'v4' },
+      features: { methods: ['sessions.create', 'chat.send', 'agent.wait', 'chat.history', 'chat.abort', 'cron.add', 'cron.get', 'cron.list', 'cron.update', 'cron.remove', 'cron.run', 'cron.runs'], events: ['session.delta', 'session.completed'], wireGeneration: 'v4', attachments: { images: true, files: true } },
     };
   }
 

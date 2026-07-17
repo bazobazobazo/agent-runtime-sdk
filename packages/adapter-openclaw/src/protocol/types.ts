@@ -1,13 +1,17 @@
 import type {
   CancelRuntimeRunInput,
+  CreateRuntimeScheduleInput,
   EnsureSessionInput,
   GetRuntimeHistoryInput,
   GetRuntimeRunInput,
+  GetRuntimeScheduleInput,
+  ListRuntimeSchedulesInput,
   RuntimeAdapterDependencies,
   RuntimeCapabilities,
   RuntimeEvent,
   RuntimeRunSnapshot,
   StartRuntimeRunInput,
+  UpdateRuntimeScheduleInput,
 } from '@banzae/agent-runtime-core';
 import type { RuntimeError } from '@banzae/agent-runtime-core';
 
@@ -132,4 +136,13 @@ export interface OpenClawProtocolCodec {
   buildRunWait(input: GetRuntimeRunInput): OpenClawRpcRequest;
   buildHistory(input: GetRuntimeHistoryInput): OpenClawRpcRequest;
   buildCancel(input: CancelRuntimeRunInput): OpenClawRpcRequest;
+  buildScheduleCreate(input: CreateRuntimeScheduleInput): OpenClawRpcRequest;
+  buildScheduleGet(input: GetRuntimeScheduleInput): OpenClawRpcRequest;
+  buildScheduleList(input?: ListRuntimeSchedulesInput): OpenClawRpcRequest;
+  buildScheduleUpdate(input: UpdateRuntimeScheduleInput): OpenClawRpcRequest;
+  buildScheduleDelete(input: GetRuntimeScheduleInput): OpenClawRpcRequest;
+  buildScheduleEnable(input: GetRuntimeScheduleInput, enabled: boolean): OpenClawRpcRequest;
+  buildSchedulePause(input: GetRuntimeScheduleInput, paused: boolean): OpenClawRpcRequest;
+  buildScheduleTrigger(input: GetRuntimeScheduleInput): OpenClawRpcRequest;
+  buildScheduleHistory(input: GetRuntimeScheduleInput & ListRuntimeSchedulesInput): OpenClawRpcRequest;
 }

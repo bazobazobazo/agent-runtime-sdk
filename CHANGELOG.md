@@ -10,13 +10,14 @@ fixed version for the six public packages during the initial alpha series.
 - Provider-neutral runtime contracts for sessions, runs, events, approvals,
   cancellation, health, capabilities, `OUTCOME_UNKNOWN`, and normalized errors.
 - OpenClaw wire protocol v3 and v4 implementation.
+- Capability-negotiated OpenClaw images/files and full schedule lifecycle with
+  uncertain-acceptance reconciliation.
 - Hermes Runs HTTP/SSE implementation.
 - Safe runtime detection, adapter conformance, fuzz/resilience hardening, and an
   opt-in live compatibility harness.
 - Six ESM-only Node.js packages, testing utilities, strict package boundaries,
   deterministic release artifacts, and protected trusted-publishing preparation.
-- Migration guidance from the Telegraphic client and product-neutral host
-  application integration guidance.
+- Generic runtime-adapter adoption and host application integration guidance.
 
 ### Fixed
 
@@ -30,8 +31,7 @@ fixed version for the six public packages during the initial alpha series.
 - Pre-alpha API with no stable compatibility guarantee before 1.0.
 - Hermes full live run/stream/approval/cancellation validation remains pending.
 - Codex and Pi are unsupported private placeholders.
-- ACP is not implemented. Image/file input is capability-dependent, and no
-  common scheduling API exists in the core SDK.
+- ACP is not implemented. Image/file input and scheduling are capability-dependent.
 - Durable host application integration remains a separate ownership layer.
 - Runtime-specific behavior may change in upstream products.
 

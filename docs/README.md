@@ -12,6 +12,8 @@ This documentation set is intended for SDK users who do not want to inspect sour
 - [capabilities.md](./capabilities.md)
 - [sessions.md](./sessions.md)
 - [runs.md](./runs.md)
+- [attachments.md](./attachments.md)
+- [scheduling.md](./scheduling.md)
 - [streaming.md](./streaming.md)
 - [approvals.md](./approvals.md)
 - [error-model.md](./error-model.md)
@@ -32,13 +34,13 @@ This documentation set is intended for SDK users who do not want to inspect sour
 - [release-candidate-baseline.md](./release-candidate-baseline.md)
 - [release-operator-checklist.md](./release-operator-checklist.md)
 - [known-limitations.md](./known-limitations.md)
-- [release-migration-summary.md](./release-migration-summary.md)
+- [adapter-adoption.md](./adapter-adoption.md)
 - [release-security-summary.md](./release-security-summary.md)
 - [release-validation-report.md](./release-validation-report.md)
 
 ## Migration and operations
 
-- [migration-from-telegraphic.md](./migration-from-telegraphic.md)
+- [adapter-adoption.md](./adapter-adoption.md)
 - [migration-public-api-freeze.md](./migration-public-api-freeze.md)
 - [migration-security-resilience.md](./migration-security-resilience.md)
 

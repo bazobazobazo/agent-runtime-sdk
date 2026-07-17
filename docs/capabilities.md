@@ -9,6 +9,7 @@
 | Input | `text`, `images`, `files` |
 | Output | `text`, `reasoning`, `tools`, `usage` |
 | Health | `liveness`, `readiness` |
+| Schedules | `create`, `get`, `list`, `update`, `delete`, `enable`, `pause`, `trigger`, `history` |
 
 Provider-specific capability values must use namespaced `extensions` keys.
 

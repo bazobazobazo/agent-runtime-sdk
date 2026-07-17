@@ -164,9 +164,10 @@ function openClawCapabilities(protocol: 3 | 4): RuntimeCapabilities {
     schemaVersion: 1,
     sessions: { create: true, resume: true, history: true, fork: false },
     runs: { start: true, status: true, stream: true, cancel: true, approvals: false },
-    input: { text: true, images: false, files: false },
+    input: { text: true, images: true, files: true },
     output: { text: true, reasoning: false, tools: false, usage: false },
     health: { liveness: true, readiness: false },
-    extensions: { 'openclaw.cron': false, 'openclaw.channels': false, 'openclaw.protocol': protocol },
+    schedules: { create: true, get: true, list: true, update: true, delete: true, enable: true, pause: true, trigger: true, history: true },
+    extensions: { 'openclaw.cron': true, 'openclaw.channels': false, 'openclaw.protocol': protocol },
   };
 }

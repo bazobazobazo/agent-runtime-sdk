@@ -115,6 +115,7 @@ export function createRuntimeAdapterConformanceSuite<TTarget extends RuntimeConf
         input: { text: false, images: false, files: false },
         output: { text: false, reasoning: false, tools: false, usage: false },
         health: { liveness: false, readiness: false },
+        schedules: { create: false, get: false, list: false, update: false, delete: false, enable: false, pause: false, trigger: false, history: false },
         extensions: {},
       }, 'pre-connect capabilities');
       assertEqual((await adapter.health()).status, 'unavailable', 'pre-connect health');

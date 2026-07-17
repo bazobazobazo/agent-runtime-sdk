@@ -9,7 +9,10 @@ const exec = promisify(execFile);
 const root = new URL('..', import.meta.url).pathname;
 const productWord = ['for', 'ge'].join('');
 const consumerWord = ['agent', 'hub'].join('');
+const previousLibraryWord = ['tele', 'graphic'].join('');
 const disallowed = [
+  previousLibraryWord,
+  ['@', previousLibraryWord, '-dev/openclaw-gateway-client'].join(''),
   consumerWord,
   ['agent', 'hub'].join(' '),
   ['banzae', productWord].join(''),

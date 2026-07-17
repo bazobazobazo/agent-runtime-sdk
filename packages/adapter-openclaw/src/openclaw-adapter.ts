@@ -1,13 +1,17 @@
 import {
   RuntimeError,
   NO_CAPABILITIES,
+  SECURE_RUNTIME_LIMITS,
   isTerminalEvent,
   type AgentRuntimeAdapter,
   type CancelRuntimeRunInput,
+  type CreateRuntimeScheduleInput,
   type ConnectOptions,
   type EnsureSessionInput,
   type GetRuntimeHistoryInput,
   type GetRuntimeRunInput,
+  type GetRuntimeScheduleInput,
+  type ListRuntimeSchedulesInput,
   type OperationOptions,
   type ProbeOptions,
   type RuntimeAdapterDependencies,
@@ -23,9 +27,14 @@ import {
   type RuntimeRunHandle,
   type RuntimeRunSnapshot,
   type RuntimeSession,
+  type RuntimeSchedule,
+  type RuntimeScheduleExecution,
+  type RuntimeScheduleExecutionPage,
+  type RuntimeSchedulePage,
   type RuntimeTarget,
   type StartRuntimeRunInput,
   type StreamRuntimeRunInput,
+  type UpdateRuntimeScheduleInput,
   type RuntimeWebSocketConnection,
 } from '@banzae/agent-runtime-core';
 import {
@@ -34,6 +43,7 @@ import {
   normalizeEndpoint,
   runtimeEventBase,
   validateInputCapabilities,
+  validateRuntimeAttachments,
   withDeadline,
 } from '@banzae/agent-runtime-core/experimental';
 import { OpenClawRequestManager } from './transport/request-manager.js';
@@ -62,6 +72,8 @@ export type OpenClawAdapterOptions = {
   maxFrameBytes?: number;
   subscriberQueueSize?: number;
   includeRawProviderPayload?: boolean;
+  maxAttachmentBytes?: number;
+  maxAttachmentCount?: number;
 };
 
 type ConnectedState = {
@@ -247,6 +259,10 @@ export class OpenClawAdapter implements AgentRuntimeAdapter {
     const capabilities = await this.capabilities();
     if (!capabilities.runs.start) throw unsupported('OpenClaw run start is unavailable');
     validateInputCapabilities(capabilities, input.input);
+    validateRuntimeAttachments(input.input.attachments, {
+      maxCount: this.options.maxAttachmentCount ?? SECURE_RUNTIME_LIMITS.maxAttachmentCount,
+      maxBytes: this.options.maxAttachmentBytes ?? SECURE_RUNTIME_LIMITS.maxAttachmentBytes,
+    });
     const state = this.requireConnected();
     const eventCursor = state.dispatcher.eventCursor();
     const historyBaseline = await this.captureHistoryBaseline(state, input, options?.signal);
@@ -328,6 +344,81 @@ export class OpenClawAdapter implements AgentRuntimeAdapter {
     if (!state.codec.capabilities(state.hello).sessions.history) throw unsupported('OpenClaw session history is unavailable');
     const payload = await state.dispatcher.request(state.codec.buildHistory(input), { signal: options?.signal });
     return { messages: normalizeOpenClawHistory(payload) };
+  }
+
+  async createSchedule(input: CreateRuntimeScheduleInput, options?: OperationOptions): Promise<RuntimeSchedule> {
+    assertScheduleCreate(input);
+    const state = this.requireScheduleCapability('create');
+    const existing = await this.findScheduleByIdempotencyKey(state, input.idempotencyKey, options?.signal);
+    if (existing) return existing;
+    try {
+      const payload = await state.dispatcher.request(state.codec.buildScheduleCreate(input), { signal: options?.signal });
+      return normalizeSchedule(payload, input);
+    } catch (error) {
+      if (error instanceof RuntimeError && !['NETWORK', 'TIMEOUT'].includes(error.code)) throw error;
+      const reconciled = await this.findScheduleByIdempotencyKey(state, input.idempotencyKey, options?.signal).catch(() => undefined);
+      if (reconciled) return reconciled;
+      throw new RuntimeError({ code: 'OUTCOME_UNKNOWN', retryable: true, adapterId: this.adapterId, operation: 'schedule.create', message: 'OpenClaw schedule creation outcome is unknown', cause: error });
+    }
+  }
+
+  async getSchedule(input: GetRuntimeScheduleInput, options?: OperationOptions): Promise<RuntimeSchedule> {
+    const state = this.requireScheduleCapability('get');
+    if (state.codec.supportsMethod('cron.get', state.hello)) {
+      return normalizeSchedule(await state.dispatcher.request(state.codec.buildScheduleGet(input), { signal: options?.signal }));
+    }
+    const page = await this.listSchedules({}, options);
+    const schedule = page.schedules.find((item) => item.externalScheduleId === input.externalScheduleId);
+    if (!schedule) throw new RuntimeError({ code: 'NOT_FOUND', retryable: false, adapterId: this.adapterId, message: 'OpenClaw schedule was not found' });
+    return schedule;
+  }
+
+  async listSchedules(input: ListRuntimeSchedulesInput = {}, options?: OperationOptions): Promise<RuntimeSchedulePage> {
+    const state = this.requireScheduleCapability('list');
+    const payload = await state.dispatcher.request(state.codec.buildScheduleList(input), { signal: options?.signal });
+    return normalizeSchedulePage(payload);
+  }
+
+  async updateSchedule(input: UpdateRuntimeScheduleInput, options?: OperationOptions): Promise<RuntimeSchedule> {
+    const state = this.requireScheduleCapability('update');
+    const payload = await state.dispatcher.request(state.codec.buildScheduleUpdate(input), { signal: options?.signal });
+    return normalizeSchedule(payload, input);
+  }
+
+  async deleteSchedule(input: GetRuntimeScheduleInput, options?: OperationOptions): Promise<void> {
+    const state = this.requireScheduleCapability('delete');
+    await state.dispatcher.request(state.codec.buildScheduleDelete(input), { signal: options?.signal });
+  }
+
+  async enableSchedule(input: GetRuntimeScheduleInput, options?: OperationOptions): Promise<void> {
+    const state = this.requireScheduleCapability('enable');
+    await state.dispatcher.request(state.codec.buildScheduleEnable(input, true), { signal: options?.signal });
+  }
+
+  async disableSchedule(input: GetRuntimeScheduleInput, options?: OperationOptions): Promise<void> {
+    const state = this.requireScheduleCapability('enable');
+    await state.dispatcher.request(state.codec.buildScheduleEnable(input, false), { signal: options?.signal });
+  }
+
+  async pauseSchedule(input: GetRuntimeScheduleInput, options?: OperationOptions): Promise<void> {
+    const state = this.requireScheduleCapability('pause');
+    await state.dispatcher.request(state.codec.buildSchedulePause(input, true), { signal: options?.signal });
+  }
+
+  async resumeSchedule(input: GetRuntimeScheduleInput, options?: OperationOptions): Promise<void> {
+    const state = this.requireScheduleCapability('pause');
+    await state.dispatcher.request(state.codec.buildSchedulePause(input, false), { signal: options?.signal });
+  }
+
+  async triggerSchedule(input: GetRuntimeScheduleInput, options?: OperationOptions): Promise<RuntimeScheduleExecution> {
+    const state = this.requireScheduleCapability('trigger');
+    return normalizeScheduleExecution(await state.dispatcher.request(state.codec.buildScheduleTrigger(input), { signal: options?.signal }), input.externalScheduleId);
+  }
+
+  async getScheduleHistory(input: GetRuntimeScheduleInput & ListRuntimeSchedulesInput, options?: OperationOptions): Promise<RuntimeScheduleExecutionPage> {
+    const state = this.requireScheduleCapability('history');
+    const payload = await state.dispatcher.request(state.codec.buildScheduleHistory(input), { signal: options?.signal });
+    return normalizeScheduleExecutionPage(payload, input.externalScheduleId);
   }
 
   async close(): Promise<void> {
@@ -539,6 +630,18 @@ export class OpenClawAdapter implements AgentRuntimeAdapter {
       });
     }
     return this.connected;
+  }
+
+  private requireScheduleCapability(capability: keyof NonNullable<RuntimeCapabilities['schedules']>): ConnectedState {
+    const state = this.requireConnected();
+    if (state.codec.capabilities(state.hello).schedules?.[capability] !== true) throw unsupported(`OpenClaw schedule ${capability} is unavailable`);
+    return state;
+  }
+
+  private async findScheduleByIdempotencyKey(state: ConnectedState, key: string, signal?: AbortSignal): Promise<RuntimeSchedule | undefined> {
+    if (!state.codec.capabilities(state.hello).schedules?.list) return undefined;
+    const page = normalizeSchedulePage(await state.dispatcher.request(state.codec.buildScheduleList({ limit: 100 }), { signal }));
+    return page.schedules.find((schedule) => schedule.idempotencyKey === key);
   }
 
   private mapRunStartTransportError(error: unknown): RuntimeError {
@@ -892,6 +995,124 @@ async function waitForChallenge(
 
 function unsupported(message: string): RuntimeError {
   return new RuntimeError({ code: 'UNSUPPORTED_CAPABILITY', retryable: false, adapterId: 'openclaw', message });
+}
+
+function assertScheduleCreate(input: CreateRuntimeScheduleInput): void {
+  if (!input.idempotencyKey.trim() || !input.payload.text.trim()) {
+    throw new RuntimeError({ code: 'INVALID_REQUEST', retryable: false, adapterId: 'openclaw', message: 'Schedule idempotency key and text are required' });
+  }
+  if (new TextEncoder().encode(input.payload.text).byteLength > 64_000) {
+    throw new RuntimeError({ code: 'INVALID_REQUEST', retryable: false, adapterId: 'openclaw', message: 'Schedule payload exceeds the size limit' });
+  }
+  if (input.timing.kind === 'once' && !validDate(input.timing.at)) invalidScheduleTiming();
+  if (input.timing.kind === 'interval' && (!Number.isSafeInteger(input.timing.everyMs) || input.timing.everyMs < 1_000)) invalidScheduleTiming();
+  if (input.timing.kind === 'cron' && (!input.timing.expression.trim() || input.timing.expression.length > 256)) invalidScheduleTiming();
+}
+
+function invalidScheduleTiming(): never {
+  throw new RuntimeError({ code: 'INVALID_REQUEST', retryable: false, adapterId: 'openclaw', message: 'Schedule timing is invalid' });
+}
+
+function normalizeSchedule(payload: unknown, fallback?: Partial<CreateRuntimeScheduleInput & UpdateRuntimeScheduleInput>): RuntimeSchedule {
+  const value = record(payload);
+  const nested = record(value.job);
+  const schedule = record(nested.schedule ?? value.schedule);
+  const providerPayload = record(nested.payload ?? value.payload);
+  const metadata = record(nested.metadata ?? value.metadata);
+  const externalScheduleId = safeProviderId(value.jobId ?? value.id ?? nested.jobId ?? nested.id);
+  if (!externalScheduleId) throw new RuntimeError({ code: 'INVALID_RESPONSE', retryable: false, adapterId: 'openclaw', message: 'OpenClaw schedule response omitted its id' });
+  return {
+    externalScheduleId,
+    name: safeText(nested.name ?? value.name, 256) ?? fallback?.name,
+    timing: normalizeScheduleTiming(schedule, fallback?.timing),
+    payload: {
+      text: safeText(providerPayload.message ?? providerPayload.text, 64_000) ?? fallback?.payload?.text ?? '',
+      kind: safeText(providerPayload.kind, 32) === 'systemEvent' ? 'system-event' : 'agent-turn',
+      sessionTarget: safeText(nested.sessionTarget, 256) ?? fallback?.payload?.sessionTarget,
+      deliveryChannel: safeText(record(nested.delivery).channel, 256) ?? fallback?.payload?.deliveryChannel,
+    },
+    status: scheduleStatus(nested, value),
+    nextExecutionAt: safeDate(nested.nextRunAt ?? value.nextRunAt ?? nested.nextExecutionAt),
+    previousExecutionAt: safeDate(nested.lastRunAt ?? value.lastRunAt ?? nested.previousExecutionAt),
+    idempotencyKey: safeText(metadata.idempotencyKey ?? value.idempotencyKey, 256) ?? fallback?.idempotencyKey,
+  };
+}
+
+function normalizeSchedulePage(payload: unknown): RuntimeSchedulePage {
+  const value = record(payload);
+  const items = Array.isArray(value.jobs) ? value.jobs : Array.isArray(value.schedules) ? value.schedules : Array.isArray(payload) ? payload : [];
+  const schedules = items.slice(0, 1_000).map((item) => normalizeSchedule(item));
+  return { schedules, nextCursor: safeText(value.nextCursor ?? value.cursor, 512) };
+}
+
+function normalizeScheduleTiming(value: Record<string, unknown>, fallback?: RuntimeSchedule['timing']): RuntimeSchedule['timing'] {
+  const kind = safeText(value.kind, 32);
+  if (kind === 'at' || kind === 'once') {
+    const at = safeDate(value.at);
+    if (at) return { kind: 'once', at };
+  }
+  if (kind === 'cron') {
+    const expression = safeText(value.expr ?? value.expression, 256);
+    if (expression) return { kind: 'cron', expression, timezone: safeText(value.tz ?? value.timezone, 128) };
+  }
+  if (kind === 'every' || kind === 'interval') {
+    const everyMs = value.everyMs;
+    if (typeof everyMs === 'number' && Number.isSafeInteger(everyMs) && everyMs > 0) return { kind: 'interval', everyMs, startsAt: safeDate(value.startsAt) };
+  }
+  if (fallback) return fallback;
+  throw new RuntimeError({ code: 'INVALID_RESPONSE', retryable: false, adapterId: 'openclaw', message: 'OpenClaw schedule response contained invalid timing' });
+}
+
+function normalizeScheduleExecution(payload: unknown, externalScheduleId: string): RuntimeScheduleExecution {
+  const value = record(payload);
+  return {
+    externalScheduleId,
+    executionId: safeProviderId(value.executionId ?? value.runId ?? value.id),
+    status: executionStatus(value.status ?? value.state),
+    scheduledAt: safeDate(value.scheduledAt ?? value.timestamp),
+    startedAt: safeDate(value.startedAt),
+    completedAt: safeDate(value.completedAt ?? value.finishedAt),
+  };
+}
+
+function normalizeScheduleExecutionPage(payload: unknown, externalScheduleId: string): RuntimeScheduleExecutionPage {
+  const value = record(payload);
+  const items = Array.isArray(value.entries) ? value.entries : Array.isArray(value.runs) ? value.runs : [];
+  return { executions: items.slice(0, 1_000).map((item) => normalizeScheduleExecution(item, externalScheduleId)), nextCursor: safeText(value.nextCursor ?? value.cursor, 512) };
+}
+
+function scheduleStatus(job: Record<string, unknown>, outer: Record<string, unknown>): RuntimeSchedule['status'] {
+  if (job.paused === true || outer.paused === true) return 'paused';
+  if (job.enabled === false || outer.enabled === false) return 'disabled';
+  const value = safeText(job.status ?? outer.status, 32)?.toLowerCase();
+  if (value === 'failed') return 'failed';
+  if (value === 'completed') return 'completed';
+  if (value === 'disabled') return 'disabled';
+  if (value === 'paused') return 'paused';
+  return job.enabled === true || outer.enabled === true || value === 'enabled' || value === 'active' ? 'enabled' : 'unknown';
+}
+
+function executionStatus(input: unknown): RuntimeScheduleExecution['status'] {
+  const value = safeText(input, 32)?.toLowerCase();
+  return value === 'queued' || value === 'running' || value === 'completed' || value === 'failed' || value === 'cancelled' ? value : 'unknown';
+}
+
+function record(input: unknown): Record<string, unknown> {
+  return input && typeof input === 'object' && !Array.isArray(input) ? input as Record<string, unknown> : {};
+}
+
+function safeProviderId(input: unknown): string | undefined {
+  return typeof input === 'string' && input.length > 0 && input.length <= 256 && !/[\u0000-\u001f\u007f]/.test(input) ? input : undefined;
+}
+
+function safeText(input: unknown, max: number): string | undefined {
+  return typeof input === 'string' && input.length <= max && !/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/.test(input) ? input : undefined;
+}
+
+function validDate(input: string): boolean { return Number.isFinite(Date.parse(input)); }
+function safeDate(input: unknown): string | undefined {
+  if (typeof input === 'number' && Number.isFinite(input)) return new Date(input).toISOString();
+  return typeof input === 'string' && validDate(input) ? new Date(input).toISOString() : undefined;
 }
 
 function toWebSocketEndpoint(endpoint: string): string {

@@ -56,7 +56,7 @@ const documentsOutput = join(artifactRoot, 'documents');
 await mkdir(documentsOutput, { recursive: true });
 const documents = [
   { type: 'known-limitations', source: 'known-limitations.md', output: 'known-limitations.md' },
-  { type: 'migration-summary', source: 'release-migration-summary.md', output: 'migration-summary.md' },
+  { type: 'adapter-adoption', source: 'adapter-adoption.md', output: 'adapter-adoption.md' },
   { type: 'security-summary', source: 'release-security-summary.md', output: 'security-summary.md' },
   { type: 'operator-prerequisites', source: 'release-operator-checklist.md', output: 'operator-prerequisites.md' },
   { type: 'validation-report', source: 'release-validation-report.md', output: 'validation-report.md' },

@@ -84,6 +84,14 @@
     {
       "package": "@banzae/agent-runtime-core",
       "entrypoint": ".",
+      "name": "CreateRuntimeScheduleInput",
+      "kind": "TypeAliasDeclaration",
+      "classification": "stable-for-alpha",
+      "signature": "CreateRuntimeScheduleInput"
+    },
+    {
+      "package": "@banzae/agent-runtime-core",
+      "entrypoint": ".",
       "name": "EnsureSessionInput",
       "kind": "TypeAliasDeclaration",
       "classification": "stable-for-alpha",
@@ -93,6 +101,14 @@
       "package": "@banzae/agent-runtime-core",
       "entrypoint": ".",
       "name": "ExternalRunId",
+      "kind": "TypeAliasDeclaration",
+      "classification": "stable-for-alpha",
+      "signature": "string"
+    },
+    {
+      "package": "@banzae/agent-runtime-core",
+      "entrypoint": ".",
+      "name": "ExternalScheduleId",
       "kind": "TypeAliasDeclaration",
       "classification": "stable-for-alpha",
       "signature": "string"
@@ -124,10 +140,18 @@
     {
       "package": "@banzae/agent-runtime-core",
       "entrypoint": ".",
+      "name": "GetRuntimeScheduleInput",
+      "kind": "TypeAliasDeclaration",
+      "classification": "stable-for-alpha",
+      "signature": "GetRuntimeScheduleInput"
+    },
+    {
+      "package": "@banzae/agent-runtime-core",
+      "entrypoint": ".",
       "name": "HARD_RUNTIME_LIMITS",
       "kind": "VariableDeclaration",
       "classification": "stable-for-alpha",
-      "signature": "Readonly<Record<\"maxJsonBodyBytes\" | \"maxHttpHeaderBytes\" | \"maxWebSocketFrameBytes\" | \"maxSseLineBytes\" | \"maxSseEventBytes\" | \"maxSsePendingBytes\" | \"maxRawPayloadDepth\" | \"maxRawPayloadKeys\" | \"maxDiagnosticArrayItems\" | \"maxDiagnosticStringLength\" | \"maxRedirects\" | \"maxEventSubscriberQueue\" | \"maxDeduplicationEntries\" | \"maxReconnectAttempts\" | \"maxReconciliationMs\" | \"maxErrorDetailBytes\" | \"maxFixtureCandidateBytes\" | \"maxCompatibilityReportBytes\", number>>"
+      "signature": "Readonly<Record<\"maxJsonBodyBytes\" | \"maxHttpHeaderBytes\" | \"maxWebSocketFrameBytes\" | \"maxSseLineBytes\" | \"maxSseEventBytes\" | \"maxSsePendingBytes\" | \"maxRawPayloadDepth\" | \"maxRawPayloadKeys\" | \"maxDiagnosticArrayItems\" | \"maxDiagnosticStringLength\" | \"maxRedirects\" | \"maxEventSubscriberQueue\" | \"maxDeduplicationEntries\" | \"maxReconnectAttempts\" | \"maxReconciliationMs\" | \"maxErrorDetailBytes\" | \"maxFixtureCandidateBytes\" | \"maxCompatibilityReportBytes\" | \"maxAttachmentBytes\" | \"maxAttachmentCount\", number>>"
     },
     {
       "package": "@banzae/agent-runtime-core",
@@ -184,6 +208,14 @@
       "kind": "FunctionDeclaration",
       "classification": "stable-for-alpha",
       "signature": "(status: import(\"./types.js\").RuntimeRunStatus) => boolean"
+    },
+    {
+      "package": "@banzae/agent-runtime-core",
+      "entrypoint": ".",
+      "name": "ListRuntimeSchedulesInput",
+      "kind": "TypeAliasDeclaration",
+      "classification": "stable-for-alpha",
+      "signature": "ListRuntimeSchedulesInput"
     },
     {
       "package": "@banzae/agent-runtime-core",
@@ -668,6 +700,54 @@
     {
       "package": "@banzae/agent-runtime-core",
       "entrypoint": ".",
+      "name": "RuntimeSchedule",
+      "kind": "TypeAliasDeclaration",
+      "classification": "stable-for-alpha",
+      "signature": "RuntimeSchedule"
+    },
+    {
+      "package": "@banzae/agent-runtime-core",
+      "entrypoint": ".",
+      "name": "RuntimeScheduleExecution",
+      "kind": "TypeAliasDeclaration",
+      "classification": "stable-for-alpha",
+      "signature": "RuntimeScheduleExecution"
+    },
+    {
+      "package": "@banzae/agent-runtime-core",
+      "entrypoint": ".",
+      "name": "RuntimeScheduleExecutionPage",
+      "kind": "TypeAliasDeclaration",
+      "classification": "stable-for-alpha",
+      "signature": "RuntimeScheduleExecutionPage"
+    },
+    {
+      "package": "@banzae/agent-runtime-core",
+      "entrypoint": ".",
+      "name": "RuntimeSchedulePage",
+      "kind": "TypeAliasDeclaration",
+      "classification": "stable-for-alpha",
+      "signature": "RuntimeSchedulePage"
+    },
+    {
+      "package": "@banzae/agent-runtime-core",
+      "entrypoint": ".",
+      "name": "RuntimeSchedulePayload",
+      "kind": "TypeAliasDeclaration",
+      "classification": "stable-for-alpha",
+      "signature": "RuntimeSchedulePayload"
+    },
+    {
+      "package": "@banzae/agent-runtime-core",
+      "entrypoint": ".",
+      "name": "RuntimeScheduleTiming",
+      "kind": "TypeAliasDeclaration",
+      "classification": "stable-for-alpha",
+      "signature": "RuntimeScheduleTiming"
+    },
+    {
+      "package": "@banzae/agent-runtime-core",
+      "entrypoint": ".",
       "name": "RuntimeSecret",
       "kind": "TypeAliasDeclaration",
       "classification": "stable-for-alpha",
@@ -767,7 +847,7 @@
       "name": "SECURE_RUNTIME_LIMITS",
       "kind": "VariableDeclaration",
       "classification": "stable-for-alpha",
-      "signature": "Readonly<{ maxJsonBodyBytes: 1000000; maxHttpHeaderBytes: 32000; maxWebSocketFrameBytes: 1000000; maxSseLineBytes: 64000; maxSseEventBytes: 1000000; maxSsePendingBytes: 1000000; maxRawPayloadDepth: 8; maxRawPayloadKeys: 1000; maxDiagnosticArrayItems: 100; maxDiagnosticStringLength: 4000; maxRedirects: 0; maxEventSubscriberQueue: 256; maxDeduplicationEntries: 1024; maxReconnectAttempts: 2; maxReconciliationMs: 30000; maxErrorDetailBytes: 64000; maxFixtureCandidateBytes: 2000000; maxCompatibilityReportBytes: 2000000; }>"
+      "signature": "Readonly<{ maxJsonBodyBytes: 1000000; maxHttpHeaderBytes: 32000; maxWebSocketFrameBytes: 1000000; maxSseLineBytes: 64000; maxSseEventBytes: 1000000; maxSsePendingBytes: 1000000; maxRawPayloadDepth: 8; maxRawPayloadKeys: 1000; maxDiagnosticArrayItems: 100; maxDiagnosticStringLength: 4000; maxRedirects: 0; maxEventSubscriberQueue: 256; maxDeduplicationEntries: 1024; maxReconnectAttempts: 2; maxReconciliationMs: 30000; maxErrorDetailBytes: 64000; maxFixtureCandidateBytes: 2000000; maxCompatibilityReportBytes: 2000000; maxAttachmentBytes: 10000000; maxAttachmentCount: 8; }>"
     },
     {
       "package": "@banzae/agent-runtime-core",
@@ -775,7 +855,7 @@
       "name": "SecureRuntimeLimitName",
       "kind": "TypeAliasDeclaration",
       "classification": "stable-for-alpha",
-      "signature": "\"maxJsonBodyBytes\" | \"maxHttpHeaderBytes\" | \"maxWebSocketFrameBytes\" | \"maxSseLineBytes\" | \"maxSseEventBytes\" | \"maxSsePendingBytes\" | \"maxRawPayloadDepth\" | \"maxRawPayloadKeys\" | \"maxDiagnosticArrayItems\" | \"maxDiagnosticStringLength\" | \"maxRedirects\" | \"maxEventSubscriberQueue\" | \"maxDeduplicationEntries\" | \"maxReconnectAttempts\" | \"maxReconciliationMs\" | \"maxErrorDetailBytes\" | \"maxFixtureCandidateBytes\" | \"maxCompatibilityReportBytes\""
+      "signature": "\"maxJsonBodyBytes\" | \"maxHttpHeaderBytes\" | \"maxWebSocketFrameBytes\" | \"maxSseLineBytes\" | \"maxSseEventBytes\" | \"maxSsePendingBytes\" | \"maxRawPayloadDepth\" | \"maxRawPayloadKeys\" | \"maxDiagnosticArrayItems\" | \"maxDiagnosticStringLength\" | \"maxRedirects\" | \"maxEventSubscriberQueue\" | \"maxDeduplicationEntries\" | \"maxReconnectAttempts\" | \"maxReconciliationMs\" | \"maxErrorDetailBytes\" | \"maxFixtureCandidateBytes\" | \"maxCompatibilityReportBytes\" | \"maxAttachmentBytes\" | \"maxAttachmentCount\""
     },
     {
       "package": "@banzae/agent-runtime-core",
@@ -864,6 +944,14 @@
       "kind": "FunctionDeclaration",
       "classification": "stable-for-alpha",
       "signature": "(message: string, details?: Record<string, unknown>) => RuntimeError"
+    },
+    {
+      "package": "@banzae/agent-runtime-core",
+      "entrypoint": ".",
+      "name": "UpdateRuntimeScheduleInput",
+      "kind": "TypeAliasDeclaration",
+      "classification": "stable-for-alpha",
+      "signature": "UpdateRuntimeScheduleInput"
     },
     {
       "package": "@banzae/agent-runtime-core",
@@ -992,6 +1080,14 @@
       "kind": "FunctionDeclaration",
       "classification": "experimental",
       "signature": "(capabilities: RuntimeCapabilities, input: RuntimeUserInput) => void"
+    },
+    {
+      "package": "@banzae/agent-runtime-core",
+      "entrypoint": "./experimental",
+      "name": "validateRuntimeAttachments",
+      "kind": "FunctionDeclaration",
+      "classification": "experimental",
+      "signature": "(attachments: readonly RuntimeAttachment[] | undefined, limits: { maxCount: number; maxBytes: number; }) => void"
     },
     {
       "package": "@banzae/agent-runtime-core",

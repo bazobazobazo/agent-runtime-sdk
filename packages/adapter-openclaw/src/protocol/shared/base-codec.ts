@@ -2,13 +2,18 @@ import {
   RuntimeError,
   NO_CAPABILITIES,
   type CancelRuntimeRunInput,
+  type CreateRuntimeScheduleInput,
   type EnsureSessionInput,
   type GetRuntimeHistoryInput,
   type GetRuntimeRunInput,
+  type GetRuntimeScheduleInput,
+  type ListRuntimeSchedulesInput,
   type RuntimeCapabilities,
   type RuntimeEvent,
+  type RuntimeAttachment,
   type RuntimeRunSnapshot,
   type StartRuntimeRunInput,
+  type UpdateRuntimeScheduleInput,
 } from '@banzae/agent-runtime-core';
 import { runtimeEventBase } from '@banzae/agent-runtime-core/experimental';
 import type {
@@ -43,6 +48,13 @@ export type OpenClawProtocolMappings = {
   runWaitMethod: string;
   historyMethod: string;
   cancelMethod: string;
+  scheduleCreateMethod: string;
+  scheduleGetMethod: string;
+  scheduleListMethod: string;
+  scheduleUpdateMethod: string;
+  scheduleDeleteMethod: string;
+  scheduleTriggerMethod: string;
+  scheduleHistoryMethod: string;
   statefulEvents: readonly string[];
   deltaEvents: readonly string[];
   completedEvents: readonly string[];
@@ -323,13 +335,20 @@ export abstract class MappedOpenClawCodec implements OpenClawProtocolCodec {
     const detailCode = stringValue(providerDetails.code);
     const providerMessage = stringValue(providerError.message) ?? '';
     const lower = providerMessage.toLowerCase();
+    if (providerCode === 'RATE_LIMITED' || providerCode === 'TOO_MANY_REQUESTS' || lower.includes('rate limit')) {
+      const retryAfterMs = numberValue(providerError.retryAfterMs ?? providerDetails.retryAfterMs);
+      return new RuntimeError({ code: 'RATE_LIMITED', retryable: true, retryAfterMs, message: 'OpenClaw rate limit was reached', adapterId: 'openclaw' });
+    }
+    if (providerCode === 'TIMEOUT' || lower.includes('timed out')) {
+      return new RuntimeError({ code: 'TIMEOUT', retryable: true, message: 'OpenClaw request timed out', adapterId: 'openclaw' });
+    }
     if (providerCode === 'NOT_PAIRED' || detailCode === 'PAIRING_REQUIRED' || lower.includes('pairing required')) {
       return new RuntimeError({ code: 'PAIRING_REQUIRED', retryable: false, message: 'OpenClaw device pairing is required', adapterId: 'openclaw', details: providerDetails });
     }
     if (providerCode === 'AUTHORIZATION_FAILED' || providerCode === 'PERMISSION_DENIED' || detailCode === 'AUTHORIZATION_FAILED' || detailCode === 'PERMISSION_DENIED' || lower.includes('permission') || lower.includes('forbidden') || lower.includes('missing scope')) {
       return new RuntimeError({ code: 'PERMISSION_DENIED', retryable: false, message: 'OpenClaw permission was denied', adapterId: 'openclaw', details: providerDetails });
     }
-    if (lower.includes('auth') || lower.includes('token') || providerCode === 'AUTHENTICATION_FAILED') {
+    if (lower.includes('auth') || lower.includes('token') || providerCode === 'AUTHENTICATION_FAILED' || providerCode === 'TOKEN_EXPIRED') {
       return new RuntimeError({ code: 'AUTHENTICATION_FAILED', retryable: false, message: 'OpenClaw authentication failed', adapterId: 'openclaw', details: providerDetails });
     }
     if (lower.includes('protocol') || providerDetails.expectedProtocol !== undefined || detailCode === 'PROTOCOL_MISMATCH') {
@@ -367,7 +386,11 @@ export abstract class MappedOpenClawCodec implements OpenClawProtocolCodec {
         cancel: methods.has(this.mappings.cancelMethod) || methods.has('sessions.abort'),
         approvals: false,
       },
-      input: { text: runStart, images: false, files: false },
+      input: {
+        text: runStart,
+        images: runStart && supportsAttachmentKind(hello, 'image'),
+        files: runStart && supportsAttachmentKind(hello, 'file'),
+      },
       output: {
         text: runStream || methods.has(this.mappings.runWaitMethod),
         reasoning: false,
@@ -377,6 +400,17 @@ export abstract class MappedOpenClawCodec implements OpenClawProtocolCodec {
       health: {
         liveness: true,
         readiness: methods.has('health') || methods.has('status'),
+      },
+      schedules: {
+        create: methods.has(this.mappings.scheduleCreateMethod),
+        get: methods.has(this.mappings.scheduleGetMethod) || methods.has(this.mappings.scheduleListMethod),
+        list: methods.has(this.mappings.scheduleListMethod),
+        update: methods.has(this.mappings.scheduleUpdateMethod),
+        delete: methods.has(this.mappings.scheduleDeleteMethod),
+        enable: methods.has(this.mappings.scheduleUpdateMethod),
+        pause: methods.has(this.mappings.scheduleUpdateMethod),
+        trigger: methods.has(this.mappings.scheduleTriggerMethod),
+        history: methods.has(this.mappings.scheduleHistoryMethod),
       },
       extensions: {
         'openclaw.cron': methods.has('cron.add') || methods.has('cron.list'),
@@ -394,7 +428,13 @@ export abstract class MappedOpenClawCodec implements OpenClawProtocolCodec {
     return {
       id: `run-start:${input.applicationRunId}`,
       method: this.mappings.runStartMethod,
-      params: { sessionKey: input.session.externalSessionId, message: input.input.text, idempotencyKey: input.idempotencyKey, deliver: false },
+      params: {
+        sessionKey: input.session.externalSessionId,
+        message: input.input.text,
+        idempotencyKey: input.idempotencyKey,
+        deliver: false,
+        ...(input.input.attachments?.length ? { attachments: input.input.attachments.map(encodeAttachment) } : {}),
+      },
     };
   }
 
@@ -413,6 +453,109 @@ export abstract class MappedOpenClawCodec implements OpenClawProtocolCodec {
   buildCancel(input: CancelRuntimeRunInput): OpenClawRpcRequest {
     return { id: `cancel:${input.externalRunId}`, method: this.mappings.cancelMethod, params: { sessionKey: input.externalSessionId, runId: input.externalRunId } };
   }
+
+  buildScheduleCreate(input: CreateRuntimeScheduleInput): OpenClawRpcRequest {
+    return { id: `schedule-create:${input.idempotencyKey}`, method: this.mappings.scheduleCreateMethod, params: { job: scheduleJob(input), idempotencyKey: input.idempotencyKey } };
+  }
+
+  buildScheduleGet(input: GetRuntimeScheduleInput): OpenClawRpcRequest {
+    return { id: `schedule-get:${input.externalScheduleId}`, method: this.mappings.scheduleGetMethod, params: { jobId: input.externalScheduleId } };
+  }
+
+  buildScheduleList(input: ListRuntimeSchedulesInput = {}): OpenClawRpcRequest {
+    return { id: 'schedule-list', method: this.mappings.scheduleListMethod, params: compactObject({ limit: input.limit, cursor: input.cursor }) };
+  }
+
+  buildScheduleUpdate(input: UpdateRuntimeScheduleInput): OpenClawRpcRequest {
+    return { id: `schedule-update:${input.externalScheduleId}`, method: this.mappings.scheduleUpdateMethod, params: { jobId: input.externalScheduleId, patch: schedulePatch(input) } };
+  }
+
+  buildScheduleDelete(input: GetRuntimeScheduleInput): OpenClawRpcRequest {
+    return { id: `schedule-delete:${input.externalScheduleId}`, method: this.mappings.scheduleDeleteMethod, params: { jobId: input.externalScheduleId } };
+  }
+
+  buildScheduleEnable(input: GetRuntimeScheduleInput, enabled: boolean): OpenClawRpcRequest {
+    return this.buildScheduleUpdate({ ...input, enabled });
+  }
+
+  buildSchedulePause(input: GetRuntimeScheduleInput, paused: boolean): OpenClawRpcRequest {
+    return this.buildScheduleUpdate({ ...input, enabled: !paused });
+  }
+
+  buildScheduleTrigger(input: GetRuntimeScheduleInput): OpenClawRpcRequest {
+    return { id: `schedule-trigger:${input.externalScheduleId}`, method: this.mappings.scheduleTriggerMethod, params: { jobId: input.externalScheduleId } };
+  }
+
+  buildScheduleHistory(input: GetRuntimeScheduleInput & ListRuntimeSchedulesInput): OpenClawRpcRequest {
+    return { id: `schedule-history:${input.externalScheduleId}`, method: this.mappings.scheduleHistoryMethod, params: compactObject({ jobId: input.externalScheduleId, limit: input.limit, cursor: input.cursor }) };
+  }
+}
+
+function supportsAttachmentKind(hello: OpenClawHello | undefined, kind: 'image' | 'file'): boolean {
+  const declared = hello?.features.attachments ?? hello?.features.input;
+  if (declared === true) return true;
+  if (Array.isArray(declared)) return declared.includes(kind) || declared.includes(`${kind}s`);
+  if (declared && typeof declared === 'object') {
+    const record = declared as Record<string, unknown>;
+    return record[kind] === true || record[`${kind}s`] === true;
+  }
+  return false;
+}
+
+function encodeAttachment(attachment: RuntimeAttachment): Record<string, unknown> {
+  return compactObject({
+    type: attachment.kind,
+    mimeType: attachment.mimeType,
+    filename: attachment.name,
+    size: attachment.data.byteLength,
+    contentHash: attachment.contentHash,
+    reference: attachment.consumerReference,
+    content: bytesToBase64(attachment.data),
+  });
+}
+
+function bytesToBase64(value: Uint8Array): string {
+  const BufferCtor = (globalThis as { Buffer?: { from(value: Uint8Array): { toString(encoding: 'base64'): string } } }).Buffer;
+  if (BufferCtor) return BufferCtor.from(value).toString('base64');
+  let binary = '';
+  for (const byte of value) binary += String.fromCharCode(byte);
+  if (typeof btoa !== 'function') throw protocolError('No base64 encoder is available');
+  return btoa(binary);
+}
+
+function scheduleJob(input: CreateRuntimeScheduleInput): Record<string, unknown> {
+  return compactObject({
+    name: input.name,
+    schedule: scheduleTiming(input.timing),
+    payload: input.payload.kind === 'system-event'
+      ? { kind: 'systemEvent', text: input.payload.text }
+      : { kind: 'agentTurn', message: input.payload.text },
+    sessionTarget: input.payload.sessionTarget,
+    delivery: input.payload.deliveryChannel ? { mode: 'announce', channel: input.payload.deliveryChannel } : undefined,
+    enabled: input.enabled,
+    metadata: { ...input.metadata, idempotencyKey: input.idempotencyKey },
+  });
+}
+
+function schedulePatch(input: UpdateRuntimeScheduleInput): Record<string, unknown> {
+  return compactObject({
+    name: input.name,
+    schedule: input.timing ? scheduleTiming(input.timing) : undefined,
+    payload: input.payload
+      ? input.payload.kind === 'system-event'
+        ? { kind: 'systemEvent', text: input.payload.text }
+        : { kind: 'agentTurn', message: input.payload.text }
+      : undefined,
+    sessionTarget: input.payload?.sessionTarget,
+    delivery: input.payload?.deliveryChannel ? { mode: 'announce', channel: input.payload.deliveryChannel } : undefined,
+    enabled: input.enabled,
+  });
+}
+
+function scheduleTiming(input: CreateRuntimeScheduleInput['timing']): Record<string, unknown> {
+  if (input.kind === 'once') return { kind: 'at', at: input.at };
+  if (input.kind === 'cron') return compactObject({ kind: 'cron', expr: input.expression, tz: input.timezone });
+  return compactObject({ kind: 'every', everyMs: input.everyMs, startsAt: input.startsAt });
 }
 
 function authPayload(auth: OpenClawConnectInput['auth'], deviceToken?: string): Record<string, unknown> | undefined {

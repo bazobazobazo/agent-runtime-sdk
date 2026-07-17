@@ -29,9 +29,10 @@
     "api:snapshot": "UPDATE_API_SNAPSHOT=1 node ./scripts/check-api-snapshot.mjs",
     "api:extract": "node ./scripts/extract-public-api.mjs --write",
     "api:check": "node ./scripts/extract-public-api.mjs",
-    "package:check": "node ./scripts/check-package-boundaries.mjs && pnpm independence:check",
+    "package:check": "node ./scripts/check-package-boundaries.mjs && pnpm independence:check && pnpm registry:consumer-check",
     "package:contents": "node ./scripts/check-package-contents.mjs && pnpm independence:check",
-    "consumer:check": "node ./scripts/test-packed-consumer.mjs",
+    "consumer:check": "node ./scripts/test-packed-consumer.mjs && pnpm registry:consumer-check",
+    "registry:consumer-check": "node ./scripts/registry-consumer-check.mjs",
     "examples:typecheck": "tsc -p examples/tsconfig.json --noEmit",
     "examples:test": "vitest run --config examples/vitest.config.ts",
     "docs:check": "node ./scripts/check-docs.mjs && pnpm independence:check",
@@ -77,6 +78,7 @@
     "fast-check": "^4.9.0",
     "tsup": "^8.5.0",
     "typescript": "^5.9.3",
+    "verdaccio": "6.8.0",
     "vitest": "^3.2.4"
   },
   "dependencies": {

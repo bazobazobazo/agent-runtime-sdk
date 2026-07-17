@@ -28,5 +28,7 @@
   - `typeof SequenceTracker`
 - **validateInputCapabilities** — experimental — `FunctionDeclaration`
   - `(capabilities: RuntimeCapabilities, input: RuntimeUserInput) => void`
+- **validateRuntimeAttachments** — experimental — `FunctionDeclaration`
+  - `(attachments: readonly RuntimeAttachment[] | undefined, limits: { maxCount: number; maxBytes: number; }) => void`
 - **withDeadline** — experimental — `FunctionDeclaration`
   - `<T>(work: Promise<T>, timeoutMs: number, signal?: AbortSignal) => Promise<T>`

@@ -18,6 +18,8 @@ export const SECURE_RUNTIME_LIMITS = Object.freeze({
   maxErrorDetailBytes: 64_000,
   maxFixtureCandidateBytes: 2_000_000,
   maxCompatibilityReportBytes: 2_000_000,
+  maxAttachmentBytes: 10_000_000,
+  maxAttachmentCount: 8,
 });
 
 /** Public alpha contract for secure runtime limit name. */
@@ -43,4 +45,6 @@ export const HARD_RUNTIME_LIMITS: Readonly<Record<SecureRuntimeLimitName, number
   maxErrorDetailBytes: 1_000_000,
   maxFixtureCandidateBytes: 16_000_000,
   maxCompatibilityReportBytes: 16_000_000,
+  maxAttachmentBytes: 64_000_000,
+  maxAttachmentCount: 64,
 });
