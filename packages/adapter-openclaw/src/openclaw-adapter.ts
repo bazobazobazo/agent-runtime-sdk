@@ -263,6 +263,7 @@ export class OpenClawAdapter implements AgentRuntimeAdapter {
       maxCount: this.options.maxAttachmentCount ?? SECURE_RUNTIME_LIMITS.maxAttachmentCount,
       maxBytes: this.options.maxAttachmentBytes ?? SECURE_RUNTIME_LIMITS.maxAttachmentBytes,
     });
+    await this.verifyAttachmentHashes(input.input.attachments);
     const state = this.requireConnected();
     const eventCursor = state.dispatcher.eventCursor();
     const historyBaseline = await this.captureHistoryBaseline(state, input, options?.signal);
@@ -665,6 +666,22 @@ export class OpenClawAdapter implements AgentRuntimeAdapter {
       message: 'OpenClaw run start outcome is unknown',
       cause: error,
     });
+  }
+
+  private async verifyAttachmentHashes(attachments: StartRuntimeRunInput['input']['attachments']): Promise<void> {
+    for (const attachment of attachments ?? []) {
+      if (!attachment.contentHash) continue;
+      const expected = attachment.contentHash.replace(/^sha256:/i, '').toLowerCase();
+      const actual = hexEncode(await this.deps.crypto.sha256(attachment.data));
+      if (actual !== expected) {
+        throw new RuntimeError({
+          code: 'INVALID_REQUEST',
+          retryable: false,
+          adapterId: this.adapterId,
+          message: 'Attachment content hash does not match its byte source',
+        });
+      }
+    }
   }
 
   private async buildSignedDeviceProof(

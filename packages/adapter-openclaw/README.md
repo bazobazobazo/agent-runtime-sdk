@@ -24,6 +24,10 @@ The adapter follows the shared lifecycle, negotiates only implemented v3/v4
 protocols, and fails closed on unknown versions/capabilities. Text runs,
 sessions, streaming, status, cancellation, approvals, and history depend on
 validated runtime evidence. Images are not advertised without real payload support.
+Protocol v3 transports inline base64 images and rejects generic files before
+provider activity. Protocol v4 transports inline base64 images and files using
+the Gateway `fileName` field. Runtime-local media paths and attachment bytes are
+not exposed by normalized history.
 Always propagate an `AbortSignal` and close the adapter in `finally`.
 
 ## Errors and security

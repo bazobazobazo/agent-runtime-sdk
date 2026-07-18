@@ -55,6 +55,8 @@ export type OpenClawProtocolMappings = {
   scheduleDeleteMethod: string;
   scheduleTriggerMethod: string;
   scheduleHistoryMethod: string;
+  attachmentKinds: readonly RuntimeAttachment['kind'][];
+  attachmentFileName: boolean;
   statefulEvents: readonly string[];
   deltaEvents: readonly string[];
   completedEvents: readonly string[];
@@ -388,8 +390,8 @@ export abstract class MappedOpenClawCodec implements OpenClawProtocolCodec {
       },
       input: {
         text: runStart,
-        images: runStart && supportsAttachmentKind(hello, 'image'),
-        files: runStart && supportsAttachmentKind(hello, 'file'),
+        images: runStart && this.mappings.attachmentKinds.includes('image'),
+        files: runStart && this.mappings.attachmentKinds.includes('file'),
       },
       output: {
         text: runStream || methods.has(this.mappings.runWaitMethod),
@@ -416,6 +418,13 @@ export abstract class MappedOpenClawCodec implements OpenClawProtocolCodec {
         'openclaw.cron': methods.has('cron.add') || methods.has('cron.list'),
         'openclaw.channels': methods.has('channels.status'),
         'openclaw.protocol': this.protocolVersion,
+        'openclaw.attachments.transport': 'chat.send-inline-base64',
+        'openclaw.attachments.images': this.mappings.attachmentKinds.includes('image')
+          ? 'supported-by-protocol'
+          : 'unsupported-by-protocol',
+        'openclaw.attachments.files': this.mappings.attachmentKinds.includes('file')
+          ? 'supported-by-protocol'
+          : 'unsupported-by-protocol',
       },
     };
   }
@@ -433,9 +442,28 @@ export abstract class MappedOpenClawCodec implements OpenClawProtocolCodec {
         message: input.input.text,
         idempotencyKey: input.idempotencyKey,
         deliver: false,
-        ...(input.input.attachments?.length ? { attachments: input.input.attachments.map(encodeAttachment) } : {}),
+        ...(input.input.attachments?.length
+          ? { attachments: input.input.attachments.map((attachment) => this.encodeAttachment(attachment)) }
+          : {}),
       },
     };
+  }
+
+  private encodeAttachment(attachment: RuntimeAttachment): Record<string, unknown> {
+    if (!this.mappings.attachmentKinds.includes(attachment.kind)) {
+      throw new RuntimeError({
+        code: 'UNSUPPORTED_CAPABILITY',
+        retryable: false,
+        adapterId: 'openclaw',
+        message: `OpenClaw protocol v${this.protocolVersion} does not support ${attachment.kind} attachments`,
+      });
+    }
+    return compactObject({
+      type: attachment.kind,
+      mimeType: attachment.mimeType,
+      ...(this.mappings.attachmentFileName ? { fileName: attachment.name } : {}),
+      content: bytesToBase64(attachment.data),
+    });
   }
 
   buildRunWait(input: GetRuntimeRunInput): OpenClawRpcRequest {
@@ -489,29 +517,6 @@ export abstract class MappedOpenClawCodec implements OpenClawProtocolCodec {
   buildScheduleHistory(input: GetRuntimeScheduleInput & ListRuntimeSchedulesInput): OpenClawRpcRequest {
     return { id: `schedule-history:${input.externalScheduleId}`, method: this.mappings.scheduleHistoryMethod, params: compactObject({ jobId: input.externalScheduleId, limit: input.limit, cursor: input.cursor }) };
   }
-}
-
-function supportsAttachmentKind(hello: OpenClawHello | undefined, kind: 'image' | 'file'): boolean {
-  const declared = hello?.features.attachments ?? hello?.features.input;
-  if (declared === true) return true;
-  if (Array.isArray(declared)) return declared.includes(kind) || declared.includes(`${kind}s`);
-  if (declared && typeof declared === 'object') {
-    const record = declared as Record<string, unknown>;
-    return record[kind] === true || record[`${kind}s`] === true;
-  }
-  return false;
-}
-
-function encodeAttachment(attachment: RuntimeAttachment): Record<string, unknown> {
-  return compactObject({
-    type: attachment.kind,
-    mimeType: attachment.mimeType,
-    filename: attachment.name,
-    size: attachment.data.byteLength,
-    contentHash: attachment.contentHash,
-    reference: attachment.consumerReference,
-    content: bytesToBase64(attachment.data),
-  });
 }
 
 function bytesToBase64(value: Uint8Array): string {
