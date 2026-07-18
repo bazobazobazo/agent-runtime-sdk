@@ -1051,7 +1051,7 @@ function normalizeSchedule(payload: unknown, fallback?: Partial<CreateRuntimeSch
     status: scheduleStatus(nested, value),
     nextExecutionAt: safeDate(nested.nextRunAt ?? value.nextRunAt ?? nested.nextExecutionAt),
     previousExecutionAt: safeDate(nested.lastRunAt ?? value.lastRunAt ?? nested.previousExecutionAt),
-    idempotencyKey: safeText(metadata.idempotencyKey ?? value.idempotencyKey, 256) ?? fallback?.idempotencyKey,
+    idempotencyKey: safeText(nested.declarationKey ?? value.declarationKey ?? metadata.idempotencyKey ?? value.idempotencyKey, 256) ?? fallback?.idempotencyKey,
   };
 }
 

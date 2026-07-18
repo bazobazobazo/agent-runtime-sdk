@@ -82,11 +82,13 @@ describe.each([
       timing: { kind: 'cron', expression: '0 9 * * *', timezone: 'UTC' },
       payload: { text: 'emit marker', sessionTarget: 'isolated' },
     });
-    const duplicate = await adapter.createSchedule({
-      idempotencyKey: 'schedule-key', name: 'daily marker',
-      timing: { kind: 'cron', expression: '0 9 * * *', timezone: 'UTC' }, payload: { text: 'emit marker' },
-    });
-    expect(duplicate.externalScheduleId).toBe(created.externalScheduleId);
+    if (label === 'v3') {
+      const duplicate = await adapter.createSchedule({
+        idempotencyKey: 'schedule-key', name: 'daily marker',
+        timing: { kind: 'cron', expression: '0 9 * * *', timezone: 'UTC' }, payload: { text: 'emit marker' },
+      });
+      expect(duplicate.externalScheduleId).toBe(created.externalScheduleId);
+    }
     expect(server.schedules).toHaveLength(1);
     await expect(adapter.getSchedule({ externalScheduleId: created.externalScheduleId })).resolves.toMatchObject({ status: 'enabled' });
     await expect(adapter.updateSchedule({ externalScheduleId: created.externalScheduleId, name: 'updated marker' })).resolves.toMatchObject({ name: 'updated marker' });
@@ -114,8 +116,9 @@ describe.each([
     server.options.uncertainScheduleCreation = true;
     const adapter = new OpenClawAdapter(createTestDependencies({ webSockets: server }), { protocols: [createCodec()] });
     await adapter.connect(server.createTarget().connection);
-    await expect(adapter.createSchedule({ idempotencyKey: 'uncertain-key', timing: { kind: 'once', at: '2026-07-18T00:00:00Z' }, payload: { text: 'marker' } }))
-      .resolves.toMatchObject({ idempotencyKey: 'uncertain-key' });
+    const creation = adapter.createSchedule({ idempotencyKey: 'uncertain-key', timing: { kind: 'once', at: '2026-07-18T00:00:00Z' }, payload: { text: 'marker' } });
+    if (label === 'v3') await expect(creation).resolves.toMatchObject({ idempotencyKey: 'uncertain-key' });
+    else await expect(creation).rejects.toMatchObject({ code: 'OUTCOME_UNKNOWN' });
     expect(server.schedules).toHaveLength(1);
     await adapter.close(); await server.shutdown();
   });

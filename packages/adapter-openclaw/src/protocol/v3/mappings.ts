@@ -15,6 +15,7 @@ export const openClawV3Mappings: OpenClawProtocolMappings = {
   scheduleDeleteMethod: 'cron.remove',
   scheduleTriggerMethod: 'cron.run',
   scheduleHistoryMethod: 'cron.runs',
+  scheduleCreateShape: 'wrapped-v3',
   attachmentKinds: ['image'],
   attachmentFileName: false,
   statefulEvents: ['chat'],

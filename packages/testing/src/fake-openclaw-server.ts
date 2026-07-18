@@ -256,11 +256,11 @@ abstract class FakeOpenClawServerBase implements RuntimeWebSocketFactory {
       return;
     }
     if (request.method === 'cron.add') {
-      const job = recordValue(request.params?.job);
+      const job = this.protocolVersion >= 4 ? recordValue(request.params) : recordValue(request.params?.job);
       const metadata = recordValue(job.metadata);
-      const idempotencyKey = stringValue(request.params?.idempotencyKey) ?? stringValue(metadata.idempotencyKey);
-      const existing = idempotencyKey ? [...this.schedules.values()].find((item) => stringValue(item.idempotencyKey) === idempotencyKey || stringValue(recordValue(item.metadata).idempotencyKey) === idempotencyKey) : undefined;
-      const schedule = existing ?? { ...job, idempotencyKey, id: `openclaw-v${this.protocolVersion}-schedule-${this.schedules.size + 1}`, enabled: job.enabled !== false };
+      const idempotencyKey = this.protocolVersion >= 4 ? undefined : stringValue(request.params?.idempotencyKey) ?? stringValue(metadata.idempotencyKey);
+      const existing = idempotencyKey ? [...this.schedules.values()].find((item) => stringValue(item.declarationKey) === idempotencyKey || stringValue(item.idempotencyKey) === idempotencyKey || stringValue(recordValue(item.metadata).idempotencyKey) === idempotencyKey) : undefined;
+      const schedule = existing ?? { ...job, ...(this.protocolVersion >= 4 ? { declarationKey: idempotencyKey } : { idempotencyKey }), id: `openclaw-v${this.protocolVersion}-schedule-${this.schedules.size + 1}`, enabled: job.enabled !== false };
       this.schedules.set(schedule.id, schedule);
       if (this.options.uncertainScheduleCreation) {
         this.options.uncertainScheduleCreation = false;

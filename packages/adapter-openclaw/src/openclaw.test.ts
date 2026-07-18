@@ -49,19 +49,36 @@ describe('OpenClaw protocol scaffolding', () => {
     expect(request.params?.idempotencyKey).toBe('host-runtime-run:run-1');
   });
 
-  it.each([openClawV3Codec(), openClawV4Codec()])(
-    'keeps schedule idempotency at the RPC boundary for protocol v$protocolVersion',
-    (codec) => {
-      const request = codec.buildScheduleCreate({
-        idempotencyKey: 'host-schedule-key',
-        timing: { kind: 'once', at: '2030-01-02T03:04:00.000Z' },
-        payload: { text: 'marker', kind: 'system-event' },
-        metadata: { hostOnly: true },
-      });
-      expect(request.params?.idempotencyKey).toBe('host-schedule-key');
-      expect(request.params?.job).not.toHaveProperty('metadata');
-    },
-  );
+  it('uses the wrapped v3 schedule create contract', () => {
+    const request = openClawV3Codec().buildScheduleCreate({
+      idempotencyKey: 'host-schedule-key',
+      timing: { kind: 'once', at: '2030-01-02T03:04:00.000Z' },
+      payload: { text: 'marker', kind: 'system-event' },
+      metadata: { hostOnly: true },
+    });
+    expect(request.params?.idempotencyKey).toBe('host-schedule-key');
+    expect(request.params?.job).not.toHaveProperty('metadata');
+  });
+
+  it('uses the portable root v4 schedule create contract', () => {
+    const request = openClawV4Codec().buildScheduleCreate({
+      idempotencyKey: 'host-schedule-key',
+      name: 'compatibility check',
+      timing: { kind: 'once', at: '2030-01-02T03:04:00.000Z' },
+      payload: { text: 'marker', kind: 'system-event' },
+      metadata: { hostOnly: true },
+    });
+    expect(request.params).toMatchObject({
+      name: 'compatibility check',
+      sessionTarget: 'main',
+      wakeMode: 'now',
+      payload: { kind: 'systemEvent', text: 'marker' },
+    });
+    expect(request.params).not.toHaveProperty('job');
+    expect(request.params).not.toHaveProperty('idempotencyKey');
+    expect(request.params).not.toHaveProperty('declarationKey');
+    expect(request.params).not.toHaveProperty('metadata');
+  });
 
   it.each([
     ['v3', openClawV3Codec(), '../../../fixtures/openclaw/v3'],

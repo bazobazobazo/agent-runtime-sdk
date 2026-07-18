@@ -55,6 +55,7 @@ export type OpenClawProtocolMappings = {
   scheduleDeleteMethod: string;
   scheduleTriggerMethod: string;
   scheduleHistoryMethod: string;
+  scheduleCreateShape: 'wrapped-v3' | 'root-v4';
   attachmentKinds: readonly RuntimeAttachment['kind'][];
   attachmentFileName: boolean;
   statefulEvents: readonly string[];
@@ -483,7 +484,11 @@ export abstract class MappedOpenClawCodec implements OpenClawProtocolCodec {
   }
 
   buildScheduleCreate(input: CreateRuntimeScheduleInput): OpenClawRpcRequest {
-    return { id: `schedule-create:${input.idempotencyKey}`, method: this.mappings.scheduleCreateMethod, params: { job: scheduleJob(input), idempotencyKey: input.idempotencyKey } };
+    const job = scheduleJob(input, this.mappings.scheduleCreateShape === 'root-v4');
+    const params = this.mappings.scheduleCreateShape === 'root-v4'
+      ? job
+      : { job, idempotencyKey: input.idempotencyKey };
+    return { id: `schedule-create:${input.idempotencyKey}`, method: this.mappings.scheduleCreateMethod, params };
   }
 
   buildScheduleGet(input: GetRuntimeScheduleInput): OpenClawRpcRequest {
@@ -528,14 +533,15 @@ function bytesToBase64(value: Uint8Array): string {
   return btoa(binary);
 }
 
-function scheduleJob(input: CreateRuntimeScheduleInput): Record<string, unknown> {
+function scheduleJob(input: CreateRuntimeScheduleInput, requireV4Defaults = false): Record<string, unknown> {
   return compactObject({
     name: input.name,
     schedule: scheduleTiming(input.timing),
     payload: input.payload.kind === 'system-event'
       ? { kind: 'systemEvent', text: input.payload.text }
       : { kind: 'agentTurn', message: input.payload.text },
-    sessionTarget: input.payload.sessionTarget,
+    sessionTarget: input.payload.sessionTarget ?? (requireV4Defaults ? input.payload.kind === 'system-event' ? 'main' : 'isolated' : undefined),
+    wakeMode: requireV4Defaults ? 'now' : undefined,
     delivery: input.payload.deliveryChannel ? { mode: 'announce', channel: input.payload.deliveryChannel } : undefined,
     enabled: input.enabled,
   });
