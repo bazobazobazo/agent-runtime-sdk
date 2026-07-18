@@ -1,0 +1,29 @@
+{
+  "metadata": {
+    "runtimeProduct": "openclaw",
+    "runtimeVersion": "2026.6.11",
+    "protocolVersion": 4,
+    "captureDate": "2026-07-18",
+    "fixtureSchemaVersion": 1,
+    "sanitizerVersion": "openclaw-sanitizer-v2",
+    "source": "sanitized-live-capture"
+  },
+  "payload": {
+    "messages": [
+      {
+        "id": "fixture-v4-user-message",
+        "role": "user",
+        "content": "Extract the deterministic marker.",
+        "MediaPath": "/redacted/runtime/media/fixture-id",
+        "MediaPaths": ["/redacted/runtime/media/fixture-id"],
+        "MediaType": "text/plain",
+        "MediaTypes": ["text/plain"]
+      },
+      {
+        "id": "fixture-v4-assistant-message",
+        "role": "assistant",
+        "content": [{ "type": "text", "text": "BANZAE_FILE_COMPATIBILITY_OK" }]
+      }
+    ]
+  }
+}

@@ -9,8 +9,8 @@ import { FakeOpenClawV3Server, FakeOpenClawV4Server } from './fake-openclaw-serv
 describe.each([
   ['v3', () => new FakeOpenClawV3Server(), openClawV3Codec],
   ['v4', () => new FakeOpenClawV4Server(), openClawV4Codec],
-] as const)('OpenClaw %s full capabilities', (_label, createServer, createCodec) => {
-  it('transports bounded images and files', async () => {
+] as const)('OpenClaw %s full capabilities', (label, createServer, createCodec) => {
+  it('transports the observed bounded attachment kinds with the exact wire shape', async () => {
     const server = createServer();
     const adapter = new OpenClawAdapter(createTestDependencies({ webSockets: server }), { protocols: [createCodec()] });
     await adapter.connect(server.createTarget().connection);
@@ -21,15 +21,37 @@ describe.each([
       session,
       input: {
         text: 'inspect attachments',
-        attachments: [
-          { kind: 'image', name: 'pixel.png', mimeType: 'image/png', byteSize: 4, data: Uint8Array.of(1, 2, 3, 4) },
-          { kind: 'file', name: 'marker.txt', mimeType: 'text/plain', byteSize: 6, data: new TextEncoder().encode('marker') },
-        ],
+        attachments: label === 'v4'
+          ? [
+              { kind: 'image', name: 'pixel.png', mimeType: 'image/png', byteSize: 4, data: Uint8Array.of(1, 2, 3, 4) },
+              { kind: 'file', name: 'marker.txt', mimeType: 'text/plain', byteSize: 6, data: new TextEncoder().encode('marker') },
+            ]
+          : [{ kind: 'image', name: 'pixel.png', mimeType: 'image/png', byteSize: 4, data: Uint8Array.of(1, 2, 3, 4) }],
       },
     });
-    expect(server.receivedAttachments).toHaveLength(2);
-    expect(server.receivedAttachments[0]).toMatchObject({ type: 'image', filename: 'pixel.png', content: 'AQIDBA==' });
-    expect(server.receivedAttachments[1]).toMatchObject({ type: 'file', filename: 'marker.txt', content: 'bWFya2Vy' });
+    expect(server.receivedAttachments).toHaveLength(label === 'v4' ? 2 : 1);
+    expect(server.receivedAttachments[0]).toEqual(label === 'v4'
+      ? { type: 'image', mimeType: 'image/png', fileName: 'pixel.png', content: 'AQIDBA==' }
+      : { type: 'image', mimeType: 'image/png', content: 'AQIDBA==' });
+    if (label === 'v4') {
+      expect(server.receivedAttachments[1]).toEqual({ type: 'file', mimeType: 'text/plain', fileName: 'marker.txt', content: 'bWFya2Vy' });
+    }
+    await adapter.close();
+    await server.shutdown();
+  });
+
+  it('rejects v3 files before provider activity', async () => {
+    if (label !== 'v3') return;
+    const server = createServer();
+    const adapter = new OpenClawAdapter(createTestDependencies({ webSockets: server }), { protocols: [createCodec()] });
+    await adapter.connect(server.createTarget().connection);
+    const session = await adapter.ensureSession({ applicationSessionId: 'v3-file-session' });
+    const activity = server.providerActivity;
+    await expect(adapter.startRun({
+      applicationRunId: 'v3-file-run', idempotencyKey: 'v3-file-key', session,
+      input: { text: 'inspect file', attachments: [{ kind: 'file', name: 'marker.txt', mimeType: 'text/plain', data: new TextEncoder().encode('marker') }] },
+    })).rejects.toMatchObject({ code: 'UNSUPPORTED_CAPABILITY' });
+    expect(server.providerActivity).toBe(activity);
     await adapter.close();
     await server.shutdown();
   });
@@ -42,7 +64,9 @@ describe.each([
     const activity = server.providerActivity;
     await expect(adapter.startRun({
       applicationRunId: 'unsafe-run', idempotencyKey: 'unsafe-key', session,
-      input: { text: '', attachments: [{ kind: 'file', name: '../secret.txt', mimeType: 'text/plain', data: Uint8Array.of(1) }] },
+      input: { text: '', attachments: [label === 'v3'
+        ? { kind: 'image', name: '../secret.png', mimeType: 'image/png', data: Uint8Array.of(1) }
+        : { kind: 'file', name: '../secret.txt', mimeType: 'text/plain', data: Uint8Array.of(1) }] },
     })).rejects.toMatchObject({ code: 'INVALID_REQUEST' });
     expect(server.providerActivity).toBe(activity);
     await adapter.close();

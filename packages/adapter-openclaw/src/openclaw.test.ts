@@ -69,6 +69,10 @@ describe('OpenClaw protocol scaffolding', () => {
       waitResponse: Record<string, unknown>;
       historyResponse: unknown;
     };
+    const attachmentRequest = await readFixture(`${basePath}/${codec.protocolVersion === 3
+      ? 'attachment-image-run-start-request.json'
+      : 'attachment-file-run-start-request.json'}`);
+    const attachmentHistory = await readFixture(`${basePath}/attachment-history-response.json`);
 
     expect(codec.parseChallenge(codec.parseFrame(JSON.stringify(challenge.frame)))?.nonce).toBe('fixture-nonce');
     expect(sanitizeOpenClawPayload(codec.createConnectParams({ requestId: 'fixture-connect', auth: { kind: 'token', token: 'secret' } }))).toMatchObject(
@@ -76,6 +80,24 @@ describe('OpenClaw protocol scaffolding', () => {
     );
     expect(codec.parseHello(helloFixture.payload).protocolVersion).toBe(codec.protocolVersion);
     expect(codec.buildRunStart(startRunInput())).toEqual(stripReqType(runStartRequest.frame));
+    expect(codec.buildRunStart(codec.protocolVersion === 3 ? {
+      applicationRunId: 'fixture-image-run', idempotencyKey: 'fixture-image-key',
+      session: { applicationSessionId: 'fixture-image-session', externalSessionId: 'fixture-image-session', created: false },
+      input: { text: 'Describe the synthetic marker.', attachments: [{
+        kind: 'image', mimeType: 'image/png', data: Uint8Array.from(Buffer.from('iVBORw0KGgo=', 'base64')),
+      }] },
+    } : {
+      applicationRunId: 'fixture-file-run', idempotencyKey: 'fixture-file-key',
+      session: { applicationSessionId: 'fixture-file-session', externalSessionId: 'fixture-file-session', created: false },
+      input: { text: 'Extract the deterministic marker.', attachments: [{
+        kind: 'file', name: 'marker.txt', mimeType: 'text/plain',
+        data: Uint8Array.from(Buffer.from('QkFOWkFFX0ZJTEVfQ09NUEFUSUJJTElUWV9PSw==', 'base64')),
+      }] },
+    })).toEqual(stripReqType(attachmentRequest.frame));
+    expect(normalizeOpenClawHistory(attachmentHistory.payload)).toMatchObject([
+      { role: 'user', attachments: [{ kind: codec.protocolVersion === 3 ? 'image' : 'file' }] },
+      { role: 'assistant' },
+    ]);
     expect(codec.parseRunStartResponse(runStartResponse.payload)).toMatchObject({ externalRunId: 'provider-run-1', status: 'running' });
     expect(codec.buildHistory({ externalSessionId: 'session-1', limit: 25 })).toEqual(stripReqType(historyRequest.frame));
     expect(normalizeOpenClawHistory(historyResponse.payload)).toHaveLength(1);
@@ -254,6 +276,29 @@ describe('OpenClaw protocol scaffolding', () => {
         metadata: { provider: 'openclaw', runId: undefined, sequence: undefined },
       },
     ]);
+  });
+
+  it('normalizes observed v3 and v4 attachment history without leaking local paths or bytes', () => {
+    const messages = normalizeOpenClawHistory({ messages: [
+      {
+        id: 'v3-image', role: 'user', content: [
+          { type: 'text', text: 'inspect image' },
+          { type: 'image', mimeType: 'image/png', source: { type: 'base64', data: 'private-image-bytes' } },
+        ],
+      },
+      {
+        id: 'v4-file', role: 'user', content: 'inspect file',
+        MediaPath: '/private/runtime/media/marker.txt', MediaPaths: ['/private/runtime/media/marker.txt'],
+        MediaType: 'text/plain', MediaTypes: ['text/plain'],
+      },
+    ] });
+    expect(messages).toMatchObject([
+      { id: 'v3-image', content: 'inspect image', attachments: [{ kind: 'image', mimeType: 'image/png' }] },
+      { id: 'v4-file', content: 'inspect file', attachments: [{ kind: 'file', mimeType: 'text/plain' }] },
+    ]);
+    const serialized = JSON.stringify(messages);
+    expect(serialized).not.toContain('private-image-bytes');
+    expect(serialized).not.toContain('/private/runtime');
   });
 
   it('replays the bf1 protocol v3 live hello fixture', async () => {
@@ -633,9 +678,30 @@ describe('OpenClaw run event correlation', () => {
     expect(diagnostics).toMatchObject([{ message: 'OpenClaw run event normalized', fields: { containsTextOutput: true, textLength: 14 } }]);
   });
 
-  it('does not advertise image support while run-start drops image attachments', async () => {
-    const capabilities = openClawV4Codec().capabilities({ protocolVersion: 4, methods: [], events: [], features: { images: true }, raw: {} });
-    expect(capabilities.input.images).toBe(false);
+  it('uses protocol evidence when attachment manifest flags are absent or incorrect', () => {
+    const methods = ['chat.send'];
+    const v3 = openClawV3Codec().capabilities({ protocolVersion: 3, methods, events: [], features: { attachments: false }, raw: {} });
+    const v4 = openClawV4Codec().capabilities({ protocolVersion: 4, methods, events: [], features: { attachments: false }, raw: {} });
+    expect(v3.input).toEqual({ text: true, images: true, files: false });
+    expect(v4.input).toEqual({ text: true, images: true, files: true });
+    expect(v4.extensions).toMatchObject({
+      'openclaw.attachments.transport': 'chat.send-inline-base64',
+      'openclaw.attachments.files': 'supported-by-protocol',
+    });
+  });
+
+  it('rejects mismatched attachment hashes before any provider request', async () => {
+    const harness = createAdapterHarness({ protocolVersion: 4 });
+    const sent = harness.connection.sent.length;
+    await expect(harness.adapter.startRun({
+      applicationRunId: 'hash-run', idempotencyKey: 'hash-key',
+      session: { applicationSessionId: 'session-1', externalSessionId: 'session-1', created: false },
+      input: { text: 'inspect', attachments: [{
+        kind: 'file', name: 'marker.txt', mimeType: 'text/plain',
+        contentHash: '0'.repeat(64), data: new TextEncoder().encode('marker'),
+      }] },
+    })).rejects.toMatchObject({ code: 'INVALID_REQUEST', message: 'Attachment content hash does not match its byte source' });
+    expect(harness.connection.sent).toHaveLength(sent);
   });
 
   it('maps missing OpenClaw methods and events fail-closed', () => {

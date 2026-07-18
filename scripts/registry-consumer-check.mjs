@@ -105,10 +105,12 @@ for (const [version, Server, codec] of [[3, FakeOpenClawV3Server, openClawV3Code
   const session = await adapter.ensureSession({ applicationSessionId: 'consumer-session-' + version });
   const run = await adapter.startRun({
     applicationRunId: 'consumer-run-' + version, idempotencyKey: 'consumer-key-' + version, session,
-    input: { text: 'hello', attachments: [
-      { kind: 'image', name: 'pixel.png', mimeType: 'image/png', data: Uint8Array.of(1, 2, 3, 4) },
-      { kind: 'file', name: 'marker.txt', mimeType: 'text/plain', data: new TextEncoder().encode('BANZAE_RUNTIME_COMPATIBILITY_OK') },
-    ] },
+    input: { text: 'hello', attachments: version === 3
+      ? [{ kind: 'image', name: 'pixel.png', mimeType: 'image/png', data: Uint8Array.of(1, 2, 3, 4) }]
+      : [
+          { kind: 'image', name: 'pixel.png', mimeType: 'image/png', data: Uint8Array.of(1, 2, 3, 4) },
+          { kind: 'file', name: 'marker.txt', mimeType: 'text/plain', data: new TextEncoder().encode('BANZAE_RUNTIME_COMPATIBILITY_OK') },
+        ] },
   });
   await adapter.cancelRun({ applicationRunId: run.applicationRunId, externalRunId: run.externalRunId, externalSessionId: session.externalSessionId });
   await adapter.getHistory({ applicationSessionId: session.applicationSessionId, externalSessionId: session.externalSessionId });
@@ -117,7 +119,9 @@ for (const [version, Server, codec] of [[3, FakeOpenClawV3Server, openClawV3Code
   await adapter.getScheduleHistory({ externalScheduleId: schedule.externalScheduleId });
   await adapter.deleteSchedule({ externalScheduleId: schedule.externalScheduleId });
   try {
-    await adapter.startRun({ applicationRunId: 'bad-' + version, idempotencyKey: 'bad-' + version, session, input: { text: '', attachments: [{ kind: 'file', name: '../bad', mimeType: 'text/plain', data: Uint8Array.of(1) }] } });
+    await adapter.startRun({ applicationRunId: 'bad-' + version, idempotencyKey: 'bad-' + version, session, input: { text: '', attachments: [version === 3
+      ? { kind: 'image', name: '../bad', mimeType: 'image/png', data: Uint8Array.of(1) }
+      : { kind: 'file', name: '../bad', mimeType: 'text/plain', data: Uint8Array.of(1) }] } });
     throw new Error('unsafe attachment accepted');
   } catch (error) {
     if (!(error instanceof RuntimeError) || error.code !== 'INVALID_REQUEST') throw error;

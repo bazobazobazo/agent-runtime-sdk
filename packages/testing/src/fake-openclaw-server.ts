@@ -370,7 +370,7 @@ export class FakeOpenClawV3Server extends FakeOpenClawServerBase {
       connectionId: 'fake-v3-connection',
       methods: ['sessions.create', 'chat.send', 'agent.wait', 'chat.history', 'chat.abort', 'cron.add', 'cron.get', 'cron.list', 'cron.update', 'cron.remove', 'cron.run', 'cron.runs'],
       events: ['connect.challenge', 'chat.delta', 'chat.completed', 'chat.failed', 'chat.cancelled'],
-      features: { wireGeneration: 'v3', attachments: ['image', 'file'] },
+      features: { wireGeneration: 'v3' },
     };
   }
 
@@ -395,7 +395,7 @@ export class FakeOpenClawV4Server extends FakeOpenClawServerBase {
       server: { connId: 'fake-v4-connection', version: this.runtimeVersion },
       methods: ['sessions.create', 'chat.send', 'agent.wait', 'chat.history', 'chat.abort', 'cron.add', 'cron.get', 'cron.list', 'cron.update', 'cron.remove', 'cron.run', 'cron.runs'],
       events: ['connect.challenge', 'session.delta', 'session.completed', 'session.failed', 'session.cancelled'],
-      features: { methods: ['sessions.create', 'chat.send', 'agent.wait', 'chat.history', 'chat.abort', 'cron.add', 'cron.get', 'cron.list', 'cron.update', 'cron.remove', 'cron.run', 'cron.runs'], events: ['session.delta', 'session.completed'], wireGeneration: 'v4', attachments: { images: true, files: true } },
+      features: { methods: ['sessions.create', 'chat.send', 'agent.wait', 'chat.history', 'chat.abort', 'cron.add', 'cron.get', 'cron.list', 'cron.update', 'cron.remove', 'cron.run', 'cron.runs'], events: ['session.delta', 'session.completed'], wireGeneration: 'v4' },
     };
   }
 
