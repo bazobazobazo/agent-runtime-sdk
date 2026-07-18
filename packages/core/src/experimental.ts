@@ -6,4 +6,5 @@ export {
   assertStartRunInput,
   mergeCapabilities,
   validateInputCapabilities,
+  validateRuntimeAttachments,
 } from './capabilities.js';

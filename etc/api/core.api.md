@@ -22,9 +22,13 @@
   - `ConnectOptions`
 - **createRuntimeError** — stable-for-alpha — `FunctionDeclaration`
   - `(input: RuntimeErrorInput) => RuntimeError`
+- **CreateRuntimeScheduleInput** — stable-for-alpha — `TypeAliasDeclaration`
+  - `CreateRuntimeScheduleInput`
 - **EnsureSessionInput** — stable-for-alpha — `TypeAliasDeclaration`
   - `EnsureSessionInput`
 - **ExternalRunId** — stable-for-alpha — `TypeAliasDeclaration`
+  - `string`
+- **ExternalScheduleId** — stable-for-alpha — `TypeAliasDeclaration`
   - `string`
 - **ExternalSessionId** — stable-for-alpha — `TypeAliasDeclaration`
   - `string`
@@ -32,8 +36,10 @@
   - `GetRuntimeHistoryInput`
 - **GetRuntimeRunInput** — stable-for-alpha — `TypeAliasDeclaration`
   - `GetRuntimeRunInput`
+- **GetRuntimeScheduleInput** — stable-for-alpha — `TypeAliasDeclaration`
+  - `GetRuntimeScheduleInput`
 - **HARD_RUNTIME_LIMITS** — stable-for-alpha — `VariableDeclaration`
-  - `Readonly<Record<"maxJsonBodyBytes" | "maxHttpHeaderBytes" | "maxWebSocketFrameBytes" | "maxSseLineBytes" | "maxSseEventBytes" | "maxSsePendingBytes" | "maxRawPayloadDepth" | "maxRawPayloadKeys" | "maxDiagnosticArrayItems" | "maxDiagnosticStringLength" | "maxRedirects" | "maxEventSubscriberQueue" | "maxDeduplicationEntries" | "maxReconnectAttempts" | "maxReconciliationMs" | "maxErrorDetailBytes" | "maxFixtureCandidateBytes" | "maxCompatibilityReportBytes", number>>`
+  - `Readonly<Record<"maxJsonBodyBytes" | "maxHttpHeaderBytes" | "maxWebSocketFrameBytes" | "maxSseLineBytes" | "maxSseEventBytes" | "maxSsePendingBytes" | "maxRawPayloadDepth" | "maxRawPayloadKeys" | "maxDiagnosticArrayItems" | "maxDiagnosticStringLength" | "maxRedirects" | "maxEventSubscriberQueue" | "maxDeduplicationEntries" | "maxReconnectAttempts" | "maxReconciliationMs" | "maxErrorDetailBytes" | "maxFixtureCandidateBytes" | "maxCompatibilityReportBytes" | "maxAttachmentBytes" | "maxAttachmentCount", number>>`
 - **hasRuntimeErrorCode** — stable-for-alpha — `FunctionDeclaration`
   - `<C extends import("./types.js").RuntimeErrorCode>(error: unknown, code: C) => error is RuntimeError & { readonly code: C; }`
 - **IncrementingIdGenerator** — stable-for-alpha — `ClassDeclaration`
@@ -48,6 +54,8 @@
   - `(event: RuntimeEvent) => boolean`
 - **isTerminalRuntimeRunStatus** — stable-for-alpha — `FunctionDeclaration`
   - `(status: import("./types.js").RuntimeRunStatus) => boolean`
+- **ListRuntimeSchedulesInput** — stable-for-alpha — `TypeAliasDeclaration`
+  - `ListRuntimeSchedulesInput`
 - **NO_CAPABILITIES** — stable-for-alpha — `VariableDeclaration`
   - `RuntimeCapabilities`
 - **noopLogger** — stable-for-alpha — `VariableDeclaration`
@@ -168,6 +176,18 @@
   - `RuntimeRunSnapshot`
 - **RuntimeRunStatus** — stable-for-alpha — `TypeAliasDeclaration`
   - `RuntimeRunStatus`
+- **RuntimeSchedule** — stable-for-alpha — `TypeAliasDeclaration`
+  - `RuntimeSchedule`
+- **RuntimeScheduleExecution** — stable-for-alpha — `TypeAliasDeclaration`
+  - `RuntimeScheduleExecution`
+- **RuntimeScheduleExecutionPage** — stable-for-alpha — `TypeAliasDeclaration`
+  - `RuntimeScheduleExecutionPage`
+- **RuntimeSchedulePage** — stable-for-alpha — `TypeAliasDeclaration`
+  - `RuntimeSchedulePage`
+- **RuntimeSchedulePayload** — stable-for-alpha — `TypeAliasDeclaration`
+  - `RuntimeSchedulePayload`
+- **RuntimeScheduleTiming** — stable-for-alpha — `TypeAliasDeclaration`
+  - `RuntimeScheduleTiming`
 - **RuntimeSecret** — stable-for-alpha — `TypeAliasDeclaration`
   - `RuntimeSecret`
 - **RuntimeSecretStore** — stable-for-alpha — `InterfaceDeclaration`
@@ -193,9 +213,9 @@
 - **RuntimeWebSocketFactory** — stable-for-alpha — `InterfaceDeclaration`
   - `RuntimeWebSocketFactory`
 - **SECURE_RUNTIME_LIMITS** — stable-for-alpha — `VariableDeclaration`
-  - `Readonly<{ maxJsonBodyBytes: 1000000; maxHttpHeaderBytes: 32000; maxWebSocketFrameBytes: 1000000; maxSseLineBytes: 64000; maxSseEventBytes: 1000000; maxSsePendingBytes: 1000000; maxRawPayloadDepth: 8; maxRawPayloadKeys: 1000; maxDiagnosticArrayItems: 100; maxDiagnosticStringLength: 4000; maxRedirects: 0; maxEventSubscriberQueue: 256; maxDeduplicationEntries: 1024; maxReconnectAttempts: 2; maxReconciliationMs: 30000; maxErrorDetailBytes: 64000; maxFixtureCandidateBytes: 2000000; maxCompatibilityReportBytes: 2000000; }>`
+  - `Readonly<{ maxJsonBodyBytes: 1000000; maxHttpHeaderBytes: 32000; maxWebSocketFrameBytes: 1000000; maxSseLineBytes: 64000; maxSseEventBytes: 1000000; maxSsePendingBytes: 1000000; maxRawPayloadDepth: 8; maxRawPayloadKeys: 1000; maxDiagnosticArrayItems: 100; maxDiagnosticStringLength: 4000; maxRedirects: 0; maxEventSubscriberQueue: 256; maxDeduplicationEntries: 1024; maxReconnectAttempts: 2; maxReconciliationMs: 30000; maxErrorDetailBytes: 64000; maxFixtureCandidateBytes: 2000000; maxCompatibilityReportBytes: 2000000; maxAttachmentBytes: 10000000; maxAttachmentCount: 8; }>`
 - **SecureRuntimeLimitName** — stable-for-alpha — `TypeAliasDeclaration`
-  - `"maxJsonBodyBytes" | "maxHttpHeaderBytes" | "maxWebSocketFrameBytes" | "maxSseLineBytes" | "maxSseEventBytes" | "maxSsePendingBytes" | "maxRawPayloadDepth" | "maxRawPayloadKeys" | "maxDiagnosticArrayItems" | "maxDiagnosticStringLength" | "maxRedirects" | "maxEventSubscriberQueue" | "maxDeduplicationEntries" | "maxReconnectAttempts" | "maxReconciliationMs" | "maxErrorDetailBytes" | "maxFixtureCandidateBytes" | "maxCompatibilityReportBytes"`
+  - `"maxJsonBodyBytes" | "maxHttpHeaderBytes" | "maxWebSocketFrameBytes" | "maxSseLineBytes" | "maxSseEventBytes" | "maxSsePendingBytes" | "maxRawPayloadDepth" | "maxRawPayloadKeys" | "maxDiagnosticArrayItems" | "maxDiagnosticStringLength" | "maxRedirects" | "maxEventSubscriberQueue" | "maxDeduplicationEntries" | "maxReconnectAttempts" | "maxReconciliationMs" | "maxErrorDetailBytes" | "maxFixtureCandidateBytes" | "maxCompatibilityReportBytes" | "maxAttachmentBytes" | "maxAttachmentCount"`
 - **StartRuntimeRunInput** — stable-for-alpha — `TypeAliasDeclaration`
   - `StartRuntimeRunInput`
 - **StreamRuntimeRunInput** — stable-for-alpha — `TypeAliasDeclaration`
@@ -218,5 +238,7 @@
   - `TransportWarningEvent`
 - **unsupportedCapability** — stable-for-alpha — `FunctionDeclaration`
   - `(message: string, details?: Record<string, unknown>) => RuntimeError`
+- **UpdateRuntimeScheduleInput** — stable-for-alpha — `TypeAliasDeclaration`
+  - `UpdateRuntimeScheduleInput`
 - **UsageUpdatedEvent** — stable-for-alpha — `TypeAliasDeclaration`
   - `UsageUpdatedEvent`

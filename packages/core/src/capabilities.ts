@@ -1,5 +1,6 @@
 import { RuntimeError, unsupportedCapability } from './errors.js';
 import type {
+  RuntimeAttachment,
   RuntimeCapabilities,
   RuntimeCapabilityName,
   RuntimeUserInput,
@@ -19,6 +20,7 @@ export const NO_CAPABILITIES: RuntimeCapabilities = {
   input: { text: false, images: false, files: false },
   output: { text: false, reasoning: false, tools: false, usage: false },
   health: { liveness: false, readiness: false },
+  schedules: { create: false, get: false, list: false, update: false, delete: false, enable: false, pause: false, trigger: false, history: false },
   extensions: {},
 };
 
@@ -35,6 +37,7 @@ export const TEXT_RUN_CAPABILITIES: RuntimeCapabilities = {
   input: { text: true, images: false, files: false },
   output: { text: true, reasoning: false, tools: false, usage: false },
   health: { liveness: true, readiness: false },
+  schedules: { create: false, get: false, list: false, update: false, delete: false, enable: false, pause: false, trigger: false, history: false },
   extensions: {},
 };
 
@@ -87,6 +90,40 @@ export function validateInputCapabilities(
   }
 }
 
+/** Validate attachment metadata and bounded inline content before provider activity. */
+export function validateRuntimeAttachments(
+  attachments: readonly RuntimeAttachment[] | undefined,
+  limits: { maxCount: number; maxBytes: number },
+): void {
+  if (!attachments) return;
+  if (attachments.length > limits.maxCount) invalidAttachment('Attachment count exceeds the configured limit');
+  for (const attachment of attachments) {
+    if (!(attachment.data instanceof Uint8Array)) invalidAttachment('Attachment data must be a bounded byte source');
+    if (attachment.data.byteLength > limits.maxBytes) invalidAttachment('Attachment exceeds the configured size limit');
+    if (attachment.byteSize !== undefined && attachment.byteSize !== attachment.data.byteLength) {
+      invalidAttachment('Attachment declared size does not match its byte source');
+    }
+    if (!/^[a-z0-9][a-z0-9!#$&^_.+-]*\/[a-z0-9][a-z0-9!#$&^_.+-]*$/i.test(attachment.mimeType)) {
+      invalidAttachment('Attachment MIME type is invalid');
+    }
+    const name = attachment.name;
+    if (name !== undefined && (!name || name.length > 255 || name === '.' || name === '..' || /[\\/\u0000-\u001f\u007f]/.test(name))) {
+      invalidAttachment('Attachment filename is invalid');
+    }
+    if (attachment.kind === 'file' && !name) invalidAttachment('File attachments require a filename');
+    if (attachment.kind === 'image' && !attachment.mimeType.toLowerCase().startsWith('image/')) {
+      invalidAttachment('Image attachment MIME type must be image/*');
+    }
+    if (attachment.contentHash !== undefined && !/^(?:sha256:)?[a-f0-9]{64}$/i.test(attachment.contentHash)) {
+      invalidAttachment('Attachment content hash is invalid');
+    }
+  }
+}
+
+function invalidAttachment(message: string): never {
+  throw new RuntimeError({ code: 'INVALID_REQUEST', retryable: false, message });
+}
+
 export function assertStartRunInput(input: { idempotencyKey: string; applicationRunId: string }): void {
   if (!input.applicationRunId.trim()) {
     throw new RuntimeError({
@@ -115,6 +152,7 @@ export function mergeCapabilities(
     input: { ...base.input, ...patch.input },
     output: { ...base.output, ...patch.output },
     health: { ...base.health, ...patch.health },
+    schedules: { ...base.schedules!, ...patch.schedules },
     extensions: { ...base.extensions, ...patch.extensions },
   };
 }

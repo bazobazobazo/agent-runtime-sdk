@@ -18,6 +18,10 @@ connection, sessions, runs, normalized events, approvals, cancellation,
 history, health, capabilities, and errors. The SDK owns runtime communication;
 the host continues to own application-domain authorization and durability.
 
+The `@banzae` scope identifies the publisher. The SDK is independent of other
+Banzae products and can be embedded in any compatible host application,
+control plane, CLI, IDE, orchestration service, or custom backend.
+
 ## Supported runtimes
 
 - **OpenClaw:** wire protocols v3 and v4 are implemented.
@@ -154,6 +158,8 @@ version is supported.
 - [Capabilities](docs/capabilities.md)
 - [Sessions](docs/sessions.md)
 - [Runs](docs/runs.md)
+- [Attachments](docs/attachments.md)
+- [Scheduling](docs/scheduling.md)
 - [Streaming](docs/streaming.md)
 - [Approvals](docs/approvals.md)
 - [Errors](docs/error-model.md)
@@ -162,8 +168,8 @@ version is supported.
 - [Live compatibility](docs/live-compatibility.md)
 - [Adapter conformance](docs/adapter-conformance.md)
 - [Adapter authoring](docs/adapter-authoring.md)
-- [BanzaeForge integration handoff](docs/banzaeforge-integration.md)
-- [Telegraphic migration](docs/migration-from-telegraphic.md)
+- [Host application integration](docs/host-application-integration.md)
+- [Runtime adapter adoption](docs/adapter-adoption.md)
 - [Versioning and compatibility](docs/versioning-and-compatibility.md)
 - [Runnable examples](examples/README.md)
 - [Release engineering](docs/releasing.md)

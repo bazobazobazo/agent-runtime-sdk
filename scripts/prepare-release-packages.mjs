@@ -36,11 +36,11 @@ for (const pkg of await publicPackages()) {
   if (report.size > budget.maxSizeBytes) throw new Error(`${pkg.name} archive exceeds ${budget.maxSizeBytes} bytes`);
   if (report.entryCount > budget.maxFiles) throw new Error(`${pkg.name} archive exceeds ${budget.maxFiles} files`);
   const paths = report.files.map((file) => file.path).sort();
-  for (const required of ['LICENSE', 'README.md', 'THIRD_PARTY_NOTICES.md', 'package.json', 'dist/index.js', 'dist/index.d.ts']) {
+  for (const required of ['LICENSE', 'README.md', 'CHANGELOG.md', 'THIRD_PARTY_NOTICES.md', 'package.json', 'dist/index.js', 'dist/index.d.ts']) {
     if (!paths.includes(required)) throw new Error(`${pkg.name} archive is missing ${required}`);
   }
   for (const path of paths) {
-    if (!/^(?:LICENSE|README\.md|THIRD_PARTY_NOTICES\.md|package\.json|dist\/.+\.(?:js|map|d\.ts))$/.test(path)) {
+    if (!/^(?:LICENSE|README\.md|CHANGELOG\.md|THIRD_PARTY_NOTICES\.md|package\.json|dist\/.+\.(?:js|map|d\.ts))$/.test(path)) {
       throw new Error(`${pkg.name} archive includes unapproved file ${path}`);
     }
   }

@@ -1,15 +1,18 @@
 #!/usr/bin/env node
 import { join } from 'node:path';
-import { publicPackages, releaseConfig, releaseManifestFor, root } from './lib/release-config.mjs';
+import { distTagForVersion, publicPackages, releaseConfig, releaseManifestFor, root } from './lib/release-config.mjs';
 
 const packages = await publicPackages();
+const applied = packages.every((pkg) => pkg.manifest.version === releaseConfig.sdkVersion);
 const plan = {
   schemaVersion: 1,
   strategy: 'fixed',
   sourceVersion: releaseConfig.sourceVersion,
   targetVersion: releaseConfig.sdkVersion,
   prerelease: true,
+  distTag: distTagForVersion(releaseConfig.sdkVersion),
   publicationStatus: 'not-published',
+  versionStatus: applied ? 'applied-for-review' : 'pending',
   packages: packages.map((pkg) => {
     const releaseManifest = releaseManifestFor(pkg.manifest);
     const dependencyUpdates = {};
@@ -30,7 +33,9 @@ const plan = {
   notes: [
     'SDK package versions are synchronized for the initial alpha series.',
     'Runtime product and wire protocol versions remain independent.',
-    'The final version is applied only by a reviewed release-candidate change.',
+    applied
+      ? 'The exact candidate version is applied for release pull-request review; publication remains blocked.'
+      : 'The final version is applied only by a reviewed release-candidate change.',
   ],
 };
 

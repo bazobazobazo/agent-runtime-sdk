@@ -1,14 +1,28 @@
 {
   "name": "@banzae/agent-runtime-hermes",
-  "version": "0.1.0",
+  "version": "0.1.0-alpha.1",
   "description": "Hermes Agent HTTP/SSE adapter for Banzae Agent Runtime SDK.",
   "license": "Apache-2.0",
   "author": "Banzae",
-  "repository": { "type": "git", "url": "git+https://github.com/bazobazobazo/agent-runtime-sdk.git", "directory": "packages/adapter-hermes" },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/bazobazobazo/agent-runtime-sdk.git",
+    "directory": "packages/adapter-hermes"
+  },
   "homepage": "https://github.com/bazobazobazo/agent-runtime-sdk#readme",
-  "bugs": { "url": "https://github.com/bazobazobazo/agent-runtime-sdk/issues" },
-  "keywords": ["agent", "runtime", "hermes", "sse", "typescript"],
-  "engines": { "node": ">=22.13" },
+  "bugs": {
+    "url": "https://github.com/bazobazobazo/agent-runtime-sdk/issues"
+  },
+  "keywords": [
+    "agent",
+    "runtime",
+    "hermes",
+    "sse",
+    "typescript"
+  ],
+  "engines": {
+    "node": ">=22.13"
+  },
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -23,8 +37,17 @@
       "import": "./dist/experimental.js"
     }
   },
-  "files": ["dist", "README.md", "LICENSE", "THIRD_PARTY_NOTICES.md"],
-  "publishConfig": { "access": "public", "provenance": true },
+  "files": [
+    "dist",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE",
+    "THIRD_PARTY_NOTICES.md"
+  ],
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "clean": "rm -rf dist tsconfig.tsbuildinfo",
@@ -32,9 +55,9 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@banzae/agent-runtime-core": "workspace:0.1.0"
+    "@banzae/agent-runtime-core": "workspace:0.1.0-alpha.1"
   },
   "peerDependencies": {
-    "@banzae/agent-runtime-core": "workspace:0.1.0"
+    "@banzae/agent-runtime-core": "workspace:0.1.0-alpha.1"
   }
 }

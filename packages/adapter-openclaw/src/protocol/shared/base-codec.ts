@@ -2,13 +2,18 @@ import {
   RuntimeError,
   NO_CAPABILITIES,
   type CancelRuntimeRunInput,
+  type CreateRuntimeScheduleInput,
   type EnsureSessionInput,
   type GetRuntimeHistoryInput,
   type GetRuntimeRunInput,
+  type GetRuntimeScheduleInput,
+  type ListRuntimeSchedulesInput,
   type RuntimeCapabilities,
   type RuntimeEvent,
+  type RuntimeAttachment,
   type RuntimeRunSnapshot,
   type StartRuntimeRunInput,
+  type UpdateRuntimeScheduleInput,
 } from '@banzae/agent-runtime-core';
 import { runtimeEventBase } from '@banzae/agent-runtime-core/experimental';
 import type {
@@ -43,6 +48,17 @@ export type OpenClawProtocolMappings = {
   runWaitMethod: string;
   historyMethod: string;
   cancelMethod: string;
+  scheduleCreateMethod: string;
+  scheduleGetMethod: string;
+  scheduleListMethod: string;
+  scheduleUpdateMethod: string;
+  scheduleDeleteMethod: string;
+  scheduleTriggerMethod: string;
+  scheduleHistoryMethod: string;
+  scheduleCreateShape: 'wrapped-v3' | 'root-v4';
+  attachmentKinds: readonly RuntimeAttachment['kind'][];
+  attachmentFileName: boolean;
+  statefulEvents: readonly string[];
   deltaEvents: readonly string[];
   completedEvents: readonly string[];
   failedEvents: readonly string[];
@@ -156,7 +172,8 @@ export abstract class MappedOpenClawCodec implements OpenClawProtocolCodec {
     const payload = optionalRecord(event.payload);
     const run = optionalRecord(payload.run);
     const session = optionalRecord(payload.session);
-    const status = stringValue(payload.status ?? run.status);
+    const message = optionalRecord(payload.message);
+    const status = stringValue(payload.status ?? payload.state ?? run.status);
     return {
       eventType: event.event,
       providerRunId:
@@ -179,6 +196,13 @@ export abstract class MappedOpenClawCodec implements OpenClawProtocolCodec {
         stringValue(payload.event_id) ??
         stringValue(payload.providerEventId) ??
         stringValue(payload.id),
+      messageId: stringValue(payload.messageId) ?? stringValue(payload.message_id) ?? stringValue(message.id),
+      parentMessageId:
+        stringValue(payload.parentId) ??
+        stringValue(payload.parent_id) ??
+        stringValue(payload.parentMessageId) ??
+        stringValue(message.parentId),
+      rawStatus: status,
       sequence: event.seq ?? numberValue(payload.seq ?? payload.sequence),
       occurredAt: validTimestamp(event.timestamp) ?? validTimestamp(stringValue(payload.timestamp ?? payload.createdAt ?? payload.created_at ?? payload.time)),
       terminal: terminalOutcome(this.mappings, event.event, status),
@@ -190,7 +214,8 @@ export abstract class MappedOpenClawCodec implements OpenClawProtocolCodec {
     if (!eventMatchesRun(this.mappings, metadata, context)) return [];
 
     const payload = optionalRecord(event.payload);
-    const text = stringValue(payload.text ?? payload.delta ?? payload.message ?? payload.content);
+    const text = eventText(payload);
+    const state = stringValue(payload.state ?? payload.status)?.toLowerCase();
     const occurredAt = metadata.occurredAt ? new Date(metadata.occurredAt) : context.clock.now();
     const provider = {
       adapterId: 'openclaw',
@@ -198,18 +223,24 @@ export abstract class MappedOpenClawCodec implements OpenClawProtocolCodec {
       ...(context.includeRawProviderPayload ? { sanitizedRawPayload: sanitizeOpenClawPayload(event.payload) } : {}),
     };
 
-    if (this.mappings.deltaEvents.includes(event.event) && text) {
+    const isStateful = this.mappings.statefulEvents.includes(event.event);
+    if ((this.mappings.deltaEvents.includes(event.event) || (isStateful && state === 'delta')) && text) {
       return [{ ...eventBase('assistant.delta', context, metadata, occurredAt, provider), type: 'assistant.delta', delta: text }];
     }
-    if (this.mappings.completedEvents.includes(event.event)) {
-      const events: RuntimeEvent[] = [];
-      if (text) {
-        events.push({ ...eventBase('assistant.completed', context, metadata, occurredAt, provider), type: 'assistant.completed', text });
+    if (this.mappings.completedEvents.includes(event.event) || (isStateful && isCompletedStatus(state))) {
+      if (!text) {
+        return [{
+          ...eventBase('transport.warning', context, metadata, occurredAt, provider),
+          type: 'transport.warning',
+          warning: 'OpenClaw terminal event omitted final text; status reconciliation is required',
+        }];
       }
-      events.push({ ...eventBase('run.completed', context, metadata, occurredAt, provider), type: 'run.completed' });
+      const events: RuntimeEvent[] = [];
+      events.push({ ...eventBase('assistant.completed', context, metadata, occurredAt, provider), type: 'assistant.completed', text });
+      events.push({ ...eventBase('run.completed', context, metadata, occurredAt, provider), type: 'run.completed', output: text });
       return events;
     }
-    if (this.mappings.failedEvents.includes(event.event)) {
+    if (this.mappings.failedEvents.includes(event.event) || (isStateful && isFailedStatus(state))) {
       return [
         {
           ...eventBase('run.failed', context, metadata, occurredAt, provider),
@@ -218,7 +249,7 @@ export abstract class MappedOpenClawCodec implements OpenClawProtocolCodec {
         },
       ];
     }
-    if (this.mappings.cancelledEvents.includes(event.event)) {
+    if (this.mappings.cancelledEvents.includes(event.event) || (isStateful && isCancelledStatus(state))) {
       return [{ ...eventBase('run.cancelled', context, metadata, occurredAt, provider), type: 'run.cancelled' }];
     }
     if (this.mappings.timeoutEvents.includes(event.event)) {
@@ -268,9 +299,13 @@ export abstract class MappedOpenClawCodec implements OpenClawProtocolCodec {
       throw protocolError('OpenClaw run-status response returned another run');
     }
     if (typeof response.status !== 'string' || !response.status) throw protocolError('OpenClaw run-status response omitted status');
-    const status = normalizeStatus(response.status);
+    const rawStatus = response.status;
+    const normalizedStatus = normalizeStatus(rawStatus);
     const output = stringValue(response.output ?? response.text ?? response.message);
-    if (status === 'completed' && output === undefined) throw protocolError('OpenClaw completed run omitted output');
+    if (normalizedStatus === 'completed' && output === undefined && String(rawStatus).toLowerCase() !== 'ok') {
+      throw protocolError('OpenClaw completed run omitted output');
+    }
+    const status = normalizedStatus === 'completed' && output === undefined ? 'unknown' : normalizedStatus;
     const usage = response.usage === undefined ? undefined : strictUsage(response.usage);
     return {
       applicationRunId: input.applicationRunId,
@@ -278,7 +313,15 @@ export abstract class MappedOpenClawCodec implements OpenClawProtocolCodec {
       status,
       output,
       usage,
-      providerState: { adapterId: 'openclaw', protocolVersion: this.protocolVersion, status },
+      providerState: {
+        ...input.providerState,
+        adapterId: 'openclaw',
+        protocolVersion: this.protocolVersion,
+        rawStatus,
+        status,
+        terminalStatus: normalizedStatus === 'completed' ? 'completed' : undefined,
+        completionEvidence: status === 'completed' ? 'terminal-status' : undefined,
+      },
     };
   }
 
@@ -295,13 +338,20 @@ export abstract class MappedOpenClawCodec implements OpenClawProtocolCodec {
     const detailCode = stringValue(providerDetails.code);
     const providerMessage = stringValue(providerError.message) ?? '';
     const lower = providerMessage.toLowerCase();
+    if (providerCode === 'RATE_LIMITED' || providerCode === 'TOO_MANY_REQUESTS' || lower.includes('rate limit')) {
+      const retryAfterMs = numberValue(providerError.retryAfterMs ?? providerDetails.retryAfterMs);
+      return new RuntimeError({ code: 'RATE_LIMITED', retryable: true, retryAfterMs, message: 'OpenClaw rate limit was reached', adapterId: 'openclaw' });
+    }
+    if (providerCode === 'TIMEOUT' || lower.includes('timed out')) {
+      return new RuntimeError({ code: 'TIMEOUT', retryable: true, message: 'OpenClaw request timed out', adapterId: 'openclaw' });
+    }
     if (providerCode === 'NOT_PAIRED' || detailCode === 'PAIRING_REQUIRED' || lower.includes('pairing required')) {
       return new RuntimeError({ code: 'PAIRING_REQUIRED', retryable: false, message: 'OpenClaw device pairing is required', adapterId: 'openclaw', details: providerDetails });
     }
     if (providerCode === 'AUTHORIZATION_FAILED' || providerCode === 'PERMISSION_DENIED' || detailCode === 'AUTHORIZATION_FAILED' || detailCode === 'PERMISSION_DENIED' || lower.includes('permission') || lower.includes('forbidden') || lower.includes('missing scope')) {
       return new RuntimeError({ code: 'PERMISSION_DENIED', retryable: false, message: 'OpenClaw permission was denied', adapterId: 'openclaw', details: providerDetails });
     }
-    if (lower.includes('auth') || lower.includes('token') || providerCode === 'AUTHENTICATION_FAILED') {
+    if (lower.includes('auth') || lower.includes('token') || providerCode === 'AUTHENTICATION_FAILED' || providerCode === 'TOKEN_EXPIRED') {
       return new RuntimeError({ code: 'AUTHENTICATION_FAILED', retryable: false, message: 'OpenClaw authentication failed', adapterId: 'openclaw', details: providerDetails });
     }
     if (lower.includes('protocol') || providerDetails.expectedProtocol !== undefined || detailCode === 'PROTOCOL_MISMATCH') {
@@ -321,8 +371,9 @@ export abstract class MappedOpenClawCodec implements OpenClawProtocolCodec {
     const methods = new Set(hello?.methods ?? []);
     const events = new Set(hello?.events ?? []);
     const runStart = methods.has(this.mappings.runStartMethod) || methods.has('sessions.send');
-    const runStream = this.mappings.deltaEvents.some((event) => events.has(event))
-      && this.mappings.completedEvents.some((event) => events.has(event));
+    const runStream = this.mappings.statefulEvents.some((event) => events.has(event))
+      || (this.mappings.deltaEvents.some((event) => events.has(event))
+        && this.mappings.completedEvents.some((event) => events.has(event)));
     return {
       ...NO_CAPABILITIES,
       sessions: {
@@ -338,7 +389,11 @@ export abstract class MappedOpenClawCodec implements OpenClawProtocolCodec {
         cancel: methods.has(this.mappings.cancelMethod) || methods.has('sessions.abort'),
         approvals: false,
       },
-      input: { text: runStart, images: false, files: false },
+      input: {
+        text: runStart,
+        images: runStart && this.mappings.attachmentKinds.includes('image'),
+        files: runStart && this.mappings.attachmentKinds.includes('file'),
+      },
       output: {
         text: runStream || methods.has(this.mappings.runWaitMethod),
         reasoning: false,
@@ -349,10 +404,28 @@ export abstract class MappedOpenClawCodec implements OpenClawProtocolCodec {
         liveness: true,
         readiness: methods.has('health') || methods.has('status'),
       },
+      schedules: {
+        create: methods.has(this.mappings.scheduleCreateMethod),
+        get: methods.has(this.mappings.scheduleGetMethod) || methods.has(this.mappings.scheduleListMethod),
+        list: methods.has(this.mappings.scheduleListMethod),
+        update: methods.has(this.mappings.scheduleUpdateMethod),
+        delete: methods.has(this.mappings.scheduleDeleteMethod),
+        enable: methods.has(this.mappings.scheduleUpdateMethod),
+        pause: methods.has(this.mappings.scheduleUpdateMethod),
+        trigger: methods.has(this.mappings.scheduleTriggerMethod),
+        history: methods.has(this.mappings.scheduleHistoryMethod),
+      },
       extensions: {
         'openclaw.cron': methods.has('cron.add') || methods.has('cron.list'),
         'openclaw.channels': methods.has('channels.status'),
         'openclaw.protocol': this.protocolVersion,
+        'openclaw.attachments.transport': 'chat.send-inline-base64',
+        'openclaw.attachments.images': this.mappings.attachmentKinds.includes('image')
+          ? 'supported-by-protocol'
+          : 'unsupported-by-protocol',
+        'openclaw.attachments.files': this.mappings.attachmentKinds.includes('file')
+          ? 'supported-by-protocol'
+          : 'unsupported-by-protocol',
       },
     };
   }
@@ -365,8 +438,33 @@ export abstract class MappedOpenClawCodec implements OpenClawProtocolCodec {
     return {
       id: `run-start:${input.applicationRunId}`,
       method: this.mappings.runStartMethod,
-      params: { sessionKey: input.session.externalSessionId, message: input.input.text, idempotencyKey: input.idempotencyKey, deliver: false },
+      params: {
+        sessionKey: input.session.externalSessionId,
+        message: input.input.text,
+        idempotencyKey: input.idempotencyKey,
+        deliver: false,
+        ...(input.input.attachments?.length
+          ? { attachments: input.input.attachments.map((attachment) => this.encodeAttachment(attachment)) }
+          : {}),
+      },
     };
+  }
+
+  private encodeAttachment(attachment: RuntimeAttachment): Record<string, unknown> {
+    if (!this.mappings.attachmentKinds.includes(attachment.kind)) {
+      throw new RuntimeError({
+        code: 'UNSUPPORTED_CAPABILITY',
+        retryable: false,
+        adapterId: 'openclaw',
+        message: `OpenClaw protocol v${this.protocolVersion} does not support ${attachment.kind} attachments`,
+      });
+    }
+    return compactObject({
+      type: attachment.kind,
+      mimeType: attachment.mimeType,
+      ...(this.mappings.attachmentFileName ? { fileName: attachment.name } : {}),
+      content: bytesToBase64(attachment.data),
+    });
   }
 
   buildRunWait(input: GetRuntimeRunInput): OpenClawRpcRequest {
@@ -384,6 +482,90 @@ export abstract class MappedOpenClawCodec implements OpenClawProtocolCodec {
   buildCancel(input: CancelRuntimeRunInput): OpenClawRpcRequest {
     return { id: `cancel:${input.externalRunId}`, method: this.mappings.cancelMethod, params: { sessionKey: input.externalSessionId, runId: input.externalRunId } };
   }
+
+  buildScheduleCreate(input: CreateRuntimeScheduleInput): OpenClawRpcRequest {
+    const job = scheduleJob(input, this.mappings.scheduleCreateShape === 'root-v4');
+    const params = this.mappings.scheduleCreateShape === 'root-v4'
+      ? job
+      : { job, idempotencyKey: input.idempotencyKey };
+    return { id: `schedule-create:${input.idempotencyKey}`, method: this.mappings.scheduleCreateMethod, params };
+  }
+
+  buildScheduleGet(input: GetRuntimeScheduleInput): OpenClawRpcRequest {
+    return { id: `schedule-get:${input.externalScheduleId}`, method: this.mappings.scheduleGetMethod, params: { jobId: input.externalScheduleId } };
+  }
+
+  buildScheduleList(input: ListRuntimeSchedulesInput = {}): OpenClawRpcRequest {
+    return { id: 'schedule-list', method: this.mappings.scheduleListMethod, params: compactObject({ limit: input.limit, cursor: input.cursor }) };
+  }
+
+  buildScheduleUpdate(input: UpdateRuntimeScheduleInput): OpenClawRpcRequest {
+    return { id: `schedule-update:${input.externalScheduleId}`, method: this.mappings.scheduleUpdateMethod, params: { jobId: input.externalScheduleId, patch: schedulePatch(input) } };
+  }
+
+  buildScheduleDelete(input: GetRuntimeScheduleInput): OpenClawRpcRequest {
+    return { id: `schedule-delete:${input.externalScheduleId}`, method: this.mappings.scheduleDeleteMethod, params: { jobId: input.externalScheduleId } };
+  }
+
+  buildScheduleEnable(input: GetRuntimeScheduleInput, enabled: boolean): OpenClawRpcRequest {
+    return this.buildScheduleUpdate({ ...input, enabled });
+  }
+
+  buildSchedulePause(input: GetRuntimeScheduleInput, paused: boolean): OpenClawRpcRequest {
+    return this.buildScheduleUpdate({ ...input, enabled: !paused });
+  }
+
+  buildScheduleTrigger(input: GetRuntimeScheduleInput): OpenClawRpcRequest {
+    return { id: `schedule-trigger:${input.externalScheduleId}`, method: this.mappings.scheduleTriggerMethod, params: { jobId: input.externalScheduleId } };
+  }
+
+  buildScheduleHistory(input: GetRuntimeScheduleInput & ListRuntimeSchedulesInput): OpenClawRpcRequest {
+    return { id: `schedule-history:${input.externalScheduleId}`, method: this.mappings.scheduleHistoryMethod, params: compactObject({ jobId: input.externalScheduleId, limit: input.limit, cursor: input.cursor }) };
+  }
+}
+
+function bytesToBase64(value: Uint8Array): string {
+  const BufferCtor = (globalThis as { Buffer?: { from(value: Uint8Array): { toString(encoding: 'base64'): string } } }).Buffer;
+  if (BufferCtor) return BufferCtor.from(value).toString('base64');
+  let binary = '';
+  for (const byte of value) binary += String.fromCharCode(byte);
+  if (typeof btoa !== 'function') throw protocolError('No base64 encoder is available');
+  return btoa(binary);
+}
+
+function scheduleJob(input: CreateRuntimeScheduleInput, requireV4Defaults = false): Record<string, unknown> {
+  return compactObject({
+    name: input.name,
+    schedule: scheduleTiming(input.timing),
+    payload: input.payload.kind === 'system-event'
+      ? { kind: 'systemEvent', text: input.payload.text }
+      : { kind: 'agentTurn', message: input.payload.text },
+    sessionTarget: input.payload.sessionTarget ?? (requireV4Defaults ? input.payload.kind === 'system-event' ? 'main' : 'isolated' : undefined),
+    wakeMode: requireV4Defaults ? 'now' : undefined,
+    delivery: input.payload.deliveryChannel ? { mode: 'announce', channel: input.payload.deliveryChannel } : undefined,
+    enabled: input.enabled,
+  });
+}
+
+function schedulePatch(input: UpdateRuntimeScheduleInput): Record<string, unknown> {
+  return compactObject({
+    name: input.name,
+    schedule: input.timing ? scheduleTiming(input.timing) : undefined,
+    payload: input.payload
+      ? input.payload.kind === 'system-event'
+        ? { kind: 'systemEvent', text: input.payload.text }
+        : { kind: 'agentTurn', message: input.payload.text }
+      : undefined,
+    sessionTarget: input.payload?.sessionTarget,
+    delivery: input.payload?.deliveryChannel ? { mode: 'announce', channel: input.payload.deliveryChannel } : undefined,
+    enabled: input.enabled,
+  });
+}
+
+function scheduleTiming(input: CreateRuntimeScheduleInput['timing']): Record<string, unknown> {
+  if (input.kind === 'once') return { kind: 'at', at: input.at };
+  if (input.kind === 'cron') return compactObject({ kind: 'cron', expr: input.expression, tz: input.timezone });
+  return compactObject({ kind: 'every', everyMs: input.everyMs, startsAt: input.startsAt });
 }
 
 function authPayload(auth: OpenClawConnectInput['auth'], deviceToken?: string): Record<string, unknown> | undefined {
@@ -434,6 +616,12 @@ function providerEventId(metadata: OpenClawProviderEventMetadata, type: RuntimeE
 }
 
 function terminalOutcome(mappings: OpenClawProtocolMappings, eventType: string, _status?: string): OpenClawProviderEventMetadata['terminal'] {
+  const status = _status?.toLowerCase();
+  if (mappings.statefulEvents.includes(eventType)) {
+    if (isCompletedStatus(status)) return 'completed';
+    if (isFailedStatus(status)) return 'failed';
+    if (isCancelledStatus(status)) return 'cancelled';
+  }
   if (mappings.completedEvents.includes(eventType)) return 'completed';
   if (mappings.failedEvents.includes(eventType)) return 'failed';
   if (mappings.cancelledEvents.includes(eventType)) return 'cancelled';
@@ -471,6 +659,7 @@ function strictUsage(value: unknown): Readonly<Record<string, number>> {
 
 function isSessionScopedRunEvent(mappings: OpenClawProtocolMappings, eventType: string): boolean {
   return (
+    mappings.statefulEvents.includes(eventType) ||
     mappings.deltaEvents.includes(eventType) ||
     mappings.completedEvents.includes(eventType) ||
     mappings.failedEvents.includes(eventType) ||
@@ -480,7 +669,42 @@ function isSessionScopedRunEvent(mappings: OpenClawProtocolMappings, eventType: 
 }
 
 function normalizeStatus(status: unknown): RuntimeRunSnapshot['status'] {
-  if (status === 'queued' || status === 'running' || status === 'waiting_for_approval' || status === 'stopping') return status;
-  if (status === 'completed' || status === 'failed' || status === 'cancelled') return status;
+  if (typeof status !== 'string') return 'unknown';
+  const normalized = status.toLowerCase();
+  if (normalized === 'accepted' || normalized === 'pending') return 'queued';
+  if (normalized === 'in_flight') return 'running';
+  if (normalized === 'queued' || normalized === 'running' || normalized === 'waiting_for_approval' || normalized === 'stopping') return normalized;
+  if (isCompletedStatus(normalized)) return 'completed';
+  if (isFailedStatus(normalized)) return 'failed';
+  if (isCancelledStatus(normalized)) return 'cancelled';
   return 'unknown';
+}
+
+function isCompletedStatus(status?: string): boolean {
+  return status === 'completed' || status === 'complete' || status === 'done' || status === 'final' || status === 'ok';
+}
+
+function isFailedStatus(status?: string): boolean {
+  return status === 'failed' || status === 'error';
+}
+
+function isCancelledStatus(status?: string): boolean {
+  return status === 'cancelled' || status === 'canceled' || status === 'aborted';
+}
+
+function eventText(payload: Record<string, unknown>): string | undefined {
+  const direct = stringValue(payload.text ?? payload.delta ?? payload.deltaText ?? payload.content);
+  if (direct) return direct;
+  const message = optionalRecord(payload.message);
+  return normalizedText(message.content ?? message.text);
+}
+
+function normalizedText(value: unknown): string | undefined {
+  if (typeof value === 'string') return value || undefined;
+  if (!Array.isArray(value)) return undefined;
+  const text = value
+    .map((part) => (typeof part === 'string' ? part : stringValue(optionalRecord(part).text)))
+    .filter((part): part is string => typeof part === 'string')
+    .join('');
+  return text || undefined;
 }

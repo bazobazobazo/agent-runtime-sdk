@@ -1,0 +1,30 @@
+{
+  "metadata": {
+    "runtimeProduct": "openclaw",
+    "runtimeVersion": "2026.6.11",
+    "protocolVersion": 4,
+    "captureDate": "2026-07-18",
+    "fixtureSchemaVersion": 1,
+    "sanitizerVersion": "openclaw-sanitizer-v2",
+    "source": "sanitized-live-capture"
+  },
+  "frame": {
+    "type": "req",
+    "id": "run-start:fixture-file-run",
+    "method": "chat.send",
+    "params": {
+      "sessionKey": "fixture-file-session",
+      "message": "Extract the deterministic marker.",
+      "idempotencyKey": "fixture-file-key",
+      "deliver": false,
+      "attachments": [
+        {
+          "type": "file",
+          "mimeType": "text/plain",
+          "fileName": "marker.txt",
+          "content": "QkFOWkFFX0ZJTEVfQ09NUEFUSUJJTElUWV9PSw=="
+        }
+      ]
+    }
+  }
+}

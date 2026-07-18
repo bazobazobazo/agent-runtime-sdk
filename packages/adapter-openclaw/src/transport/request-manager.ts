@@ -4,6 +4,8 @@ import type { OpenClawFrame, OpenClawProtocolCodec, OpenClawRpcRequest } from '.
 export type OpenClawEventFilter = {
   event?: string;
   events?: readonly string[];
+  /** Internal replay cursor captured before a run request is sent. */
+  afterCursor?: number;
 };
 
 export type OpenClawRequestManagerOptions = {
@@ -29,6 +31,11 @@ type RunSubscriber = {
   closed: boolean;
 };
 
+type BufferedEvent = {
+  cursor: number;
+  frame: Extract<OpenClawFrame, { type: 'event' }>;
+};
+
 export class OpenClawRequestManager {
   private readonly pending = new Map<string, PendingRequest>();
   private readonly subscribers = new Map<string, RunSubscriber>();
@@ -38,6 +45,8 @@ export class OpenClawRequestManager {
   private closePromise?: Promise<void>;
   private closedError?: RuntimeError;
   private subscriberSequence = 0;
+  private eventSequence = 0;
+  private readonly recentEvents: BufferedEvent[] = [];
 
   constructor(
     private readonly connection: RuntimeWebSocketConnection,
@@ -63,6 +72,11 @@ export class OpenClawRequestManager {
   }
 
   private readonly options: OpenClawRequestManagerOptions;
+
+  /** Internal cursor used to replay events emitted while a run-start request is in flight. */
+  eventCursor(): number {
+    return this.eventSequence;
+  }
 
   async start(): Promise<void> {
     if (this.readLoop) return;
@@ -141,6 +155,25 @@ export class OpenClawRequestManager {
   subscribe(filter?: OpenClawEventFilter): AsyncIterable<Extract<OpenClawFrame, { type: 'event' }>> {
     const id = `subscriber-${++this.subscriberSequence}`;
     const subscriber: RunSubscriber = { id, filter, queue: [], closed: false };
+    if (filter?.afterCursor !== undefined) {
+      const oldestCursor = this.recentEvents[0]?.cursor;
+      if (oldestCursor !== undefined && filter.afterCursor < oldestCursor - 1) {
+        subscriber.error = new RuntimeError({
+          code: 'OUTCOME_UNKNOWN',
+          retryable: false,
+          adapterId: 'openclaw',
+          message: 'OpenClaw event replay window was exceeded',
+          details: { replayCapacity: this.subscriberQueueSize },
+        });
+        subscriber.closed = true;
+      } else {
+        subscriber.queue.push(
+          ...this.recentEvents
+            .filter((entry) => entry.cursor > filter.afterCursor! && matchesFilter(entry.frame, filter))
+            .map((entry) => entry.frame),
+        );
+      }
+    }
     this.subscribers.set(id, subscriber);
     void this.start();
 
@@ -269,6 +302,8 @@ export class OpenClawRequestManager {
   }
 
   private publishEvent(frame: Extract<OpenClawFrame, { type: 'event' }>): void {
+    this.recentEvents.push({ cursor: ++this.eventSequence, frame });
+    if (this.recentEvents.length > this.subscriberQueueSize) this.recentEvents.shift();
     for (const subscriber of this.subscribers.values()) {
       if (!matchesFilter(frame, subscriber.filter)) continue;
       if (subscriber.queue.length >= this.subscriberQueueSize) {

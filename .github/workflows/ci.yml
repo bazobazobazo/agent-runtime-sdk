@@ -105,6 +105,9 @@ jobs:
       - name: Check package contents
         run: pnpm package:contents
 
+      - name: Check product independence
+        run: pnpm independence:check
+
       - name: Scan for secrets
         run: pnpm secret:scan
 

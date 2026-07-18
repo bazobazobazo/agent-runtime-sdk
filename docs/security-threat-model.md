@@ -52,8 +52,8 @@ generic transport SDK.
 The SDK owns protocol validation, cancellation, resource cleanup, normalized
 errors/events, and safe defaults. The host application owns endpoint authority,
 tenant/user authorization, durable state, credential lifecycle, retry policy,
-and approval authorization. A later BanzaeForge integration may add product
-network/tenant policy and audit persistence. Infrastructure owns DNS, metadata
+and approval authorization. The host may add product-specific network and tenant
+policy, monitoring, and audit persistence. Infrastructure owns DNS, metadata
 service protection, egress/proxy policy, TLS trust, and runtime isolation.
 
 Private runtimes are a supported deployment model, so the SDK does not globally

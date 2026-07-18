@@ -84,6 +84,18 @@ export type RuntimeCapabilities = {
     liveness: boolean;
     readiness: boolean;
   };
+  /** Optional because adapters that do not expose scheduling need not implement it. */
+  schedules?: {
+    create: boolean;
+    get: boolean;
+    list: boolean;
+    update: boolean;
+    delete: boolean;
+    enable: boolean;
+    pause: boolean;
+    trigger: boolean;
+    history: boolean;
+  };
   extensions: RuntimeCapabilityExtensions;
 };
 
@@ -113,7 +125,85 @@ export type RuntimeCapabilityName =
   | 'output.tools'
   | 'output.usage'
   | 'health.liveness'
-  | 'health.readiness';
+  | 'health.readiness'
+  | 'schedules.create'
+  | 'schedules.get'
+  | 'schedules.list'
+  | 'schedules.update'
+  | 'schedules.delete'
+  | 'schedules.enable'
+  | 'schedules.pause'
+  | 'schedules.trigger'
+  | 'schedules.history';
+
+/** Public alpha contract for runtime schedule id. */
+export type ExternalScheduleId = string;
+
+/** Provider-neutral schedule timing. */
+export type RuntimeScheduleTiming =
+  | { kind: 'once'; at: string }
+  | { kind: 'interval'; everyMs: number; startsAt?: string }
+  | { kind: 'cron'; expression: string; timezone?: string };
+
+/** Provider-neutral schedule payload. */
+export type RuntimeSchedulePayload = {
+  text: string;
+  kind?: 'agent-turn' | 'system-event';
+  sessionTarget?: string;
+  deliveryChannel?: string;
+};
+
+/** Public alpha contract for schedule create input. */
+export type CreateRuntimeScheduleInput = {
+  idempotencyKey: RuntimeIdempotencyKey;
+  name?: string;
+  timing: RuntimeScheduleTiming;
+  payload: RuntimeSchedulePayload;
+  enabled?: boolean;
+  metadata?: Readonly<Record<string, string>>;
+};
+
+/** Public alpha contract for schedule update input. */
+export type UpdateRuntimeScheduleInput = {
+  externalScheduleId: ExternalScheduleId;
+  name?: string;
+  timing?: RuntimeScheduleTiming;
+  payload?: RuntimeSchedulePayload;
+  enabled?: boolean;
+};
+
+/** Public alpha contract for schedule lookup input. */
+export type GetRuntimeScheduleInput = { externalScheduleId: ExternalScheduleId };
+/** Public alpha contract for schedule list input. */
+export type ListRuntimeSchedulesInput = { limit?: number; cursor?: string };
+
+/** Normalized runtime schedule. */
+export type RuntimeSchedule = {
+  externalScheduleId: ExternalScheduleId;
+  name?: string;
+  timing: RuntimeScheduleTiming;
+  payload: RuntimeSchedulePayload;
+  status: 'enabled' | 'disabled' | 'paused' | 'completed' | 'failed' | 'unknown';
+  nextExecutionAt?: string;
+  previousExecutionAt?: string;
+  idempotencyKey?: string;
+};
+
+/** Normalized runtime schedule page. */
+export type RuntimeSchedulePage = { schedules: readonly RuntimeSchedule[]; nextCursor?: string };
+
+/** Normalized schedule execution. */
+export type RuntimeScheduleExecution = {
+  externalScheduleId: ExternalScheduleId;
+  executionId?: string;
+  status: 'queued' | 'running' | 'completed' | 'failed' | 'cancelled' | 'unknown';
+  scheduledAt?: string;
+  startedAt?: string;
+  completedAt?: string;
+};
+
+/** Normalized schedule execution page. */
+export type RuntimeScheduleExecutionPage = { executions: readonly RuntimeScheduleExecution[]; nextCursor?: string };
 
 /** Public alpha contract for runtime adapter lifecycle state. */
 export type RuntimeAdapterLifecycleState =
@@ -220,6 +310,8 @@ export type RuntimeAttachment =
       name?: string;
       /** Declared bytes; adapters also validate inline data.byteLength. */
       byteSize?: number;
+      contentHash?: string;
+      consumerReference?: string;
       data: Uint8Array;
     }
   | {
@@ -228,8 +320,9 @@ export type RuntimeAttachment =
       name: string;
       /** Declared bytes for referenced or inline content. */
       byteSize?: number;
-      data?: Uint8Array;
-      uri?: string;
+      contentHash?: string;
+      consumerReference?: string;
+      data: Uint8Array;
     };
 
 /** Public alpha contract for start runtime run input. */

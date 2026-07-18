@@ -1,0 +1,29 @@
+{
+  "metadata": {
+    "runtimeProduct": "openclaw",
+    "runtimeVersion": "2026.4.22",
+    "protocolVersion": 3,
+    "captureDate": "2026-07-18",
+    "fixtureSchemaVersion": 1,
+    "sanitizerVersion": "openclaw-sanitizer-v2",
+    "source": "sanitized-live-capture"
+  },
+  "frame": {
+    "type": "req",
+    "id": "run-start:fixture-image-run",
+    "method": "chat.send",
+    "params": {
+      "sessionKey": "fixture-image-session",
+      "message": "Describe the synthetic marker.",
+      "idempotencyKey": "fixture-image-key",
+      "deliver": false,
+      "attachments": [
+        {
+          "type": "image",
+          "mimeType": "image/png",
+          "content": "iVBORw0KGgo="
+        }
+      ]
+    }
+  }
+}

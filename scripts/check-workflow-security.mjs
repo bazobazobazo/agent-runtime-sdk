@@ -20,8 +20,11 @@ if (!/pull_request:/m.test(dependency) || /push:/m.test(dependency) || !/depende
 const codeql = await readFile(new URL('codeql.yml', directory), 'utf8').catch(() => '');
 if (!/security-events:\s*write/m.test(codeql) || !/languages:\s*\[\s*['"]?javascript-typescript/m.test(codeql) || !/push:\s*\n\s*branches:\s*\n\s*- main/m.test(codeql) || !/github\/codeql-action\/(?:init|analyze)@99df26d4f13ea111d4ec1a7dddef6063f76b97e9/.test(codeql)) failures.push('codeql.yml: current CodeQL PR/main/schedule configuration is missing');
 const release = await readFile(new URL('release.yml', directory), 'utf8').catch(() => '');
-for (const requirement of ['workflow_dispatch:', 'confirm_publish:', 'default: false', 'environment: npm-release', 'id-token: write', 'refs/tags/v', '--provenance']) {
+for (const requirement of ['workflow_dispatch:', 'confirm_publish:', 'default: false', 'environment: npm-release', 'id-token: write', 'refs/tags/v', '--tag next', '--provenance', "node-version: '22.14.0'", 'npm install --global npm@11.5.1', 'const minimum = [22, 14, 0]', 'const minimum = [11, 5, 1]']) {
   if (!release.includes(requirement)) failures.push(`release.yml: missing ${requirement}`);
+}
+for (const line of release.split(/\r?\n/).filter((value) => /\bnpm\s+publish\b/.test(value))) {
+  if (!/--tag\s+next\b/.test(line)) failures.push('release.yml: every alpha npm publish command must use --tag next');
 }
 if (/\npush:|\npull_request:/.test(release)) failures.push('release.yml: publication workflow must be manual only');
 if ((release.match(/id-token:\s*write/g) ?? []).length !== 1) failures.push('release.yml: OIDC write must exist only in one publish job');

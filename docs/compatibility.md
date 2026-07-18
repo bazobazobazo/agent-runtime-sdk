@@ -7,11 +7,11 @@ integration suite in the target release environment.
 The SDK supports OpenClaw wire protocol versions explicitly registered and
 validated by the codec registry.
 
-| SDK adapter | Protocol | Runtime version | Recorded SDK commit | Evidence type | Date | Checks completed | Status / limitations |
-|---|---|---|---|---|---|---|---|
-| OpenClaw | v3 | pinned fixture targets | `7ba46df` | synthetic fixture validated; fake-server conformance validated | 2026-07-14 | connection, sessions, runs, stream, status, history, cancellation, cleanup | supported; new harness report pending for each deployment |
-| OpenClaw | v4 | pinned fixture targets | `7ba46df` | synthetic fixture validated; fake-server conformance validated | 2026-07-14 | connection, sessions, runs, stream, status, history, cancellation, cleanup | supported; new harness report pending for each deployment |
-| Hermes | HTTP/SSE Runs v1 | documented target `0.18.2`; no live run report | `7ba46df` | synthetic fixture validated; fake-server conformance validated; live validation pending | 2026-07-14 | capabilities, health, sessions, runs, SSE recovery, approvals, cancellation, cleanup | implemented; live validation pending |
+| SDK adapter | SDK version | Evidence SDK commit | Protocol | Runtime version | Evidence type | Date | Checks completed / skipped | Status / limitations |
+|---|---|---|---|---|---|---|---|---|
+| OpenClaw | `0.1.0-alpha.1` | `d629ade` | v3 | pinned fixture targets | synthetic fixture validated; fake-server conformance validated | 2026-07-15 | connection, sessions, runs, stream, status, history, cancellation, cleanup; release live check skipped because no dedicated target was configured | supported protocol implementation; sanitized live validation pending for each exact deployment/runtime version |
+| OpenClaw | `0.1.0-alpha.1` | `d629ade` | v4 | pinned fixture targets | synthetic fixture validated; fake-server conformance validated | 2026-07-15 | connection, sessions, runs, stream, status, history, cancellation, cleanup; release live check skipped because no dedicated target was configured | supported protocol implementation; sanitized live validation pending for each exact deployment/runtime version |
+| Hermes | `0.1.0-alpha.1` | `d629ade` | HTTP/SSE Runs v1 | documented target `0.18.2`; no complete live run report | synthetic fixture validated; fake-server conformance validated; live validation pending | 2026-07-15 | capabilities, health, sessions, runs, SSE recovery, approvals, cancellation, cleanup in synthetic conformance; release live checks skipped because no dedicated target was configured | implemented; complete live validation pending |
 
 Runtime auto-detection currently supports only OpenClaw and Hermes. Codex and Pi
 remain private placeholders and are not registered probes.
@@ -70,6 +70,26 @@ OpenClaw provider events are correlated to the active SDK run by provider run ID
 and, where a run ID is not present, by an explicit session key on recognized
 run-scoped event types. Unrelated gateway events are ignored.
 
+OpenClaw v3 and v4 gateways may report chat lifecycle through one `chat` event
+whose payload state is `delta`, `final`, `error`, or `aborted`; `agent.wait`
+may independently report `pending`, `ok`, `error`, or `timeout`. The adapter
+normalizes both forms. It captures a bounded event cursor before sending the run
+request so a fast final event emitted before `startRun()` returns can be replayed
+to the correct run stream.
+
+Completion evidence is evaluated in this order:
+
+1. a correlated explicit terminal event;
+2. a correlated terminal status with direct final output;
+3. a correlated terminal status plus exactly one unambiguous assistant message
+   added after the pre-run history baseline.
+
+The history fallback requires a terminal `agent.wait` result for the exact run
+and either an exact history `runId` match or one unambiguous new assistant
+message. Multiple candidates, another run/session, partial output, `pending`,
+or `timeout` cannot prove completion and remain `unknown`. The SDK never invents
+a run ID or uses timing alone as completion evidence.
+
 When OpenClaw supplies sequence numbers, the adapter tracks them per SDK run
 stream. A missing sequence range emits a `transport.gap` event before continuing
 with later events. Callers must treat that stream as requiring reconciliation and
@@ -89,31 +109,32 @@ downgrades only after a confirmed protocol mismatch. It does not downgrade on
 authentication failure, device-pairing requirements, authorization failure,
 malformed frames, malformed hello responses, or transport failures.
 
-## Live targets used during SDK bring-up
+## Sanitized runtime observations used during SDK bring-up
 
-Known validation targets:
+Consumer aliases, endpoints, and device identities are intentionally excluded.
 
-| Target | Runtime | Version |
+| Runtime | Version | Observation |
 |---|---|---|
-| `bf1` | OpenClaw | `2026.4.22 (00bd2cf)` |
-| `bfp1` | OpenClaw | `2026.5.6 (c97b9f7)`, protocol `3` fixture |
-| `bfp1` | OpenClaw | `2026.6.11`, protocol `4` fixture |
-| `bfp1` | Hermes Agent | capabilities and health observed at `v0.18.2`; full live adapter suite not run |
+| OpenClaw | `2026.4.22 (00bd2cf)` | protocol `3` fixture |
+| OpenClaw | `2026.5.6 (c97b9f7)` | protocol `3` fixture |
+| OpenClaw | `2026.6.11` | protocol `4` fixture |
+| Hermes Agent | `v0.18.2` | capabilities and health observed; full live adapter suite not run |
 
 OpenClaw runtime version is not the same thing as gateway protocol version.
-The same bfp1 host validated as protocol `3` on OpenClaw `2026.5.6` and
-protocol `4` after upgrading to OpenClaw `2026.6.11`.
+One runtime lineage validated as protocol `3` on OpenClaw `2026.5.6` and
+protocol `4` after upgrading to OpenClaw `2026.6.11`; the consumer identity is
+not part of the SDK compatibility contract.
 
 OpenClaw token auth is token-only by default. Device pairing is opt-in for
 validation flows that deliberately need a device token; the SDK must not create
 new pending pairing requests during ordinary token validation.
 
-The bfp1 OpenClaw v4 live flow is validated with an approved SDK operator device
+The OpenClaw v4 live flow is validated with an approved SDK operator device
 token scoped to `operator.read` and `operator.write`. The flow creates a
 session, starts a chat run, observes the expected response, reads history, and
 submits `chat.abort` against a real provider run handle.
 
-The bfp1 Hermes capture proves only that authenticated capabilities and
+The Hermes capture proves only that authenticated capabilities and
 detailed health were reachable at `v0.18.2`. It is not evidence that run
 creation, streaming, recovery, approvals, cancellation, or REST session
 history passed the live adapter suite. Hermes therefore remains provisional

@@ -1,0 +1,28 @@
+{
+  "metadata": {
+    "runtimeProduct": "openclaw",
+    "runtimeVersion": "2026.4.22",
+    "protocolVersion": 3,
+    "captureDate": "2026-07-18",
+    "fixtureSchemaVersion": 1,
+    "sanitizerVersion": "openclaw-sanitizer-v2",
+    "source": "sanitized-live-capture"
+  },
+  "payload": {
+    "messages": [
+      {
+        "id": "fixture-v3-user-message",
+        "role": "user",
+        "content": [
+          { "type": "text", "text": "Describe the synthetic marker." },
+          { "type": "image", "mimeType": "image/png" }
+        ]
+      },
+      {
+        "id": "fixture-v3-assistant-message",
+        "role": "assistant",
+        "content": [{ "type": "text", "text": "SYNTHETIC_IMAGE_OK" }]
+      }
+    ]
+  }
+}

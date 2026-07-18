@@ -174,7 +174,7 @@ describe('bounded protocol property tests', () => {
       const result = await detector.detect({ target: { endpoint: 'https://runtime.example.test' }, options: { probeTimeoutMs: 500 } });
       expect(['failed', 'detected']).toContain(result.status);
       if (result.status === 'detected') expect(['openclaw', 'hermes']).toContain(result.selected?.adapterId);
-    }), { ...propertyOptions, numRuns: Math.min(50, runs) });
+    }), propertyOptions);
   });
 
   it('removes a generated secret corpus from bounded serialized output', () => {

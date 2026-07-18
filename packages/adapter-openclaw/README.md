@@ -24,6 +24,10 @@ The adapter follows the shared lifecycle, negotiates only implemented v3/v4
 protocols, and fails closed on unknown versions/capabilities. Text runs,
 sessions, streaming, status, cancellation, approvals, and history depend on
 validated runtime evidence. Images are not advertised without real payload support.
+Protocol v3 transports inline base64 images and rejects generic files before
+provider activity. Protocol v4 transports inline base64 images and files using
+the Gateway `fileName` field. Runtime-local media paths and attachment bytes are
+not exposed by normalized history.
 Always propagate an `AbortSignal` and close the adapter in `finally`.
 
 ## Errors and security
@@ -31,6 +35,11 @@ Always propagate an `AbortSignal` and close the adapter in `finally`.
 Gateway failures normalize to `RuntimeError`; raw frames are never normal API.
 Frame sizes, event queues, deduplication, correlation, and diagnostics are
 bounded. Credentials and device proof material must remain in authorized stores.
+The adapter replays a bounded pre-subscription event window so immediate chat
+completion is not lost, and it recognizes the stateful `chat` lifecycle used by
+real v3/v4 gateways. A terminal `agent.wait` response without direct output is
+reconciled only against one unambiguous post-start assistant history message;
+ambiguous history remains `unknown`.
 
 See [Compatibility](../../docs/compatibility.md), [Lifecycle](../../docs/lifecycle.md),
 [Security](../../docs/security.md), and the [construction example](../../examples/openclaw-chat/index.ts).

@@ -2,7 +2,7 @@
 import { execFile } from 'node:child_process';
 import { readFile } from 'node:fs/promises';
 import { promisify } from 'node:util';
-import { artifactRoot, readJson, root } from './lib/release-config.mjs';
+import { artifactRoot, distTagForVersion, readJson, root } from './lib/release-config.mjs';
 
 const exec = promisify(execFile);
 const commands = [
@@ -14,7 +14,9 @@ const commands = [
   ['pnpm', ['package:check']],
   ['pnpm', ['package:contents']],
   [process.execPath, ['./scripts/prepare-release-packages.mjs']],
+  ['pnpm', ['independence:check']],
   [process.execPath, ['./scripts/test-packed-consumer.mjs', '--use-existing']],
+  ['pnpm', ['registry:consumer-check']],
   ['pnpm', ['sbom:generate']],
   [process.execPath, ['./scripts/generate-release-manifest.mjs']],
   [process.execPath, ['./scripts/validate-release-artifacts.mjs']],
@@ -33,10 +35,15 @@ for (const [command, args] of commands) {
 
 const manifest = await readJson(`${artifactRoot}/release-manifest.json`);
 if (manifest.publicationStatus !== 'not-published') throw new Error('Dry run changed publication status.');
+if (manifest.distTag !== distTagForVersion(manifest.sdkVersion) || manifest.distTag !== 'next') {
+  throw new Error('Dry run did not select the next prerelease channel.');
+}
 const forbiddenCommands = [
   ['npm', 'publish'],
   ['pnpm', 'publish'],
   ['gh', 'release', 'create'],
+  ['npm', 'dist-tag'],
+  ['git', 'tag'],
 ].map((parts) => parts.join(' '));
 for (const path of ['./scripts/release-dry-run.mjs', './scripts/prepare-release-packages.mjs', './scripts/generate-release-manifest.mjs']) {
   const source = await readFile(new URL(`../${path.replace('./', '')}`, import.meta.url), 'utf8');
@@ -44,4 +51,4 @@ for (const path of ['./scripts/release-dry-run.mjs', './scripts/prepare-release-
     throw new Error(`Dry-run implementation contains a forbidden release command: ${path}`);
   }
 }
-console.log(`Release dry run complete: ${manifest.packages.length} packages would be published; no publish, tag, or release action occurred.`);
+console.log(`Release dry run complete: ${manifest.packages.length} packages would be published with dist-tag ${manifest.distTag}; no publish, tag, or release action occurred.`);

@@ -1,7 +1,11 @@
 {
   "schemaVersion": 1,
   "sdkVersion": "0.1.0-alpha.1",
-  "sourceVersion": "0.1.0",
+  "sourceVersion": "0.1.0-alpha.1",
+  "distTags": {
+    "prerelease": "next",
+    "stable": "latest"
+  },
   "artifactDirectory": "artifacts/release",
   "publicPackages": [
     "@banzae/agent-runtime-core",
@@ -17,11 +21,29 @@
     "@banzae/agent-runtime-adapter-template"
   ],
   "packageBudgets": {
-    "@banzae/agent-runtime-core": { "maxFiles": 90, "maxSizeBytes": 300000 },
-    "@banzae/agent-runtime-detection": { "maxFiles": 45, "maxSizeBytes": 220000 },
-    "@banzae/agent-runtime-openclaw": { "maxFiles": 100, "maxSizeBytes": 450000 },
-    "@banzae/agent-runtime-hermes": { "maxFiles": 70, "maxSizeBytes": 350000 },
-    "@banzae/agent-runtime-testing": { "maxFiles": 65, "maxSizeBytes": 400000 },
-    "@banzae/agent-runtime-node": { "maxFiles": 35, "maxSizeBytes": 250000 }
+    "@banzae/agent-runtime-core": {
+      "maxFiles": 90,
+      "maxSizeBytes": 300000
+    },
+    "@banzae/agent-runtime-detection": {
+      "maxFiles": 45,
+      "maxSizeBytes": 220000
+    },
+    "@banzae/agent-runtime-openclaw": {
+      "maxFiles": 100,
+      "maxSizeBytes": 450000
+    },
+    "@banzae/agent-runtime-hermes": {
+      "maxFiles": 70,
+      "maxSizeBytes": 350000
+    },
+    "@banzae/agent-runtime-testing": {
+      "maxFiles": 65,
+      "maxSizeBytes": 400000
+    },
+    "@banzae/agent-runtime-node": {
+      "maxFiles": 35,
+      "maxSizeBytes": 250000
+    }
   }
 }

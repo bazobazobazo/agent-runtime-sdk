@@ -1,9 +1,12 @@
 import type {
   CancelRuntimeRunInput,
+  CreateRuntimeScheduleInput,
   ConnectOptions,
   EnsureSessionInput,
   GetRuntimeHistoryInput,
   GetRuntimeRunInput,
+  GetRuntimeScheduleInput,
+  ListRuntimeSchedulesInput,
   OperationOptions,
   ProbeOptions,
   ResolveRuntimeApprovalInput,
@@ -18,10 +21,15 @@ import type {
   RuntimeRunHandle,
   RuntimeRunSnapshot,
   RuntimeSession,
+  RuntimeSchedule,
+  RuntimeScheduleExecution,
+  RuntimeScheduleExecutionPage,
+  RuntimeSchedulePage,
   RuntimeTarget,
   RuntimeAdapterLifecycleState,
   StartRuntimeRunInput,
   StreamRuntimeRunInput,
+  UpdateRuntimeScheduleInput,
 } from './types.js';
 import type { RuntimeAdapterDependencies } from './ports.js';
 
@@ -46,6 +54,17 @@ export interface AgentRuntimeAdapter {
     options?: OperationOptions,
   ): Promise<RuntimeApprovalResolution>;
   getHistory(input: GetRuntimeHistoryInput, options?: OperationOptions): Promise<RuntimeHistoryPage>;
+  createSchedule?(input: CreateRuntimeScheduleInput, options?: OperationOptions): Promise<RuntimeSchedule>;
+  getSchedule?(input: GetRuntimeScheduleInput, options?: OperationOptions): Promise<RuntimeSchedule>;
+  listSchedules?(input?: ListRuntimeSchedulesInput, options?: OperationOptions): Promise<RuntimeSchedulePage>;
+  updateSchedule?(input: UpdateRuntimeScheduleInput, options?: OperationOptions): Promise<RuntimeSchedule>;
+  deleteSchedule?(input: GetRuntimeScheduleInput, options?: OperationOptions): Promise<void>;
+  enableSchedule?(input: GetRuntimeScheduleInput, options?: OperationOptions): Promise<void>;
+  disableSchedule?(input: GetRuntimeScheduleInput, options?: OperationOptions): Promise<void>;
+  pauseSchedule?(input: GetRuntimeScheduleInput, options?: OperationOptions): Promise<void>;
+  resumeSchedule?(input: GetRuntimeScheduleInput, options?: OperationOptions): Promise<void>;
+  triggerSchedule?(input: GetRuntimeScheduleInput, options?: OperationOptions): Promise<RuntimeScheduleExecution>;
+  getScheduleHistory?(input: GetRuntimeScheduleInput & ListRuntimeSchedulesInput, options?: OperationOptions): Promise<RuntimeScheduleExecutionPage>;
   close(): Promise<void>;
 }
 
