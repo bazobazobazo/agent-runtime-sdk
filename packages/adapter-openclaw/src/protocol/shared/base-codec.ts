@@ -538,7 +538,6 @@ function scheduleJob(input: CreateRuntimeScheduleInput): Record<string, unknown>
     sessionTarget: input.payload.sessionTarget,
     delivery: input.payload.deliveryChannel ? { mode: 'announce', channel: input.payload.deliveryChannel } : undefined,
     enabled: input.enabled,
-    metadata: { ...input.metadata, idempotencyKey: input.idempotencyKey },
   });
 }
 

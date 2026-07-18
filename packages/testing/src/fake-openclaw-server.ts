@@ -259,8 +259,8 @@ abstract class FakeOpenClawServerBase implements RuntimeWebSocketFactory {
       const job = recordValue(request.params?.job);
       const metadata = recordValue(job.metadata);
       const idempotencyKey = stringValue(request.params?.idempotencyKey) ?? stringValue(metadata.idempotencyKey);
-      const existing = idempotencyKey ? [...this.schedules.values()].find((item) => stringValue(recordValue(item.metadata).idempotencyKey) === idempotencyKey) : undefined;
-      const schedule = existing ?? { ...job, id: `openclaw-v${this.protocolVersion}-schedule-${this.schedules.size + 1}`, enabled: job.enabled !== false };
+      const existing = idempotencyKey ? [...this.schedules.values()].find((item) => stringValue(item.idempotencyKey) === idempotencyKey || stringValue(recordValue(item.metadata).idempotencyKey) === idempotencyKey) : undefined;
+      const schedule = existing ?? { ...job, idempotencyKey, id: `openclaw-v${this.protocolVersion}-schedule-${this.schedules.size + 1}`, enabled: job.enabled !== false };
       this.schedules.set(schedule.id, schedule);
       if (this.options.uncertainScheduleCreation) {
         this.options.uncertainScheduleCreation = false;

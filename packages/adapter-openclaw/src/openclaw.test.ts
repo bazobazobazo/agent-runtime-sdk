@@ -49,6 +49,20 @@ describe('OpenClaw protocol scaffolding', () => {
     expect(request.params?.idempotencyKey).toBe('host-runtime-run:run-1');
   });
 
+  it.each([openClawV3Codec(), openClawV4Codec()])(
+    'keeps schedule idempotency at the RPC boundary for protocol v$protocolVersion',
+    (codec) => {
+      const request = codec.buildScheduleCreate({
+        idempotencyKey: 'host-schedule-key',
+        timing: { kind: 'once', at: '2030-01-02T03:04:00.000Z' },
+        payload: { text: 'marker', kind: 'system-event' },
+        metadata: { hostOnly: true },
+      });
+      expect(request.params?.idempotencyKey).toBe('host-schedule-key');
+      expect(request.params?.job).not.toHaveProperty('metadata');
+    },
+  );
+
   it.each([
     ['v3', openClawV3Codec(), '../../../fixtures/openclaw/v3'],
     ['v4', openClawV4Codec(), '../../../fixtures/openclaw/v4'],
@@ -252,6 +266,22 @@ describe('OpenClaw protocol scaffolding', () => {
     expect(mapped.code).toBe('PAIRING_REQUIRED');
     expect(mapped.message).toContain('pairing is required');
     expect(mapped.details?.requestId).toBe('pairing-request-1');
+  });
+
+  it('keeps approved-scope upgrades distinct from permission denial', () => {
+    const mapped = openClawV4Codec().mapError({
+      code: 'NOT_PAIRED',
+      message: 'pairing required: device is asking for more scopes than currently approved',
+      details: {
+        code: 'PAIRING_REQUIRED',
+        reason: 'scope-upgrade',
+        requestedScopes: ['operator.read', 'operator.write', 'operator.admin'],
+        approvedScopes: ['operator.read', 'operator.write'],
+      },
+    });
+
+    expect(mapped.code).toBe('PAIRING_REQUIRED');
+    expect(mapped.code).not.toBe('PERMISSION_DENIED');
   });
 
   it('normalizes legacy provider authorization codes to permission denied', () => {
