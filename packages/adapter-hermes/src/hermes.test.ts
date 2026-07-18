@@ -134,7 +134,7 @@ describe('Hermes contract hardening', () => {
   });
 
   it('does not treat a sanitized capabilities-only capture as a live adapter suite', async () => {
-    const fixture = JSON.parse(await readFile(new URL('../../../fixtures/hermes/bfp1-capabilities.json', import.meta.url), 'utf8')) as { capabilities: { body: unknown } };
+    const fixture = JSON.parse(await readFile(new URL('../../../fixtures/hermes/observed-v0.18.2-capabilities.json', import.meta.url), 'utf8')) as { capabilities: { body: unknown } };
     expect(isHermesCapabilities(fixture.capabilities.body)).toBe(false);
     const synthetic = JSON.parse(await readFile(new URL('../../../fixtures/hermes/capabilities.json', import.meta.url), 'utf8')) as { metadata: Record<string, unknown> };
     expect(synthetic.metadata).toMatchObject({ source: 'synthetic', validatedRuntimeVersion: null });

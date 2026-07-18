@@ -22,7 +22,7 @@
     {
       "direction": "client",
       "at": "2026-07-13T18:08:19.243Z",
-      "payload": "{\"type\":\"req\",\"id\":\"fixture-connect-1\",\"method\":\"connect\",\"params\":{\"minProtocol\":3,\"maxProtocol\":3,\"client\":{\"id\":\"gateway-client\",\"version\":\"0.1.0\",\"platform\":\"node\",\"mode\":\"backend\"},\"role\":\"operator\",\"scopes\":[\"operator.read\",\"operator.write\"],\"caps\":[\"tool-events\"],\"auth\":{\"token\":\"__REDACTED__\",\"deviceToken\":\"__REDACTED__\"},\"locale\":\"en-US\",\"userAgent\":\"@banzae/agent-runtime-sdk-fixture-capture/0.1.0\",\"device\":{\"id\":\"feba337afee12b4a00332463395045ffcd05bff94b8f2538e53ff101d05f2872\",\"publicKey\":\"S2Z-RyRycMSzu7GCXmFrgIqHF5niQrh1TOgHc0_jxyI\",\"signature\":\"__REDACTED__\",\"signedAt\":1783966099239,\"nonce\":\"7e980fc4-cd58-44f0-a53b-5d21c7316555\"}}}"
+      "payload": "{\"type\":\"req\",\"id\":\"fixture-connect-1\",\"method\":\"connect\",\"params\":{\"minProtocol\":3,\"maxProtocol\":3,\"client\":{\"id\":\"gateway-client\",\"version\":\"0.1.0\",\"platform\":\"node\",\"mode\":\"backend\"},\"role\":\"operator\",\"scopes\":[\"operator.read\",\"operator.write\"],\"caps\":[\"tool-events\"],\"auth\":{\"token\":\"__REDACTED__\",\"deviceToken\":\"__REDACTED__\"},\"locale\":\"en-US\",\"userAgent\":\"@banzae/agent-runtime-sdk-fixture-capture/0.1.0\",\"device\":{\"id\":\"__REDACTED__\",\"publicKey\":\"__REDACTED__\",\"signature\":\"__REDACTED__\",\"signedAt\":0,\"nonce\":\"__REDACTED__\"}}}"
     },
     {
       "direction": "server",

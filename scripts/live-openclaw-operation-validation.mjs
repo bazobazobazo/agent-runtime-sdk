@@ -23,6 +23,8 @@ const stateRoot = required('OPENCLAW_STATE_ROOT');
 const alias = required('OPENCLAW_GATEWAY_ALIAS');
 const protocolVersion = Number(required('OPENCLAW_PROTOCOL_VERSION'));
 const operation = required('LIVE_OPERATION');
+const requestedSessionPrefix = process.env.OPENCLAW_SESSION_KEY_PREFIX?.trim() || null;
+const validationMarker = process.env.VALIDATION_MARKER?.trim() || null;
 const startedAt = new Date().toISOString();
 const diagnostics = [];
 const pending = new Map();
@@ -100,7 +102,7 @@ async function runOperation() {
     http: new FetchHttpTransport(),
     webSockets,
     crypto: nodeCrypto,
-  }, { scopes, requestTimeoutMs: 30_000 });
+  }, { scopes, requestTimeoutMs: 120_000 });
   const connection = await adapter.connect({
     target: { endpoint, adapterHint: 'openclaw', transportHint: 'websocket' },
     auth: { kind: 'token', token },
@@ -115,9 +117,12 @@ async function runOperation() {
     return { connectionResult: 'connected', healthStatus: health.status };
   }
   if (operation === 'devices') return deviceListResult();
+  if (operation === 'agents') return agentListResult();
+  if (operation === 'history-assert') return historyAssertionResult();
   if (operation === 'text') return chatResult('text');
   if (operation === 'image') return chatResult('image');
   if (operation === 'file') return chatResult('file');
+  if (operation === 'conversation') return conversationResult();
   if (operation === 'schedule') return scheduleResult();
   throw Object.assign(new Error('Unsupported validation operation'), { code: 'INVALID_CONFIGURATION' });
 }
@@ -136,10 +141,97 @@ async function deviceListResult() {
   };
 }
 
+async function agentListResult() {
+  const agents = await listAgents();
+  return {
+    connectionResult: 'connected',
+    agents: agents.map((entry) => ({
+      agentIdSuffix: agentId(entry).slice(-16),
+      modelHash: hash(
+        JSON.stringify(entry.model ?? entry.models ?? entry.config?.model ?? null),
+      ),
+      imageCapabilityAdvertised:
+        entry.capabilities?.images === true ||
+        entry.capabilities?.vision === true ||
+        entry.model?.capabilities?.includes?.('image') === true ||
+        entry.model?.capabilities?.includes?.('vision') === true,
+    })),
+  };
+}
+
+async function historyAssertionResult() {
+  if (!requestedSessionPrefix || !validationMarker) {
+    throw Object.assign(
+      new Error('History assertion requires a session prefix and marker'),
+      { code: 'INVALID_CONFIGURATION' },
+    );
+  }
+  const dispatcher = adapter?.connected?.dispatcher;
+  if (!dispatcher)
+    throw Object.assign(new Error('Connected dispatcher unavailable'), {
+      code: 'INTERNAL',
+    });
+  const payload = await dispatcher.request({
+    id: `session-list:${randomUUID()}`,
+    method: 'sessions.list',
+    params: {},
+  });
+  const sessions = Array.isArray(payload)
+    ? payload
+    : Array.isArray(payload?.sessions)
+      ? payload.sessions
+      : [];
+  const matches = sessions
+    .map((entry) => ({
+      entry,
+      key:
+        typeof entry?.key === 'string'
+          ? entry.key
+          : typeof entry?.sessionKey === 'string'
+            ? entry.sessionKey
+            : typeof entry?.id === 'string'
+              ? entry.id
+              : '',
+    }))
+    .filter(({ key }) => key.startsWith(requestedSessionPrefix));
+  if (matches.length !== 1) {
+    throw Object.assign(
+      new Error('Session prefix did not match exactly one runtime session'),
+      { code: 'INVALID_CONFIGURATION' },
+    );
+  }
+  externalSessionId = matches[0].key;
+  const history = await adapter.getHistory({
+    applicationSessionId: externalSessionId,
+    externalSessionId,
+    limit: 50,
+  }, { timeoutMs: 120_000 });
+  const assistantMatches = history.messages.filter(
+    (message) =>
+      message.role === 'assistant' && message.content.trim() === validationMarker,
+  ).length;
+  const userMarkerReferences = history.messages.filter(
+    (message) =>
+      message.role === 'user' && message.content.includes(validationMarker),
+  ).length;
+  terminalResult = assistantMatches === 1 ? 'completed' : 'unknown';
+  return {
+    connectionResult: 'connected',
+    terminalEvidence:
+      assistantMatches === 1 ? 'reconciled-session-history' : 'not-established',
+    messageCount: history.messages.length,
+    assistantMatches,
+    userMarkerReferences,
+    markerMatchedExactly: assistantMatches === 1,
+    noDuplicate: assistantMatches <= 1 && userMarkerReferences <= 1,
+    noOutcomeUnknown: assistantMatches === 1,
+  };
+}
+
 async function chatResult(kind) {
   const suffix = randomUUID();
   const session = await adapter.ensureSession({
-    applicationSessionId: `banzae-attachment-validation-${alias}-${kind}-${suffix}`,
+    applicationSessionId: `sdk-validation-${alias}-${kind}-${suffix}`,
     title: 'Banzae attachment compatibility validation',
   }, { timeoutMs: 30_000 });
   externalSessionId = session.externalSessionId;
@@ -181,6 +273,113 @@ async function chatResult(kind) {
     noDuplicate: chatSendCount === 1,
     noOutcomeUnknown: snapshot.status !== 'unknown',
   };
+}
+
+async function conversationResult() {
+  const suffix = randomUUID();
+  const session = await adapter.ensureSession({
+    applicationSessionId: `sdk-validation-${alias}-conversation-${suffix}`,
+    title: 'SDK session reuse validation',
+  }, { timeoutMs: 30_000 });
+  externalSessionId = session.externalSessionId;
+  const markers = ['BANZAE_SESSION_REUSE_ONE_OK', 'BANZAE_SESSION_REUSE_TWO_OK'];
+  const outputs = [];
+  const externalRunIdHashes = [];
+  const beforeSend = diagnostics.filter((entry) => entry.method === 'chat.send').length;
+  for (let index = 0; index < markers.length; index += 1) {
+    const applicationRunId = `sdk-conversation-validation-run-${index + 1}-${suffix}`;
+    const run = await adapter.startRun({
+      applicationRunId,
+      idempotencyKey: `sdk-conversation-validation-key-${index + 1}-${suffix}`,
+      session,
+      input: {
+        text: `Return exactly this marker and nothing else: ${markers[index]}`,
+      },
+    }, { timeoutMs: 30_000 });
+    accepted = true;
+    externalRunId = run.externalRunId;
+    externalRunIdHashes.push(hash(run.externalRunId));
+    const snapshot = await waitForTerminal({ applicationRunId, run, session });
+    terminalResult = snapshot.status;
+    if (snapshot.status !== 'completed') {
+      throw Object.assign(new Error('Conversation run did not complete successfully'), {
+        code: snapshot.error?.code ?? 'PROVIDER_ERROR',
+      });
+    }
+    let output = snapshot.output?.trim();
+    if (!output) {
+      const history = await adapter.getHistory({
+        applicationSessionId: session.applicationSessionId,
+        externalSessionId: session.externalSessionId,
+        limit: 50,
+      }, { timeoutMs: 30_000 });
+      output = [...history.messages]
+        .reverse()
+        .find((message) => message.role === 'assistant')
+        ?.content?.trim();
+    }
+    outputs.push(output ?? null);
+  }
+  const history = await adapter.getHistory({
+    applicationSessionId: session.applicationSessionId,
+    externalSessionId: session.externalSessionId,
+    limit: 50,
+  }, { timeoutMs: 30_000 });
+  const assistantContents = history.messages
+    .filter((message) => message.role === 'assistant')
+    .map((message) => message.content.trim());
+  const assistantMarkerCounts = markers.map(
+    (marker) => assistantContents.filter((content) => content === marker).length,
+  );
+  const markerPositions = markers.map((marker) =>
+    history.messages.findIndex((message) => message.content.includes(marker)),
+  );
+  const chatSendCount = diagnostics.filter((entry) => entry.method === 'chat.send').length - beforeSend;
+  return {
+    connectionResult: 'connected',
+    sessionReused: true,
+    markerMatches: outputs.map((output, index) => output === markers[index]),
+    orderedHistory:
+      markerPositions.every((position) => position >= 0) &&
+      markerPositions[0] < markerPositions[1],
+    assistantMarkerCounts,
+    exactlyOneAssistantMessagePerRun: assistantMarkerCounts.every(
+      (count) => count === 1,
+    ),
+    providerSubmissionCount: chatSendCount,
+    noDuplicate:
+      chatSendCount === markers.length &&
+      new Set(externalRunIdHashes).size === markers.length,
+    externalRunIdHashes,
+    noOutcomeUnknown: terminalResult !== 'unknown',
+  };
+}
+
+async function listAgents() {
+  const dispatcher = adapter?.connected?.dispatcher;
+  if (!dispatcher)
+    throw Object.assign(new Error('Connected dispatcher unavailable'), {
+      code: 'INTERNAL',
+    });
+  const payload = await dispatcher.request({
+    id: `agent-list:${randomUUID()}`,
+    method: 'agents.list',
+    params: {},
+  });
+  const agents = Array.isArray(payload)
+    ? payload
+    : Array.isArray(payload?.agents)
+      ? payload.agents
+      : [];
+  return agents.filter((entry) => agentId(entry));
+}
+
+function agentId(entry) {
+  return typeof entry?.id === 'string'
+    ? entry.id
+    : typeof entry?.agentId === 'string'
+      ? entry.agentId
+      : '';
 }
 
 async function waitForTerminal({ applicationRunId, run, session }) {
@@ -256,6 +455,12 @@ function captureRequest(data) {
     attachmentKind: typeof attachment?.type === 'string' ? attachment.type : null,
     mimeType: typeof attachment?.mimeType === 'string' ? attachment.mimeType : null,
     declaredSize: typeof attachment?.content === 'string' ? Math.floor(attachment.content.length * 3 / 4) : null,
+    applicationRunIdHash:
+      frame.method === 'chat.send' ? hash(frame.id) : null,
+    idempotencyKeyHash:
+      typeof frame.params?.idempotencyKey === 'string'
+        ? hash(frame.params.idempotencyKey)
+        : null,
     responseCode: null,
     normalizedErrorCode: null,
     accepted: false,
@@ -288,7 +493,7 @@ function parseFrame(data) {
 function scopesFor(value) {
   return value === 'schedule' || value === 'devices'
     ? ['operator.read', 'operator.write', 'operator.admin']
-    : value === 'health'
+    : value === 'health' || value === 'agents' || value === 'history-assert'
       ? ['operator.read']
       : ['operator.read', 'operator.write'];
 }
@@ -296,7 +501,7 @@ function scopesFor(value) {
 function capabilitiesFor(value) {
   if (value === 'image') return ['sessions.create', 'runs.start', 'runs.status', 'output.text', 'input.images'];
   if (value === 'file') return ['sessions.create', 'runs.start', 'runs.status', 'output.text', 'input.files'];
-  if (value === 'text') return ['sessions.create', 'runs.start', 'runs.status', 'output.text'];
+  if (value === 'text' || value === 'conversation') return ['sessions.create', 'runs.start', 'runs.status', 'output.text'];
   return undefined;
 }
 

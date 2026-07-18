@@ -109,31 +109,32 @@ downgrades only after a confirmed protocol mismatch. It does not downgrade on
 authentication failure, device-pairing requirements, authorization failure,
 malformed frames, malformed hello responses, or transport failures.
 
-## Live targets used during SDK bring-up
+## Sanitized runtime observations used during SDK bring-up
 
-Known validation targets:
+Consumer aliases, endpoints, and device identities are intentionally excluded.
 
-| Target | Runtime | Version |
+| Runtime | Version | Observation |
 |---|---|---|
-| `bf1` | OpenClaw | `2026.4.22 (00bd2cf)` |
-| `bfp1` | OpenClaw | `2026.5.6 (c97b9f7)`, protocol `3` fixture |
-| `bfp1` | OpenClaw | `2026.6.11`, protocol `4` fixture |
-| `bfp1` | Hermes Agent | capabilities and health observed at `v0.18.2`; full live adapter suite not run |
+| OpenClaw | `2026.4.22 (00bd2cf)` | protocol `3` fixture |
+| OpenClaw | `2026.5.6 (c97b9f7)` | protocol `3` fixture |
+| OpenClaw | `2026.6.11` | protocol `4` fixture |
+| Hermes Agent | `v0.18.2` | capabilities and health observed; full live adapter suite not run |
 
 OpenClaw runtime version is not the same thing as gateway protocol version.
-The same bfp1 host validated as protocol `3` on OpenClaw `2026.5.6` and
-protocol `4` after upgrading to OpenClaw `2026.6.11`.
+One runtime lineage validated as protocol `3` on OpenClaw `2026.5.6` and
+protocol `4` after upgrading to OpenClaw `2026.6.11`; the consumer identity is
+not part of the SDK compatibility contract.
 
 OpenClaw token auth is token-only by default. Device pairing is opt-in for
 validation flows that deliberately need a device token; the SDK must not create
 new pending pairing requests during ordinary token validation.
 
-The bfp1 OpenClaw v4 live flow is validated with an approved SDK operator device
+The OpenClaw v4 live flow is validated with an approved SDK operator device
 token scoped to `operator.read` and `operator.write`. The flow creates a
 session, starts a chat run, observes the expected response, reads history, and
 submits `chat.abort` against a real provider run handle.
 
-The bfp1 Hermes capture proves only that authenticated capabilities and
+The Hermes capture proves only that authenticated capabilities and
 detailed health were reachable at `v0.18.2`. It is not evidence that run
 creation, streaming, recovery, approvals, cancellation, or REST session
 history passed the live adapter suite. Hermes therefore remains provisional

@@ -189,7 +189,7 @@ describe('OpenClaw protocol scaffolding', () => {
     expect(
       sanitizeOpenClawPayload({
         nested: [{ authorization: 'Bearer secret', child: { apiKey: 'key', text: 'ok' } }],
-        host: 'bfp1.banzae.dev',
+        host: 'runtime.example.test',
         deviceToken: 'device-secret',
       }),
     ).toEqual({
@@ -348,8 +348,8 @@ describe('OpenClaw protocol scaffolding', () => {
     expect(serialized).not.toContain('/private/runtime');
   });
 
-  it('replays the bf1 protocol v3 live hello fixture', async () => {
-    const hello = await readHelloFixture('../../../fixtures/openclaw-v3/bf1-live-capture.json', openClawV3Codec());
+  it('replays the observed OpenClaw 2026.4.22 protocol v3 hello fixture', async () => {
+    const hello = await readHelloFixture('../../../fixtures/openclaw-v3/observed-2026.4.22-live-capture.json', openClawV3Codec());
 
     expect(hello.protocolVersion).toBe(3);
     expect(hello.runtimeVersion).toBe('2026.4.22');
@@ -358,8 +358,8 @@ describe('OpenClaw protocol scaffolding', () => {
     expect(hello.events).toContain('connect.challenge');
   });
 
-  it('replays the bfp1 protocol v3 live hello fixture', async () => {
-    const hello = await readHelloFixture('../../../fixtures/openclaw-v3/bfp1-live-capture.json', openClawV3Codec());
+  it('replays the observed OpenClaw 2026.5.6 protocol v3 hello fixture', async () => {
+    const hello = await readHelloFixture('../../../fixtures/openclaw-v3/observed-2026.5.6-live-capture.json', openClawV3Codec());
 
     expect(hello.protocolVersion).toBe(3);
     expect(hello.runtimeVersion).toBe('2026.5.6');
@@ -368,8 +368,8 @@ describe('OpenClaw protocol scaffolding', () => {
     expect(hello.events).toContain('voicewake.routing.changed');
   });
 
-  it('replays the bfp1 protocol v4 live hello fixture', async () => {
-    const hello = await readHelloFixture('../../../fixtures/openclaw-v4/bfp1-live-capture.json', openClawV4Codec());
+  it('replays the observed OpenClaw 2026.6.11 protocol v4 hello fixture', async () => {
+    const hello = await readHelloFixture('../../../fixtures/openclaw-v4/observed-2026.6.11-live-capture.json', openClawV4Codec());
 
     expect(hello.protocolVersion).toBe(4);
     expect(hello.runtimeVersion).toBe('2026.6.11');
