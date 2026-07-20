@@ -175,6 +175,7 @@ function openClawCapabilities(protocol: 3 | 4): RuntimeCapabilities {
       'openclaw.attachments.transport': 'chat.send-inline-base64',
       'openclaw.attachments.images': 'supported-by-protocol',
       'openclaw.attachments.files': protocol === 4 ? 'supported-by-protocol' : 'unsupported-by-protocol',
+      'openclaw.device.paired': false,
     },
   };
 }

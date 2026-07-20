@@ -11,7 +11,7 @@ import {
   root,
 } from './lib/release-config.mjs';
 
-if (!/^0\.1\.0-alpha\.1$/.test(releaseConfig.sdkVersion)) throw new Error('Target SDK version must be 0.1.0-alpha.1.');
+if (!/^0\.1\.0-alpha\.2$/.test(releaseConfig.sdkVersion)) throw new Error('Target SDK version must be 0.1.0-alpha.2.');
 if (publicPackageNames.size !== 6) throw new Error('Exactly six public packages must release together.');
 const workspaceManifests = [];
 for (const entry of await readdir(join(root, 'packages'), { withFileTypes: true })) {

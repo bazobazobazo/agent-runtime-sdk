@@ -1,6 +1,6 @@
 {
   "name": "@banzae/agent-runtime-testing",
-  "version": "0.1.0-alpha.1",
+  "version": "0.1.0-alpha.2",
   "description": "Conformance helpers for Banzae agent runtime adapters.",
   "license": "Apache-2.0",
   "author": "Banzae",
@@ -51,9 +51,9 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@banzae/agent-runtime-core": "workspace:0.1.0-alpha.1"
+    "@banzae/agent-runtime-core": "workspace:0.1.0-alpha.2"
   },
   "peerDependencies": {
-    "@banzae/agent-runtime-core": "workspace:0.1.0-alpha.1"
+    "@banzae/agent-runtime-core": "workspace:0.1.0-alpha.2"
   }
 }
