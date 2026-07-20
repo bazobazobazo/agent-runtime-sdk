@@ -81,6 +81,7 @@ type ConnectedState = {
   codec: OpenClawProtocolCodec;
   hello: OpenClawHello;
   dispatcher: OpenClawRequestManager;
+  devicePaired: boolean;
   descriptorFingerprint?: string;
 };
 
@@ -226,7 +227,7 @@ export class OpenClawAdapter implements AgentRuntimeAdapter {
   }
 
   async capabilities(): Promise<RuntimeCapabilities> {
-    return this.connected?.codec.capabilities(this.connected.hello) ?? NO_CAPABILITIES;
+    return this.connected ? this.runtimeCapabilities(this.connected) : NO_CAPABILITIES;
   }
 
   async ensureSession(input: EnsureSessionInput, options?: OperationOptions): Promise<RuntimeSession> {
@@ -337,7 +338,16 @@ export class OpenClawAdapter implements AgentRuntimeAdapter {
     const state = this.requireConnected();
     if (!state.codec.capabilities(state.hello).runs.cancel) throw unsupported('OpenClaw run cancellation is unavailable');
     const response = await state.dispatcher.request(state.codec.buildCancel(input), { signal: options?.signal });
-    state.codec.parseCancelResponse(response);
+    const normalized = state.codec.parseCancelResponse(response);
+    if (!normalized.accepted) {
+      throw new RuntimeError({
+        code: 'CONFLICT',
+        retryable: false,
+        adapterId: this.adapterId,
+        operation: 'run.cancel',
+        message: 'OpenClaw did not confirm cancellation for the requested run',
+      });
+    }
   }
 
   async getHistory(input: GetRuntimeHistoryInput, options?: OperationOptions): Promise<RuntimeHistoryPage> {
@@ -580,6 +590,8 @@ export class OpenClawAdapter implements AgentRuntimeAdapter {
       );
       const hello = codec.parseHello(helloPayload);
       if (identity) await this.saveReturnedDeviceToken(endpoint, identity.deviceId, this.options.role ?? 'operator', hello);
+      const returnedDeviceToken = hello.raw && typeof hello.raw === 'object'
+        && typeof (hello.raw as { auth?: { deviceToken?: unknown } }).auth?.deviceToken === 'string';
       if (hello.protocolVersion !== codec.protocolVersion) {
         throw new RuntimeError({
           code: 'PROTOCOL_MISMATCH',
@@ -594,6 +606,7 @@ export class OpenClawAdapter implements AgentRuntimeAdapter {
         codec,
         hello,
         dispatcher,
+        devicePaired: Boolean(identity && (deviceToken || returnedDeviceToken)),
         descriptorFingerprint: await connectionFingerprint(this.deps.crypto, {
           adapterId: this.adapterId,
           endpoint: normalizeEndpoint(endpoint),
@@ -616,8 +629,19 @@ export class OpenClawAdapter implements AgentRuntimeAdapter {
       protocolName: state.codec.protocolName,
       protocolVersion: String(state.codec.protocolVersion),
       endpointFingerprint: state.descriptorFingerprint,
-      capabilities: state.codec.capabilities(state.hello),
+      capabilities: this.runtimeCapabilities(state),
       observedAt: this.deps.clock.now().toISOString(),
+    };
+  }
+
+  private runtimeCapabilities(state: ConnectedState): RuntimeCapabilities {
+    const capabilities = state.codec.capabilities(state.hello);
+    return {
+      ...capabilities,
+      extensions: {
+        ...capabilities.extensions,
+        'openclaw.device.paired': state.devicePaired,
+      },
     };
   }
 

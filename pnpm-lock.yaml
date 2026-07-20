@@ -69,13 +69,13 @@ importers:
   packages/adapter-hermes:
     dependencies:
       '@banzae/agent-runtime-core':
-        specifier: workspace:0.1.0-alpha.1
+        specifier: workspace:0.1.0-alpha.2
         version: link:../core
 
   packages/adapter-openclaw:
     dependencies:
       '@banzae/agent-runtime-core':
-        specifier: workspace:0.1.0-alpha.1
+        specifier: workspace:0.1.0-alpha.2
         version: link:../core
 
   packages/adapter-pi-placeholder: {}
@@ -87,25 +87,25 @@ importers:
   packages/detection:
     dependencies:
       '@banzae/agent-runtime-core':
-        specifier: workspace:0.1.0-alpha.1
+        specifier: workspace:0.1.0-alpha.2
         version: link:../core
       '@banzae/agent-runtime-openclaw':
-        specifier: workspace:0.1.0-alpha.1
+        specifier: workspace:0.1.0-alpha.2
         version: link:../adapter-openclaw
 
   packages/node:
     dependencies:
       '@banzae/agent-runtime-core':
-        specifier: workspace:0.1.0-alpha.1
+        specifier: workspace:0.1.0-alpha.2
         version: link:../core
       '@banzae/agent-runtime-detection':
-        specifier: workspace:0.1.0-alpha.1
+        specifier: workspace:0.1.0-alpha.2
         version: link:../detection
       '@banzae/agent-runtime-hermes':
-        specifier: workspace:0.1.0-alpha.1
+        specifier: workspace:0.1.0-alpha.2
         version: link:../adapter-hermes
       '@banzae/agent-runtime-openclaw':
-        specifier: workspace:0.1.0-alpha.1
+        specifier: workspace:0.1.0-alpha.2
         version: link:../adapter-openclaw
       ws:
         specifier: ^8.18.3
@@ -114,7 +114,7 @@ importers:
   packages/testing:
     dependencies:
       '@banzae/agent-runtime-core':
-        specifier: workspace:0.1.0-alpha.1
+        specifier: workspace:0.1.0-alpha.2
         version: link:../core
 
 packages:

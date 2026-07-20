@@ -327,7 +327,17 @@ export abstract class MappedOpenClawCodec implements OpenClawProtocolCodec {
 
   parseCancelResponse(payload: unknown): OpenClawCancelResult {
     const value = payload == null ? {} : asRecord(payload, 'OpenClaw cancel response');
-    return { accepted: booleanValue(value.accepted) ?? true, raw: value };
+    const runIds = Array.isArray(value.runIds)
+      ? value.runIds.filter((candidate): candidate is string =>
+          typeof candidate === 'string' && candidate.length > 0,
+        )
+      : [];
+    const accepted =
+      booleanValue(value.accepted) ??
+      booleanValue(value.aborted) ??
+      (runIds.length > 0 ? true : undefined) ??
+      true;
+    return { accepted, raw: value };
   }
 
   mapError(error: unknown): RuntimeError {

@@ -207,7 +207,20 @@ describe('OpenClaw protocol scaffolding', () => {
 
     expect(info.descriptor.protocolName).toBe('openclaw-gateway-v4');
     expect(info.descriptor.protocolVersion).toBe('4');
+    expect(info.descriptor.capabilities.extensions['openclaw.device.paired']).toBe(false);
     expect(connection.sent).toHaveLength(1);
+  });
+
+  it('reports paired only when a persisted device token is established', async () => {
+    const connection = handshakeConnection(4, { deviceToken: 'paired-device-token' });
+    const adapter = adapterWithConnections([connection], { devicePairing: 'request' });
+
+    const info = await adapter.connect({
+      target: { endpoint: 'wss://runtime.example.test/gateway' },
+      auth: { kind: 'token', token: 'gateway-token' },
+    });
+
+    expect(info.descriptor.capabilities.extensions['openclaw.device.paired']).toBe(true);
   });
 
   it('opens a fresh socket when v4 mismatches and then negotiates v3', async () => {
@@ -254,6 +267,26 @@ describe('OpenClaw protocol scaffolding', () => {
         runId: 'provider-run-1',
       },
     });
+  });
+
+  it('does not normalize an explicit OpenClaw abort miss as accepted', () => {
+    expect(
+      openClawV3Codec().parseCancelResponse({
+        ok: true,
+        aborted: false,
+        runIds: [],
+      }),
+    ).toMatchObject({ accepted: false });
+  });
+
+  it('normalizes the OpenClaw 2026.4.22 abort response as accepted', () => {
+    expect(
+      openClawV3Codec().parseCancelResponse({
+        ok: true,
+        aborted: true,
+        runIds: ['provider-run-1'],
+      }),
+    ).toMatchObject({ accepted: true });
   });
 
   it('maps structured protocol mismatch provider errors', () => {
@@ -990,11 +1023,15 @@ function createAdapterHarness(options: {
       raw: {},
     },
     dispatcher,
+    devicePaired: false,
   };
   return { adapter, connection, dispatcher, deps };
 }
 
-function adapterWithConnections(connections: FakeWebSocketConnection[]): OpenClawAdapter {
+function adapterWithConnections(
+  connections: FakeWebSocketConnection[],
+  options: ConstructorParameters<typeof OpenClawAdapter>[1] = {},
+): OpenClawAdapter {
   const deps = createTestDependencies({
     webSockets: {
       async connect() {
@@ -1005,12 +1042,12 @@ function adapterWithConnections(connections: FakeWebSocketConnection[]): OpenCla
       },
     },
   });
-  return new OpenClawAdapter(deps, { connectTimeoutMs: 100, requestTimeoutMs: 100 });
+  return new OpenClawAdapter(deps, { connectTimeoutMs: 100, requestTimeoutMs: 100, ...options });
 }
 
 function handshakeConnection(
   selectedProtocol: number,
-  options: { error?: Record<string, unknown>; malformedHello?: boolean } = {},
+  options: { error?: Record<string, unknown>; malformedHello?: boolean; deviceToken?: string } = {},
 ): FakeWebSocketConnection {
   const connection = new FakeWebSocketConnection();
   connection.onSend = (data) => {
@@ -1030,6 +1067,7 @@ function handshakeConnection(
       methods: ['sessions.create', 'chat.send', 'agent.wait', 'chat.history', 'chat.abort'],
       events: ['connect.challenge', 'chat.delta', 'chat.completed'],
       features: {},
+      ...(options.deviceToken ? { auth: { deviceToken: options.deviceToken } } : {}),
     };
     if (requested !== selectedProtocol) {
       connection.pushMessage(

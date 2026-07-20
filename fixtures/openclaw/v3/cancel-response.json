@@ -8,5 +8,9 @@
     "sanitizerVersion": "openclaw-sanitizer-v2",
     "source": "synthetic"
   },
-  "payload": { "accepted": true }
+  "payload": {
+    "ok": true,
+    "aborted": true,
+    "runIds": ["provider-run-1"]
+  }
 }

@@ -1,6 +1,6 @@
 {
   "name": "@banzae/agent-runtime-node",
-  "version": "0.1.0-alpha.1",
+  "version": "0.1.0-alpha.2",
   "description": "Node.js facade and default implementations for Banzae Agent Runtime SDK.",
   "license": "Apache-2.0",
   "author": "Banzae",
@@ -51,10 +51,10 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@banzae/agent-runtime-core": "workspace:0.1.0-alpha.1",
-    "@banzae/agent-runtime-detection": "workspace:0.1.0-alpha.1",
-    "@banzae/agent-runtime-hermes": "workspace:0.1.0-alpha.1",
-    "@banzae/agent-runtime-openclaw": "workspace:0.1.0-alpha.1",
+    "@banzae/agent-runtime-core": "workspace:0.1.0-alpha.2",
+    "@banzae/agent-runtime-detection": "workspace:0.1.0-alpha.2",
+    "@banzae/agent-runtime-hermes": "workspace:0.1.0-alpha.2",
+    "@banzae/agent-runtime-openclaw": "workspace:0.1.0-alpha.2",
     "ws": "^8.18.3"
   }
 }
