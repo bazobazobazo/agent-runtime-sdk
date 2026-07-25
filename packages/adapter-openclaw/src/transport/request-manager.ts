@@ -73,6 +73,11 @@ export class OpenClawRequestManager {
 
   private readonly options: OpenClawRequestManagerOptions;
 
+  /** Internal adapter liveness signal; not part of the package public API. */
+  get isClosed(): boolean {
+    return this.closedError != null;
+  }
+
   /** Internal cursor used to replay events emitted while a run-start request is in flight. */
   eventCursor(): number {
     return this.eventSequence;
