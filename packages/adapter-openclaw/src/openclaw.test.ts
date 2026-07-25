@@ -211,6 +211,32 @@ describe('OpenClaw protocol scaffolding', () => {
     expect(connection.sent).toHaveLength(1);
   });
 
+  it('reconnects instead of reusing a socket closed during inactivity', async () => {
+    const stale = handshakeConnection(4);
+    const replacement = handshakeConnection(4);
+    const adapter = adapterWithConnections([stale, replacement]);
+
+    await adapter.connect(connectionConfig());
+    stale.pushClose(1006, 'suspended');
+    await nextTick();
+    expect(stale.activeEventIteratorCount).toBe(0);
+
+    await expect(adapter.health()).resolves.toMatchObject({
+      status: 'unavailable',
+    });
+    await expect(adapter.connect(connectionConfig())).resolves.toMatchObject({
+      descriptor: { protocolVersion: '4' },
+    });
+    expect(stale.sent).toHaveLength(1);
+    expect(replacement.sent).toHaveLength(1);
+    expect(replacement.activeEventIteratorCount).toBe(1);
+
+    await adapter.close();
+    await nextTick();
+    expect(stale.activeEventIteratorCount).toBe(0);
+    expect(replacement.activeEventIteratorCount).toBe(0);
+  });
+
   it('reports paired only when a persisted device token is established', async () => {
     const connection = handshakeConnection(4, { deviceToken: 'paired-device-token' });
     const adapter = adapterWithConnections([connection], { devicePairing: 'request' });

@@ -155,7 +155,11 @@ export class OpenClawAdapter implements AgentRuntimeAdapter {
   }
 
   async connect(config: RuntimeConnectionConfig, options?: ConnectOptions): Promise<RuntimeConnectionInfo> {
-    if (this.connected && !options?.forceReconnect) {
+    if (
+      this.connected &&
+      !this.connected.dispatcher.isClosed &&
+      !options?.forceReconnect
+    ) {
       return {
         descriptor: this.descriptor(this.connected),
         connectedAt: this.deps.clock.now().toISOString(),
@@ -211,7 +215,7 @@ export class OpenClawAdapter implements AgentRuntimeAdapter {
   }
 
   async health(): Promise<RuntimeHealth> {
-    if (!this.connected) {
+    if (!this.connected || this.connected.dispatcher.isClosed) {
       return { status: 'unavailable', checkedAt: this.deps.clock.now().toISOString(), warnings: ['not connected'] };
     }
     return {
