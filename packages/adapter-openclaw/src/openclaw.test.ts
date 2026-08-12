@@ -1368,6 +1368,63 @@ describe.each([
     });
   });
 
+  it('checks history after a queued provider wait response', async () => {
+    const harness = createAdapterHarness({ protocolVersion });
+    harness.connection.onSend = (data) => {
+      const request = JSON.parse(String(data)) as { id: string; method: string };
+      if (request.method === 'agent.wait') {
+        harness.connection.pushMessage(responseFrame(request.id, {
+          runId: 'provider-1',
+          status: 'accepted',
+        }));
+      } else if (request.method === 'chat.history') {
+        harness.connection.pushMessage(responseFrame(request.id, {
+          messages: [{
+            id: 'new',
+            role: 'assistant',
+            runId: 'provider-1',
+            content: 'done after provider wait',
+          }],
+          sessionInfo: { hasActiveRun: false, activeRunIds: [] },
+        }));
+      }
+    };
+
+    await expect(harness.adapter.getRun(
+      runInput('app-1', 'provider-1', 'session-1'),
+    )).resolves.toMatchObject({
+      status: 'completed',
+      output: 'done after provider wait',
+      providerState: { completionEvidence: 'reconciled-session-history' },
+    });
+  });
+
+  it('returns idle-session evidence after a queued provider wait response', async () => {
+    const harness = createAdapterHarness({ protocolVersion });
+    harness.connection.onSend = (data) => {
+      const request = JSON.parse(String(data)) as { id: string; method: string };
+      if (request.method === 'agent.wait') {
+        harness.connection.pushMessage(responseFrame(request.id, {
+          runId: 'provider-1',
+          status: 'accepted',
+        }));
+      } else if (request.method === 'chat.history') {
+        harness.connection.pushMessage(responseFrame(request.id, {
+          messages: [{ id: 'new', role: 'assistant', content: 'legacy reply' }],
+          sessionInfo: { hasActiveRun: false, activeRunIds: [] },
+        }));
+      }
+    };
+
+    await expect(harness.adapter.getRun(
+      runInput('app-1', 'provider-1', 'session-1'),
+    )).resolves.toMatchObject({
+      status: 'queued',
+      output: undefined,
+      providerState: { sessionHasActiveRun: false },
+    });
+  });
+
   it('keeps history reconciliation active while the same provider run is in flight', async () => {
     const harness = createAdapterHarness({ protocolVersion });
     harness.connection.onSend = (data) => {

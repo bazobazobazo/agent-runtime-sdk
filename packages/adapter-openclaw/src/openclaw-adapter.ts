@@ -409,7 +409,10 @@ export class OpenClawAdapter implements AgentRuntimeAdapter {
         outputLength: parsed.output?.length ?? 0,
         outputHash: parsed.output ? await diagnosticHash(this.deps, parsed.output) : undefined,
       });
-      if (parsed.status !== 'unknown' || parsed.output !== undefined) return parsed;
+      if (
+        parsed.output !== undefined ||
+        !['unknown', 'queued', 'running'].includes(parsed.status)
+      ) return parsed;
       return await this.reconcileCompletedRunFromHistory(state, input, parsed, options, deadline);
     } finally {
       deadline?.dispose();
@@ -616,7 +619,14 @@ export class OpenClawAdapter implements AgentRuntimeAdapter {
       const assistants = normalizeOpenClawHistory(payload).filter((message) => message.role === 'assistant');
       const exact = assistants.filter((message) => message.metadata?.runId === input.externalRunId);
       const candidate = exact.length === 1 ? exact[0] : undefined;
-      if (!candidate?.content) return unresolvedCompletedRun(parsed, historyActivity);
+      if (!candidate?.content) {
+        return parsed.status === 'unknown'
+          ? unresolvedCompletedRun(parsed, historyActivity)
+          : {
+              ...parsed,
+              providerState: { ...parsed.providerState, ...historyActivity },
+            };
+      }
       this.deps.logger.debug('OpenClaw completed run reconciled from history', {
         adapterId: this.adapterId,
         protocolVersion: state.codec.protocolVersion,

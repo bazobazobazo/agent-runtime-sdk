@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.0-alpha.5
+
+- Synchronized fixed-version release for OpenClaw post-wait history recovery.
+
 ## 0.1.0-alpha.4
 
 - Synchronized fixed-version release for OpenClaw legacy history recovery.
