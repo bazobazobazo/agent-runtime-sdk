@@ -8,7 +8,7 @@ const readJson = async (path: string) => JSON.parse(await readFile(join(root, pa
 describe('release engineering policy', () => {
   it('defines a synchronized six-package alpha target', async () => {
     const config = await readJson('release.config.json');
-    expect(config.sdkVersion).toBe('0.1.0-alpha.5');
+    expect(config.sdkVersion).toBe('0.1.0-alpha.6');
     expect(config.distTags).toEqual({ prerelease: 'next', stable: 'latest' });
     expect(config.publicPackages).toHaveLength(6);
     expect(new Set(config.publicPackages).size).toBe(6);

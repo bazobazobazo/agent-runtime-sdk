@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.0-alpha.6
+
+- Synchronized fixed-version release for opt-in OpenClaw history compatibility.
+
 ## 0.1.0-alpha.5
 
 - Synchronized fixed-version release for OpenClaw post-wait history recovery.

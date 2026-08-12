@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.0-alpha.6
+
+- Add an opt-in compatibility switch for validated gateways that implement
+  `chat.history` without advertising the method.
+
 ## 0.1.0-alpha.5
 
 - Check bounded session history after queued or running provider wait
