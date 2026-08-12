@@ -1076,6 +1076,47 @@ describe('OpenClaw run event correlation', () => {
     expect(requests[2]?.timeoutMs).toBe(92);
   });
 
+  it('allows validated unadvertised history without changing the fail-closed default', async () => {
+    const methods = ['chat.send', 'agent.wait', 'chat.abort'];
+    const strict = createAdapterHarness({ methods });
+    await expect(strict.adapter.capabilities()).resolves.toMatchObject({
+      sessions: { history: false },
+    });
+    await expect(strict.adapter.getHistory({
+      applicationSessionId: 'session-1',
+      externalSessionId: 'session-1',
+    })).rejects.toMatchObject({ code: 'UNSUPPORTED_CAPABILITY' });
+
+    const compatible = createAdapterHarness({
+      methods,
+      allowUnadvertisedHistory: true,
+    });
+    const requests: string[] = [];
+    compatible.dispatcher.request = (async (request: { method: string }) => {
+      requests.push(request.method);
+      if (request.method === 'agent.wait') {
+        return { runId: 'provider-1', status: 'ok' };
+      }
+      if (request.method === 'chat.history') {
+        return {
+          messages: [
+            { id: 'reply-1', role: 'assistant', runId: 'provider-1', content: 'recovered' },
+          ],
+        };
+      }
+      throw new Error(`Unexpected request method ${request.method}`);
+    }) as typeof compatible.dispatcher.request;
+
+    await expect(compatible.adapter.capabilities()).resolves.toMatchObject({
+      sessions: { history: true },
+      extensions: { 'openclaw.history.unadvertised-enabled': true },
+    });
+    await expect(compatible.adapter.getRun(
+      runInput('app-1', 'provider-1', 'session-1'),
+    )).resolves.toMatchObject({ status: 'completed', output: 'recovered' });
+    expect(requests).toEqual(['agent.wait', 'chat.history']);
+  });
+
   it('propagates a run-wait deadline instead of converting it to unknown', async () => {
     const harness = createAdapterHarness();
 
@@ -1635,6 +1676,8 @@ function createAdapterHarness(options: {
   includeRawProviderPayload?: boolean;
   protocolVersion?: 3 | 4;
   logger?: RuntimeLogger;
+  methods?: string[];
+  allowUnadvertisedHistory?: boolean;
 } = {}) {
   const connection = new FakeWebSocketConnection();
   const codec = options.protocolVersion === 3 ? openClawV3Codec() : openClawV4Codec();
@@ -1649,6 +1692,7 @@ function createAdapterHarness(options: {
   });
   const adapter = new OpenClawAdapter(deps, {
     includeRawProviderPayload: options.includeRawProviderPayload,
+    allowUnadvertisedHistory: options.allowUnadvertisedHistory,
   });
   (
     adapter as unknown as {
@@ -1664,7 +1708,7 @@ function createAdapterHarness(options: {
     codec,
     hello: {
       protocolVersion: codec.protocolVersion,
-      methods: ['chat.send', 'agent.wait', 'chat.history', 'chat.abort'],
+      methods: options.methods ?? ['chat.send', 'agent.wait', 'chat.history', 'chat.abort'],
       events: ['chat', 'chat.delta', 'chat.completed', 'chat.failed', 'chat.cancelled'],
       features: {},
       raw: {},

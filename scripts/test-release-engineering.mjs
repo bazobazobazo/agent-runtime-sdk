@@ -9,7 +9,7 @@ import { artifactRoot, distTagForVersion, publicPackages, readJson, releaseConfi
 const exec = promisify(execFile);
 assert.equal(releaseConfig.publicPackages.length, 6);
 assert.equal(new Set(releaseConfig.publicPackages).size, 6);
-assert.equal(releaseConfig.sdkVersion, '0.1.0-alpha.5');
+assert.equal(releaseConfig.sdkVersion, '0.1.0-alpha.6');
 assert.equal(releaseConfig.distTags.prerelease, 'next');
 assert.equal(releaseConfig.distTags.stable, 'latest');
 assert.equal(distTagForVersion(releaseConfig.sdkVersion), 'next');

@@ -75,6 +75,12 @@ export type OpenClawAdapterOptions = {
   includeRawProviderPayload?: boolean;
   maxAttachmentBytes?: number;
   maxAttachmentCount?: number;
+  /**
+   * Allow chat.history when a validated OpenClaw deployment supports the
+   * method but omits it from the connect capability advertisement.
+   * Defaults to false so unknown gateways remain fail-closed.
+   */
+  allowUnadvertisedHistory?: boolean;
 };
 
 type ConnectedState = {
@@ -437,7 +443,7 @@ export class OpenClawAdapter implements AgentRuntimeAdapter {
 
   async getHistory(input: GetRuntimeHistoryInput, options?: OperationOptions): Promise<RuntimeHistoryPage> {
     const state = this.requireConnected();
-    if (!state.codec.capabilities(state.hello).sessions.history) throw unsupported('OpenClaw session history is unavailable');
+    if (!this.historyAvailable(state)) throw unsupported('OpenClaw session history is unavailable');
     const payload = await state.dispatcher.request(state.codec.buildHistory(input), {
       signal: options?.signal,
       timeoutMs: options?.timeoutMs,
@@ -603,7 +609,7 @@ export class OpenClawAdapter implements AgentRuntimeAdapter {
   ): Promise<RuntimeRunSnapshot> {
     const externalSessionId = input.externalSessionId
       ?? (typeof input.providerState?.externalSessionId === 'string' ? input.providerState.externalSessionId : undefined);
-    if (!externalSessionId || !state.codec.capabilities(state.hello).sessions.history) {
+    if (!externalSessionId || !this.historyAvailable(state)) {
       return unresolvedCompletedRun(parsed);
     }
     try {
@@ -785,11 +791,22 @@ export class OpenClawAdapter implements AgentRuntimeAdapter {
     const capabilities = state.codec.capabilities(state.hello);
     return {
       ...capabilities,
+      sessions: {
+        ...capabilities.sessions,
+        history: this.historyAvailable(state),
+      },
       extensions: {
         ...capabilities.extensions,
         'openclaw.device.paired': state.devicePaired,
+        'openclaw.history.unadvertised-enabled':
+          this.options.allowUnadvertisedHistory === true && !capabilities.sessions.history,
       },
     };
+  }
+
+  private historyAvailable(state: ConnectedState): boolean {
+    return state.codec.capabilities(state.hello).sessions.history
+      || this.options.allowUnadvertisedHistory === true;
   }
 
   private requireConnected(): ConnectedState {

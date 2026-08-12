@@ -3,6 +3,17 @@
 All notable SDK changes are recorded here. The repository uses a synchronized
 fixed version for the six public packages during the initial alpha series.
 
+## 0.1.0-alpha.6 — release candidate, 2026-08-12
+
+### Fixed
+
+- OpenClaw hosts can explicitly enable session history on validated gateways
+  that support `chat.history` but omit it from capability advertisement.
+- The compatibility switch remains disabled by default so unknown gateways
+  continue to fail closed.
+
+No package, tag, or GitHub release has been published by this candidate.
+
 ## 0.1.0-alpha.5 — release candidate, 2026-08-12
 
 ### Fixed
