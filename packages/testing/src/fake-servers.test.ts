@@ -57,6 +57,84 @@ describe('testing-only fake runtime controllers', () => {
     expect(server.pendingRequestCount).toBe(0);
   });
 
+  it.each([3, 4] as const)(
+    'recovers an OpenClaw v%s completion after its terminal wait cache expires',
+    async (version) => {
+      const token = `fake-v${version}-token`;
+      const server = version === 3
+        ? new FakeOpenClawV3Server({ authToken: token, unresolvedRuns: true })
+        : new FakeOpenClawV4Server({ authToken: token, unresolvedRuns: true });
+      const adapter = new OpenClawAdapter(
+        createTestDependencies({ webSockets: server }),
+        { protocols: [version === 3 ? openClawV3Codec() : openClawV4Codec()] },
+      );
+      const connection = server.createTarget().connection;
+
+      try {
+        await adapter.connect(connection);
+        const session = await adapter.ensureSession({
+          applicationSessionId: `application-session-v${version}`,
+        });
+        const run = await adapter.startRun({
+          applicationRunId: `application-run-v${version}`,
+          idempotencyKey: `idempotency-key-v${version}`,
+          session,
+          input: { text: 'complete while the accepted socket is unavailable' },
+        });
+
+        server.interruptSockets();
+        server.emitRunSuccess(run.externalRunId);
+        await new Promise<void>((resolve) => setImmediate(resolve));
+        await adapter.connect(connection, {
+          forceReconnect: true,
+          timeoutMs: 1_000,
+        });
+
+        await expect(
+          adapter.getRun(
+            {
+              applicationRunId: run.applicationRunId,
+              externalRunId: run.externalRunId,
+              externalSessionId: session.externalSessionId,
+              providerState: run.providerState,
+            },
+            { timeoutMs: 1_000 },
+          ),
+        ).resolves.toMatchObject({
+          status: 'completed',
+          output: 'hello from fake OpenClaw',
+          providerState: {
+            completionEvidence: 'reconciled-session-history',
+          },
+        });
+        expect(server.receivedIdempotencyKeys).toEqual([
+          `idempotency-key-v${version}`,
+        ]);
+        expect(
+          server.receivedMethods.filter((method) => method === 'chat.send'),
+        ).toHaveLength(1);
+        expect(
+          server.receivedMethods.filter((method) => method === 'agent.wait'),
+        ).toHaveLength(1);
+        expect(
+          server.receivedMethods.filter((method) => method === 'chat.history'),
+        ).toHaveLength(1);
+      } finally {
+        await adapter.close();
+        await server.shutdown();
+      }
+
+      expect(server.resourceSnapshot()).toEqual({
+        openConnections: 0,
+        pendingRequests: 0,
+        activeRuns: 0,
+        activeSubscriptions: 0,
+        listeners: 0,
+        timers: 0,
+      });
+    },
+  );
+
   it('simulates Hermes event-buffer expiry with status reconciliation', async () => {
     const server = new FakeHermesServer();
     server.eventStreamFailures = 1;

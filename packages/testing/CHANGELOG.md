@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.0-alpha.3
+
+- Model OpenClaw terminal wait-cache expiry and exact run-correlated persistent
+  history for deterministic v3/v4 recovery testing.
+
 ## 0.1.0-alpha.1 — release candidate
 
 - Initial synchronized pre-alpha release candidate.

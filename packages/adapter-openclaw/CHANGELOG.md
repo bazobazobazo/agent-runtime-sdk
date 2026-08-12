@@ -10,6 +10,8 @@
 - Preserve timeout and caller-cancellation errors through status/history
   reconciliation, and close a dispatcher after in-flight cancellation so a
   late response cannot satisfy a reused deterministic request ID.
+- Correlate terminal-cache-expiry recovery with the exact run identity retained
+  by current OpenClaw `chat.history` messages.
 
 ## 0.1.0-alpha.2
 

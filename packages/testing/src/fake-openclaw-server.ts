@@ -31,6 +31,7 @@ export type FakeOpenClawServerOptions = {
   failureMode?: FakeOpenClawFailureMode;
   responseDelayMs?: number;
   reverseConcurrentResponses?: boolean;
+  /** Return an expired/unknown terminal agent.wait result so history recovery is required. */
   unresolvedRuns?: boolean;
   duplicateEvents?: boolean;
   sequenceGap?: boolean;
@@ -239,8 +240,20 @@ abstract class FakeOpenClawServerBase implements RuntimeWebSocketFactory {
     if (request.method === 'agent.wait') {
       const runId = stringValue(request.params?.runId) ?? '';
       const run = this.runs.get(runId);
+      const status = run && this.options.unresolvedRuns && terminalStatus(run.status)
+        ? 'timeout'
+        : run?.status;
       connection.pushMessage(run
-        ? { type: 'res', id: request.id, ok: true, payload: { runId, status: run.status, output: run.output } }
+        ? {
+            type: 'res',
+            id: request.id,
+            ok: true,
+            payload: {
+              runId,
+              status,
+              ...(status === run.status ? { output: run.output } : {}),
+            },
+          }
         : { type: 'res', id: request.id, error: { code: 'NOT_FOUND', message: 'run not found' } });
       return;
     }
@@ -315,7 +328,28 @@ abstract class FakeOpenClawServerBase implements RuntimeWebSocketFactory {
   }
 
   protected historyPayload(): Record<string, unknown> {
-    return { messages: [{ id: `v${this.protocolVersion}-message-1`, role: 'assistant', content: [{ text: `OpenClaw v${this.protocolVersion} history` }] }] };
+    return {
+      messages: [
+        { id: `v${this.protocolVersion}-message-1`, role: 'assistant', content: [{ text: `OpenClaw v${this.protocolVersion} history` }] },
+        ...this.completedRunHistoryMessages(),
+      ],
+    };
+  }
+
+  protected completedRunHistoryMessages(): Record<string, unknown>[] {
+    return [...this.runs.values()]
+      .filter((run) => terminalStatus(run.status) && typeof run.output === 'string')
+      .map((run) => this.completedRunHistoryMessage(run));
+  }
+
+  protected completedRunHistoryMessage(run: FakeOpenClawRun): Record<string, unknown> {
+    return {
+      id: `${run.id}:assistant`,
+      role: 'assistant',
+      content: [{ text: run.output }],
+      sequence: run.sequence,
+      idempotencyKey: run.id,
+    };
   }
 
   protected cancelPayload(runId: string): Record<string, unknown> {
@@ -407,7 +441,22 @@ export class FakeOpenClawV4Server extends FakeOpenClawServerBase {
   }
 
   protected override historyPayload(): Record<string, unknown> {
-    return { messages: [{ id: 'v4-message-1', role: 'assistant', content: [{ type: 'text', text: 'OpenClaw v4 history' }], sequence: 1 }] };
+    return {
+      messages: [
+        { id: 'v4-message-1', role: 'assistant', content: [{ type: 'text', text: 'OpenClaw v4 history' }], sequence: 1 },
+        ...this.completedRunHistoryMessages(),
+      ],
+    };
+  }
+
+  protected override completedRunHistoryMessage(run: FakeOpenClawRun): Record<string, unknown> {
+    return {
+      id: `${run.id}:assistant`,
+      role: 'assistant',
+      content: [{ type: 'text', text: run.output }],
+      sequence: run.sequence,
+      idempotencyKey: run.id,
+    };
   }
 
   protected override cancelPayload(runId: string): Record<string, unknown> {

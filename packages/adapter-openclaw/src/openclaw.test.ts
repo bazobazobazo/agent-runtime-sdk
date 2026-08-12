@@ -515,6 +515,57 @@ describe('OpenClaw protocol scaffolding', () => {
     ]);
   });
 
+  it('normalizes exact run ids projected by current OpenClaw history', () => {
+    expect(
+      normalizeOpenClawHistory({
+        messages: [
+          {
+            id: '1',
+            role: 'assistant',
+            content: [{ type: 'text', text: 'done' }],
+            idempotencyKey: 'provider-run-1',
+          },
+          {
+            id: '2',
+            role: 'assistant',
+            content: 'synthesized',
+            __openclaw: { runId: 'provider-run-2' },
+          },
+        ],
+      }),
+    ).toMatchObject([
+      {
+        id: '1',
+        role: 'assistant',
+        content: 'done',
+        metadata: { provider: 'openclaw', runId: 'provider-run-1' },
+      },
+      {
+        id: '2',
+        role: 'assistant',
+        content: 'synthesized',
+        metadata: { provider: 'openclaw', runId: 'provider-run-2' },
+      },
+    ]);
+  });
+
+  it('fails history run correlation closed when provider identities conflict', () => {
+    expect(
+      normalizeOpenClawHistory({
+        messages: [
+          {
+            id: '1',
+            role: 'assistant',
+            content: 'ambiguous',
+            runId: 'provider-run-1',
+            idempotencyKey: 'provider-run-2',
+            __openclaw: { runId: 'provider-run-1' },
+          },
+        ],
+      }),
+    ).toMatchObject([{ metadata: { runId: undefined } }]);
+  });
+
   it('normalizes observed v3 and v4 attachment history without leaking local paths or bytes', () => {
     const messages = normalizeOpenClawHistory({ messages: [
       {
