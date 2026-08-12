@@ -798,8 +798,9 @@ export class OpenClawAdapter implements AgentRuntimeAdapter {
       extensions: {
         ...capabilities.extensions,
         'openclaw.device.paired': state.devicePaired,
-        'openclaw.history.unadvertised-enabled':
-          this.options.allowUnadvertisedHistory === true && !capabilities.sessions.history,
+        ...(this.options.allowUnadvertisedHistory === true && !capabilities.sessions.history
+          ? { 'openclaw.history.unadvertised-enabled': true }
+          : {}),
       },
     };
   }
