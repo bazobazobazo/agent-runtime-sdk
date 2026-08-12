@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.0-alpha.5
+
+- Check bounded session history after queued or running provider wait
+  responses and preserve sanitized idle-session evidence for host recovery.
+
 ## 0.1.0-alpha.4
 
 - Preserve projected OpenClaw message IDs, idempotency keys, and numeric

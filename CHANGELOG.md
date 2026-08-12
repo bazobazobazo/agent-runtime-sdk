@@ -3,6 +3,17 @@
 All notable SDK changes are recorded here. The repository uses a synchronized
 fixed version for the six public packages during the initial alpha series.
 
+## 0.1.0-alpha.5 — release candidate, 2026-08-12
+
+### Fixed
+
+- OpenClaw status reconciliation now checks session history after a completed
+  provider wait cycle even when the legacy wait response remains queued.
+- Idle-session evidence is preserved so hosts can recover one safely
+  correlated legacy reply without resubmitting the original prompt.
+
+No package, tag, or GitHub release has been published by this candidate.
+
 ## 0.1.0-alpha.4 — release candidate, 2026-08-12
 
 ### Fixed
