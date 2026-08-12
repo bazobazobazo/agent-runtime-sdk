@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.0-alpha.4
+
+- Preserve projected OpenClaw message IDs, idempotency keys, and numeric
+  timestamps when normalizing session history.
+- Return sanitized active-run evidence when terminal cache entries expire and
+  expand the bounded history reconciliation window to 1,000 messages.
+
 ## 0.1.0-alpha.3
 
 - Recover accepted runs safely after socket loss without resubmitting them.

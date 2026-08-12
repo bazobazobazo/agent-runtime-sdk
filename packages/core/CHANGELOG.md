@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.0-alpha.4
+
+- Synchronized fixed-version release for OpenClaw legacy history recovery.
+
 ## 0.1.0-alpha.3
 
 - Add an optional `RuntimeWebSocketConnection.terminate()` transport hook.

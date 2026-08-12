@@ -13,14 +13,20 @@ export function normalizeOpenClawHistory(payload: unknown): RuntimeMessage[] {
     const role = normalizeRole(value.role);
     const content = normalizeContent(value.content ?? value.text ?? value.message);
     const attachments = normalizeAttachments(value);
-    const runId = normalizeHistoryRunId(value);
+    const openClaw = openClawMetadata(value);
+    const runId = normalizeHistoryRunId(value, openClaw);
     if (!role || (!content && attachments.length === 0)) return [];
     return [
       {
-        id: typeof value.id === 'string' ? value.id : undefined,
+        id: uniqueHistoryIdentifier(value.id, openClaw?.id),
         role,
         content: content ?? '',
-        createdAt: normalizeRuntimeTimestamp(value.createdAt ?? value.created_at ?? value.timestamp),
+        createdAt: normalizeHistoryTimestamp(
+          value.createdAt,
+          value.created_at,
+          value.timestamp,
+          openClaw?.recordTimestampMs,
+        ),
         ...(attachments.length > 0 ? { attachments } : {}),
         metadata: {
           provider: 'openclaw',
@@ -33,23 +39,45 @@ export function normalizeOpenClawHistory(payload: unknown): RuntimeMessage[] {
   });
 }
 
-function normalizeHistoryRunId(value: Record<string, unknown>): string | undefined {
-  const openClaw = value.__openclaw && typeof value.__openclaw === 'object' &&
-    !Array.isArray(value.__openclaw)
+function openClawMetadata(value: Record<string, unknown>): Record<string, unknown> | undefined {
+  return value.__openclaw && typeof value.__openclaw === 'object' && !Array.isArray(value.__openclaw)
     ? value.__openclaw as Record<string, unknown>
     : undefined;
-  const candidates = [
-    safeHistoryIdentifier(value.runId),
-    safeHistoryIdentifier(value.idempotencyKey),
-    safeHistoryIdentifier(openClaw?.runId),
-  ].filter((candidate): candidate is string => candidate !== undefined);
+}
+
+function normalizeHistoryRunId(
+  value: Record<string, unknown>,
+  openClaw: Record<string, unknown> | undefined,
+): string | undefined {
+  const candidates = [value.runId, value.idempotencyKey, openClaw?.runId, openClaw?.idempotencyKey]
+    .map(safeHistoryIdentifier)
+    .filter((candidate): candidate is string => candidate !== undefined);
   const unique = [...new Set(candidates)];
 
   // Current OpenClaw chat.history retains the chat.send idempotency key on
-  // normal assistant messages and uses __openclaw.runId on some synthesized
-  // messages. Both are the provider run ID. Conflicting identities are
-  // ambiguous and must never be used as completion evidence.
+  // normal assistant messages and projects it into __openclaw metadata. Some
+  // synthesized messages use __openclaw.runId instead. These are provider run
+  // identities; conflicts are ambiguous and must never be completion evidence.
   return unique.length === 1 ? unique[0] : undefined;
+}
+
+function uniqueHistoryIdentifier(...values: unknown[]): string | undefined {
+  const candidates = values
+    .map(safeHistoryIdentifier)
+    .filter((candidate): candidate is string => candidate !== undefined);
+  const unique = [...new Set(candidates)];
+  return unique.length === 1 ? unique[0] : undefined;
+}
+
+function normalizeHistoryTimestamp(...values: unknown[]): string | undefined {
+  for (const value of values) {
+    const normalized = normalizeRuntimeTimestamp(value);
+    if (normalized) return normalized;
+    if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) continue;
+    const date = new Date(value);
+    if (Number.isFinite(date.getTime())) return date.toISOString();
+  }
+  return undefined;
 }
 
 function safeHistoryIdentifier(value: unknown): string | undefined {
