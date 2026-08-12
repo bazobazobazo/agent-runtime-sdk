@@ -19,6 +19,7 @@ import { authHeaders, normalizeDetectionEndpoint, sanitizeDetectionValue } from 
 import type { PersistedRuntimeDetection, RuntimeDetectionInput, RuntimeProbe, RuntimeProbeContext, RuntimeProbeResult } from './types.js';
 
 const MAX_RESPONSE_BYTES = 1_000_000;
+const WEBSOCKET_CLOSE_TIMEOUT_CAP_MS = 1_000;
 const OPENCLAW_CODECS = new OpenClawProtocolRegistry();
 OPENCLAW_CODECS.register(openClawV4Codec());
 OPENCLAW_CODECS.register(openClawV3Codec());
@@ -208,10 +209,14 @@ async function openOpenClawSocket(endpoint: string, context: RuntimeProbeContext
     context.signal,
   );
   const onAbort = () => {
-    void connection.close().catch(() => undefined);
+    void closeDetectionWebSocket(connection, context.probeTimeoutMs, 4000, 'probe aborted');
   };
   context.signal?.addEventListener('abort', onAbort, { once: true });
-  return new AbortLinkedWebSocketConnection(connection, () => context.signal?.removeEventListener('abort', onAbort));
+  return new AbortLinkedWebSocketConnection(
+    connection,
+    () => context.signal?.removeEventListener('abort', onAbort),
+    context.probeTimeoutMs,
+  );
 }
 
 async function waitForOpenClawChallenge(
@@ -471,6 +476,7 @@ class AbortLinkedWebSocketConnection implements RuntimeWebSocketConnection {
   constructor(
     private readonly connection: RuntimeWebSocketConnection,
     private readonly cleanup: () => void,
+    private readonly closeTimeoutMs: number,
   ) {}
 
   send(data: string | Uint8Array): Promise<void> {
@@ -483,8 +489,40 @@ class AbortLinkedWebSocketConnection implements RuntimeWebSocketConnection {
 
   async close(code?: number, reason?: string): Promise<void> {
     this.cleanup();
-    await this.connection.close(code, reason);
+    await closeDetectionWebSocket(this.connection, this.closeTimeoutMs, code, reason ?? 'probe complete');
   }
+}
+
+async function closeDetectionWebSocket(
+  connection: RuntimeWebSocketConnection,
+  timeoutMs: number,
+  code?: number,
+  reason = 'probe complete',
+): Promise<void> {
+  const boundedMs = Math.min(Math.max(1, timeoutMs), WEBSOCKET_CLOSE_TIMEOUT_CAP_MS);
+  const gracefullyClosed = await settleCleanup(
+    Promise.resolve().then(() => connection.close(code, reason)),
+    boundedMs,
+  );
+  if (gracefullyClosed || !connection.terminate) return;
+  await settleCleanup(
+    Promise.resolve().then(() => connection.terminate?.(`${reason}: forced termination`)),
+    boundedMs,
+  );
+}
+
+async function settleCleanup(work: Promise<unknown>, timeoutMs: number): Promise<boolean> {
+  return new Promise<boolean>((resolve) => {
+    let settled = false;
+    const finish = (completed: boolean) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve(completed);
+    };
+    const timer = setTimeout(() => finish(false), timeoutMs);
+    work.then(() => finish(true), () => finish(false));
+  });
 }
 
 function record(value: unknown): Record<string, unknown> {

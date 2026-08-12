@@ -47,6 +47,8 @@ export interface RuntimeWebSocketConnection {
   send(data: string | Uint8Array): Promise<void>;
   events(): AsyncIterable<RuntimeWebSocketEvent>;
   close(code?: number, reason?: string): Promise<void>;
+  /** Immediately release transport resources when graceful close cannot complete. */
+  terminate?(reason?: string): Promise<void>;
 }
 
 /** Public alpha contract for runtime web socket factory. */

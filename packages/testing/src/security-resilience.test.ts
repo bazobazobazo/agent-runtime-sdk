@@ -180,6 +180,10 @@ class ManualConnection implements RuntimeWebSocketConnection {
     this.notify?.();
   }
 
+  async terminate(): Promise<void> {
+    await this.close();
+  }
+
   pushMessage(value: Record<string, unknown>): void {
     this.queue.push({ type: 'message', data: JSON.stringify(value) });
     this.notify?.();

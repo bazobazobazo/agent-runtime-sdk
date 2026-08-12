@@ -470,6 +470,10 @@ class FakeOpenClawConnection implements RuntimeWebSocketConnection {
     this.server.connectionClosed(this);
   }
 
+  async terminate(reason = 'terminated'): Promise<void> {
+    await this.close(1006, reason);
+  }
+
   push(event: RuntimeWebSocketEvent): void {
     this.queue.push(event);
     this.notify?.();

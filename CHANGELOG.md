@@ -3,6 +3,22 @@
 All notable SDK changes are recorded here. The repository uses a synchronized
 fixed version for the six public packages during the initial alpha series.
 
+## 0.1.0-alpha.3 — release candidate, 2026-08-12
+
+### Fixed
+
+- OpenClaw accepted runs can be recovered across socket loss without replaying
+  `chat.send`; reconnect transitions are bounded and serialized, and history fallback
+  requires a unique exact run-ID correlation.
+- WebSocket request timeouts and send failures close suspect dispatchers, while
+  terminal events already queued before closure remain observable.
+- Caller cancellation now preserves its `RuntimeError` reason and poisons the
+  in-flight dispatcher, preventing late responses from colliding with a reused
+  deterministic request ID. Detection and Node WebSocket cleanup are bounded
+  and force-terminate half-open sockets when supported.
+
+No package, tag, or GitHub release has been published by this candidate.
+
 ## 0.1.0-alpha.1 — release candidate, 2026-07-15
 
 ### Added

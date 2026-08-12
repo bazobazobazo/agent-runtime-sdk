@@ -1,4 +1,8 @@
-import { RuntimeError, resolveSecureLimit, type RuntimeWebSocketConnection } from '@banzae/agent-runtime-core';
+import {
+  RuntimeError,
+  resolveSecureLimit,
+  type RuntimeWebSocketConnection,
+} from '@banzae/agent-runtime-core';
 import type { OpenClawFrame, OpenClawProtocolCodec, OpenClawRpcRequest } from '../protocol/types.js';
 
 export type OpenClawEventFilter = {
@@ -56,9 +60,7 @@ export class OpenClawRequestManager {
     this.options = typeof options === 'number' ? { requestTimeoutMs: options } : options;
     this.maxFrameBytes = resolveSecureLimit('maxWebSocketFrameBytes', this.options.maxFrameBytes);
     this.subscriberQueueSize = resolveSecureLimit('maxEventSubscriberQueue', this.options.subscriberQueueSize);
-    if (!Number.isSafeInteger(this.options.requestTimeoutMs) || this.options.requestTimeoutMs < 1 || this.options.requestTimeoutMs > 300_000) {
-      throw new RuntimeError({ code: 'INVALID_CONFIGURATION', retryable: false, adapterId: 'openclaw', message: 'OpenClaw request timeout is invalid' });
-    }
+    validateRequestTimeout(this.options.requestTimeoutMs);
   }
 
   /** Internal test instrumentation; not part of the exported package surface. */
@@ -95,6 +97,7 @@ export class OpenClawRequestManager {
   async request<T = unknown>(request: OpenClawRpcRequest, options?: { signal?: AbortSignal; timeoutMs?: number }): Promise<T>;
   async request<T = unknown>(request: OpenClawRpcRequest, optionsOrSignal?: AbortSignal | { signal?: AbortSignal; timeoutMs?: number }): Promise<T> {
     const options = optionsOrSignal instanceof AbortSignal ? { signal: optionsOrSignal } : optionsOrSignal;
+    const timeoutMs = validateRequestTimeout(options?.timeoutMs ?? this.options.requestTimeoutMs);
     await this.start();
     if (this.closedError) throw this.closedError;
     if (this.pending.has(request.id)) {
@@ -105,11 +108,10 @@ export class OpenClawRequestManager {
         message: `Duplicate OpenClaw request id ${request.id}`,
       });
     }
-    if (options?.signal?.aborted) throw cancelledError();
+    if (options?.signal?.aborted) throw abortSignalError(options.signal);
 
     let settled = false;
     const responsePromise = new Promise<Extract<OpenClawFrame, { type: 'res' }>>((resolve, reject) => {
-      const timeoutMs = options?.timeoutMs ?? this.options.requestTimeoutMs;
       const pending: PendingRequest = {
         resolve: (frame) => {
           if (settled) return;
@@ -124,31 +126,39 @@ export class OpenClawRequestManager {
           reject(error);
         },
         timer: setTimeout(() => {
-          pending.reject(
-            new RuntimeError({
-              code: 'TIMEOUT',
-              retryable: true,
-              adapterId: 'openclaw',
-              message: `OpenClaw request timed out after ${timeoutMs}ms`,
-              details: { requestId: request.id, method: request.method },
-            }),
-          );
+          const error = new RuntimeError({
+            code: 'TIMEOUT',
+            retryable: true,
+            adapterId: 'openclaw',
+            message: `OpenClaw request timed out after ${timeoutMs}ms`,
+            details: { requestId: request.id, method: request.method },
+          });
+          this.failAll(error);
+          void this.close().catch(() => undefined);
         }, timeoutMs),
       };
       if (options?.signal) {
-        pending.signal = options.signal;
-        pending.abort = () => pending.reject(cancelledError());
-        options.signal.addEventListener('abort', pending.abort, { once: true });
+        const signal = options.signal;
+        pending.signal = signal;
+        pending.abort = () => {
+          const error = abortSignalError(signal);
+          // A provider response may still arrive after local cancellation. Close
+          // the dispatcher so that a deterministic request id cannot be reused
+          // on this socket and accidentally consume that late response.
+          this.failAll(error);
+          void this.close().catch(() => undefined);
+        };
+        signal.addEventListener('abort', pending.abort, { once: true });
       }
       this.pending.set(request.id, pending);
+      if (pending.signal?.aborted) pending.abort?.();
     });
 
-    try {
-      await this.connection.send(this.codec.encodeRequest(request));
-    } catch (error) {
-      const pending = this.pending.get(request.id);
-      pending?.reject(toOpenClawRuntimeError(error, 'OpenClaw WebSocket send failed'));
-    }
+    void this.connection.send(this.codec.encodeRequest(request)).catch((error: unknown) => {
+      const mapped = toOpenClawRuntimeError(error, 'OpenClaw WebSocket send failed');
+      this.failAll(mapped);
+      void this.close().catch(() => undefined);
+    });
 
     const response = await responsePromise;
     if ('error' in response && response.error) {
@@ -160,7 +170,10 @@ export class OpenClawRequestManager {
   subscribe(filter?: OpenClawEventFilter): AsyncIterable<Extract<OpenClawFrame, { type: 'event' }>> {
     const id = `subscriber-${++this.subscriberSequence}`;
     const subscriber: RunSubscriber = { id, filter, queue: [], closed: false };
-    if (filter?.afterCursor !== undefined) {
+    if (this.closedError) {
+      subscriber.error = this.closedError;
+      subscriber.closed = true;
+    } else if (filter?.afterCursor !== undefined) {
       const oldestCursor = this.recentEvents[0]?.cursor;
       if (oldestCursor !== undefined && filter.afterCursor < oldestCursor - 1) {
         subscriber.error = new RuntimeError({
@@ -179,8 +192,10 @@ export class OpenClawRequestManager {
         );
       }
     }
-    this.subscribers.set(id, subscriber);
-    void this.start();
+    if (!subscriber.closed) {
+      this.subscribers.set(id, subscriber);
+      void this.start();
+    }
 
     const owner = this;
     const iterator: AsyncIterableIterator<Extract<OpenClawFrame, { type: 'event' }>> = {
@@ -211,8 +226,14 @@ export class OpenClawRequestManager {
     return iterator;
   }
 
-  async close(): Promise<void> {
-    if (this.closePromise) return this.closePromise;
+  async close(options?: { signal?: AbortSignal; timeoutMs?: number }): Promise<void> {
+    if (this.closePromise) {
+      if (options) {
+        await boundedConnectionClose(this.connection, options);
+        return;
+      }
+      return this.closePromise;
+    }
     const error = new RuntimeError({
       code: 'NETWORK',
       retryable: true,
@@ -221,7 +242,7 @@ export class OpenClawRequestManager {
     });
     this.closedError = this.closedError ?? error;
     this.failAll(this.closedError);
-    this.closePromise = this.connection.close().catch(() => undefined);
+    this.closePromise = boundedConnectionClose(this.connection, options);
     await this.closePromise;
   }
 
@@ -282,7 +303,7 @@ export class OpenClawRequestManager {
         details: { maxFrameBytes: this.maxFrameBytes, receivedBytes: size },
       });
       this.failAll(error);
-      void this.close();
+      void this.close().catch(() => undefined);
       return;
     }
 
@@ -291,7 +312,7 @@ export class OpenClawRequestManager {
       frame = this.codec.parseFrame(data);
     } catch (error) {
       this.failAll(toOpenClawRuntimeError(error, 'OpenClaw frame parsing failed'));
-      void this.close();
+      void this.close().catch(() => undefined);
       return;
     }
 
@@ -339,7 +360,6 @@ export class OpenClawRequestManager {
     for (const subscriber of this.subscribers.values()) {
       subscriber.error = error;
       subscriber.closed = true;
-      subscriber.queue.length = 0;
       subscriber.notify?.();
     }
     this.subscribers.clear();
@@ -370,16 +390,71 @@ function matchesFilter(frame: Extract<OpenClawFrame, { type: 'event' }>, filter?
   return true;
 }
 
+function validateRequestTimeout(value: number): number {
+  if (!Number.isSafeInteger(value) || value < 1 || value > 300_000) {
+    throw new RuntimeError({
+      code: 'INVALID_CONFIGURATION',
+      retryable: false,
+      adapterId: 'openclaw',
+      message: 'OpenClaw request timeout is invalid',
+    });
+  }
+  return value;
+}
+
+async function boundedConnectionClose(
+  connection: RuntimeWebSocketConnection,
+  options?: { signal?: AbortSignal; timeoutMs?: number },
+): Promise<void> {
+  const timeoutMs = Math.min(Math.max(1, options?.timeoutMs ?? 1_000), 1_000);
+  const settled = await boundedCloseWait(
+    connection.close(1000, 'dispatcher closed'),
+    timeoutMs,
+    options?.signal,
+  );
+  if (!settled) {
+    if (!connection.terminate) {
+      throw new RuntimeError({
+        code: 'NETWORK',
+        retryable: true,
+        adapterId: 'openclaw',
+        message: 'OpenClaw transport could not be terminated after dispatcher close timed out',
+      });
+    }
+    await connection.terminate('dispatcher close timed out');
+  }
+}
+
+async function boundedCloseWait(work: Promise<void>, timeoutMs: number, signal?: AbortSignal): Promise<boolean> {
+  return new Promise<boolean>((resolve) => {
+    let settled = false;
+    const finish = (completed: boolean) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      signal?.removeEventListener('abort', onAbort);
+      resolve(completed);
+    };
+    const onAbort = () => finish(false);
+    const timer = setTimeout(() => finish(false), timeoutMs);
+    signal?.addEventListener('abort', onAbort, { once: true });
+    work.then(() => finish(true), () => finish(false));
+    if (signal?.aborted) onAbort();
+  });
+}
+
 function frameByteLength(data: string | Uint8Array): number {
   return typeof data === 'string' ? new TextEncoder().encode(data).byteLength : data.byteLength;
 }
 
-function cancelledError(): RuntimeError {
+function abortSignalError(signal: AbortSignal): RuntimeError {
+  if (signal.reason instanceof RuntimeError) return signal.reason;
   return new RuntimeError({
     code: 'CANCELLED',
     retryable: false,
     adapterId: 'openclaw',
     message: 'OpenClaw request was aborted',
+    cause: signal.reason,
   });
 }
 
