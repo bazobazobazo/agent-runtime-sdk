@@ -9,7 +9,8 @@ fixed version for the six public packages during the initial alpha series.
 
 - OpenClaw accepted runs can be recovered across socket loss without replaying
   `chat.send`; reconnect transitions are bounded and serialized, and history fallback
-  requires a unique exact run-ID correlation.
+  requires a unique exact run-ID correlation, including the persistent run
+  identity projected by current OpenClaw `chat.history` responses.
 - WebSocket request timeouts and send failures close suspect dispatchers, while
   terminal events already queued before closure remain observable.
 - Caller cancellation now preserves its `RuntimeError` reason and poisons the

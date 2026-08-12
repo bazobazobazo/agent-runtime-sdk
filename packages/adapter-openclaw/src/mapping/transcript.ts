@@ -13,6 +13,7 @@ export function normalizeOpenClawHistory(payload: unknown): RuntimeMessage[] {
     const role = normalizeRole(value.role);
     const content = normalizeContent(value.content ?? value.text ?? value.message);
     const attachments = normalizeAttachments(value);
+    const runId = normalizeHistoryRunId(value);
     if (!role || (!content && attachments.length === 0)) return [];
     return [
       {
@@ -23,13 +24,39 @@ export function normalizeOpenClawHistory(payload: unknown): RuntimeMessage[] {
         ...(attachments.length > 0 ? { attachments } : {}),
         metadata: {
           provider: 'openclaw',
-          runId: value.runId,
+          runId,
           sequence: value.sequence,
           ...(attachments.length > 0 ? { attachmentCount: attachments.length } : {}),
         },
       },
     ];
   });
+}
+
+function normalizeHistoryRunId(value: Record<string, unknown>): string | undefined {
+  const openClaw = value.__openclaw && typeof value.__openclaw === 'object' &&
+    !Array.isArray(value.__openclaw)
+    ? value.__openclaw as Record<string, unknown>
+    : undefined;
+  const candidates = [
+    safeHistoryIdentifier(value.runId),
+    safeHistoryIdentifier(value.idempotencyKey),
+    safeHistoryIdentifier(openClaw?.runId),
+  ].filter((candidate): candidate is string => candidate !== undefined);
+  const unique = [...new Set(candidates)];
+
+  // Current OpenClaw chat.history retains the chat.send idempotency key on
+  // normal assistant messages and uses __openclaw.runId on some synthesized
+  // messages. Both are the provider run ID. Conflicting identities are
+  // ambiguous and must never be used as completion evidence.
+  return unique.length === 1 ? unique[0] : undefined;
+}
+
+function safeHistoryIdentifier(value: unknown): string | undefined {
+  return typeof value === 'string' && value.length > 0 && value.length <= 256 &&
+    !/[\u0000-\u001f\u007f]/.test(value)
+    ? value
+    : undefined;
 }
 
 function normalizeRole(value: unknown): RuntimeMessage['role'] | undefined {
