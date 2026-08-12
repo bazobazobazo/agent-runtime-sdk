@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.0-alpha.3
+
+- Bound graceful WebSocket close operations and force-terminate half-open
+  sockets so runtime reconnect and detection cleanup cannot stall indefinitely.
+
 ## 0.1.0-alpha.1 — release candidate
 
 - Initial synchronized pre-alpha release candidate.

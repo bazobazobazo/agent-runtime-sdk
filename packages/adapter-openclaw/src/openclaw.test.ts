@@ -220,13 +220,18 @@ describe('OpenClaw protocol scaffolding', () => {
     stale.pushClose(1006, 'suspended');
     await nextTick();
     expect(stale.activeEventIteratorCount).toBe(0);
+    expect(adapter.lifecycleState).toBe('closed');
 
     await expect(adapter.health()).resolves.toMatchObject({
       status: 'unavailable',
     });
+    await expect(adapter.capabilities()).resolves.toMatchObject({
+      runs: { start: false, status: false, stream: false },
+    });
     await expect(adapter.connect(connectionConfig())).resolves.toMatchObject({
       descriptor: { protocolVersion: '4' },
     });
+    expect(adapter.lifecycleState).toBe('connected');
     expect(stale.sent).toHaveLength(1);
     expect(replacement.sent).toHaveLength(1);
     expect(replacement.activeEventIteratorCount).toBe(1);
@@ -235,6 +240,132 @@ describe('OpenClaw protocol scaffolding', () => {
     await nextTick();
     expect(stale.activeEventIteratorCount).toBe(0);
     expect(replacement.activeEventIteratorCount).toBe(0);
+  });
+
+  it('serializes concurrent reconnects with independent caller options', async () => {
+    const stale = handshakeConnection(4);
+    const firstReplacement = handshakeConnection(4);
+    const secondReplacement = handshakeConnection(4);
+    const adapter = adapterWithConnections([stale, firstReplacement, secondReplacement]);
+    await adapter.connect(connectionConfig());
+    const firstSignal = new AbortController();
+    const secondSignal = new AbortController();
+
+    const [first, second] = await Promise.all([
+      adapter.connect(connectionConfig(), { forceReconnect: true, timeoutMs: 75, signal: firstSignal.signal }),
+      adapter.connect(connectionConfig(), { forceReconnect: true, timeoutMs: 100, signal: secondSignal.signal }),
+    ]);
+
+    expect(first.descriptor.protocolVersion).toBe('4');
+    expect(second.descriptor.protocolVersion).toBe('4');
+    expect(firstReplacement.sent).toHaveLength(1);
+    expect(firstReplacement.activeEventIteratorCount).toBe(0);
+    expect(secondReplacement.sent).toHaveLength(1);
+    expect(secondReplacement.activeEventIteratorCount).toBe(1);
+    await adapter.close();
+  });
+
+  it('serializes concurrent connects that use different configurations', async () => {
+    const first = handshakeConnection(4);
+    const second = handshakeConnection(4);
+    const adapter = adapterWithConnections([first, second]);
+    const firstConfig = connectionConfig();
+    const secondConfig = {
+      target: { endpoint: 'wss://other-runtime.example.test/gateway' },
+      auth: { kind: 'none' as const },
+    };
+
+    await Promise.all([
+      adapter.connect(firstConfig, { timeoutMs: 50 }),
+      adapter.connect(secondConfig, { timeoutMs: 50 }),
+    ]);
+
+    expect(first.sent).toHaveLength(1);
+    expect(first.activeEventIteratorCount).toBe(0);
+    expect(second.sent).toHaveLength(1);
+    expect(second.activeEventIteratorCount).toBe(1);
+    await adapter.close();
+  });
+
+  it('bounds a half-open close before reconnecting and does not orphan the replacement', async () => {
+    const stale = halfOpenHandshakeConnection(4);
+    const replacement = handshakeConnection(4);
+    const adapter = adapterWithConnections([stale, replacement]);
+    await adapter.connect(connectionConfig());
+    const startedAt = Date.now();
+
+    await adapter.connect(connectionConfig(), { forceReconnect: true, timeoutMs: 100 });
+
+    expect(Date.now() - startedAt).toBeLessThan(200);
+    expect(stale.terminateCount).toBeGreaterThan(0);
+    expect(stale.activeEventIteratorCount).toBe(0);
+    expect(replacement.sent).toHaveLength(1);
+    expect(replacement.activeEventIteratorCount).toBe(1);
+    await adapter.close();
+  });
+
+  it('recovers an accepted run after explicit reconnect without resubmitting it', async () => {
+    const stale = handshakeConnection(4);
+    const replacement = handshakeConnection(4);
+    const adapter = adapterWithConnections([stale, replacement]);
+
+    await adapter.connect(connectionConfig());
+    stale.onSend = (data) => {
+      const request = JSON.parse(String(data)) as { id: string; method: string; params?: Record<string, unknown> };
+      if (request.method === 'chat.history') {
+        stale.pushMessage(responseFrame(request.id, { messages: [{ id: 'old', role: 'assistant', content: 'old' }] }));
+      } else if (request.method === 'chat.send') {
+        expect(request.params).toMatchObject({ sessionKey: 'session-1', idempotencyKey: 'idem-1' });
+        stale.pushMessage(responseFrame(request.id, { runId: 'provider-1', status: 'accepted' }));
+      }
+    };
+
+    const accepted = await adapter.startRun({
+      applicationRunId: 'app-1',
+      idempotencyKey: 'idem-1',
+      session: { applicationSessionId: 'session-1', externalSessionId: 'session-1', created: false },
+      input: { text: 'safe fixture prompt' },
+    });
+    expect(accepted).toMatchObject({ externalRunId: 'provider-1', status: 'queued' });
+
+    const interrupted = adapter.streamRun({
+      ...runInput('app-1', accepted.externalRunId, 'session-1'),
+      providerState: accepted.providerState,
+    })[Symbol.asyncIterator]().next();
+    await nextTick();
+    stale.pushClose(1006, 'lost after acceptance');
+    await expect(interrupted).rejects.toMatchObject({ code: 'NETWORK' });
+
+    await adapter.connect(connectionConfig());
+    replacement.onSend = (data) => {
+      const request = JSON.parse(String(data)) as { id: string; method: string; params?: Record<string, unknown> };
+      if (request.method === 'agent.wait') {
+        expect(request.params).toMatchObject({ runId: 'provider-1' });
+        replacement.pushMessage(responseFrame(request.id, { runId: 'provider-1', status: 'ok' }));
+      } else if (request.method === 'chat.history') {
+        expect(request.params).toMatchObject({ sessionKey: 'session-1' });
+        replacement.pushMessage(responseFrame(request.id, { messages: [
+          { id: 'old', role: 'assistant', content: 'old' },
+          { id: 'new', role: 'assistant', runId: 'provider-1', content: 'done' },
+        ] }));
+      }
+    };
+
+    await expect(adapter.getRun({
+      ...runInput('app-1', accepted.externalRunId, 'session-1'),
+      providerState: accepted.providerState,
+    }, { timeoutMs: 100 })).resolves.toMatchObject({
+      status: 'completed',
+      output: 'done',
+      providerState: { completionEvidence: 'reconciled-session-history' },
+    });
+
+    const sentMethods = [...stale.sent, ...replacement.sent].map((frame) => (
+      JSON.parse(String(frame)) as { method?: string }
+    ).method);
+    expect(sentMethods.filter((method) => method === 'chat.send')).toHaveLength(1);
+
+    await adapter.close();
   });
 
   it('reports paired only when a persisted device token is established', async () => {
@@ -486,32 +617,93 @@ describe('OpenClawRequestManager dispatcher behavior', () => {
     expect(dispatcherStats(dispatcher).subscriberCount).toBe(0);
   });
 
-  it('times out one request without affecting another request', async () => {
+  it('closes a suspect dispatcher when any request times out', async () => {
     const connection = new FakeWebSocketConnection();
     const dispatcher = createDispatcher(connection);
 
     const timingOut = dispatcher.request({ id: 'req-timeout', method: 'test.timeout' }, { timeoutMs: 15 });
     timingOut.catch(() => undefined);
     const completing = dispatcher.request<{ ok: boolean }>({ id: 'req-ok', method: 'test.ok' });
+    completing.catch(() => undefined);
     await sleep(20);
-    connection.pushMessage(responseFrame('req-ok', { ok: true }));
 
     await expect(timingOut).rejects.toMatchObject({ code: 'TIMEOUT' });
-    await expect(completing).resolves.toEqual({ ok: true });
+    await expect(completing).rejects.toMatchObject({ code: 'TIMEOUT' });
+    expect(dispatcher.isClosed).toBe(true);
     expect(dispatcherStats(dispatcher).pendingRequestCount).toBe(0);
   });
 
-  it('removes an aborted request from the pending map', async () => {
+  it('cannot reuse a deterministic request id after its socket times out', async () => {
+    const connection = new FakeWebSocketConnection();
+    const dispatcher = createDispatcher(connection);
+    const first = dispatcher.request({ id: 'req-shared', method: 'test.timeout' }, { timeoutMs: 10 });
+
+    await expect(first).rejects.toMatchObject({ code: 'TIMEOUT' });
+    connection.pushMessage(responseFrame('req-shared', { value: 'late response' }));
+    await nextTick();
+
+    await expect(dispatcher.request({ id: 'req-shared', method: 'test.retry' }))
+      .rejects.toMatchObject({ code: 'TIMEOUT' });
+    expect(connection.sent).toHaveLength(1);
+  });
+
+  it('closes a suspect dispatcher after a WebSocket send failure', async () => {
+    const connection = new FakeWebSocketConnection();
+    const dispatcher = createDispatcher(connection);
+    connection.onSend = () => {
+      throw new Error('synthetic send failure');
+    };
+
+    await expect(dispatcher.request({ id: 'req-send', method: 'test.send' }))
+      .rejects.toMatchObject({ code: 'NETWORK' });
+    expect(dispatcher.isClosed).toBe(true);
+    await expect(dispatcher.request({ id: 'req-later', method: 'test.later' }))
+      .rejects.toMatchObject({ code: 'NETWORK' });
+    expect(connection.sent).toHaveLength(1);
+  });
+
+  it('poisons the dispatcher after cancellation so a late response cannot satisfy a retried deterministic id', async () => {
     const connection = new FakeWebSocketConnection();
     const dispatcher = createDispatcher(connection);
     const abort = new AbortController();
     const request = dispatcher.request({ id: 'req-abort', method: 'test.abort' }, { signal: abort.signal });
     await nextTick();
 
-    abort.abort();
+    abort.abort(new RuntimeError({
+      code: 'CANCELLED',
+      retryable: false,
+      adapterId: 'openclaw',
+      message: 'caller cancelled request',
+    }));
 
-    await expect(request).rejects.toMatchObject({ code: 'CANCELLED' });
+    await expect(request).rejects.toMatchObject({ code: 'CANCELLED', message: 'caller cancelled request' });
     expect(dispatcherStats(dispatcher).pendingRequestCount).toBe(0);
+    expect(dispatcher.isClosed).toBe(true);
+
+    connection.pushMessage(responseFrame('req-abort', { value: 'late first response' }));
+    await nextTick();
+
+    await expect(dispatcher.request({ id: 'req-abort', method: 'test.retry' }))
+      .rejects.toMatchObject({ code: 'CANCELLED', message: 'caller cancelled request' });
+    expect(connection.sent).toHaveLength(1);
+  });
+
+  it('preserves a timeout supplied as the AbortSignal reason', async () => {
+    const connection = new FakeWebSocketConnection();
+    const dispatcher = createDispatcher(connection);
+    const abort = new AbortController();
+    const request = dispatcher.request({ id: 'req-abort-timeout', method: 'test.abort' }, { signal: abort.signal });
+    await nextTick();
+
+    abort.abort(new RuntimeError({
+      code: 'TIMEOUT',
+      retryable: true,
+      adapterId: 'openclaw',
+      message: 'outer operation timed out',
+    }));
+
+    await expect(request).rejects.toMatchObject({ code: 'TIMEOUT', message: 'outer operation timed out' });
+    expect(dispatcher.isClosed).toBe(true);
   });
 
   it('rejects every pending request when the socket closes', async () => {
@@ -526,6 +718,39 @@ describe('OpenClawRequestManager dispatcher behavior', () => {
     await expect(first).rejects.toMatchObject({ code: 'NETWORK' });
     await expect(second).rejects.toMatchObject({ code: 'NETWORK' });
     expect(dispatcherStats(dispatcher).pendingRequestCount).toBe(0);
+  });
+
+  it('rejects a subscription created after the socket has already closed', async () => {
+    const connection = new FakeWebSocketConnection();
+    const dispatcher = createDispatcher(connection);
+    await dispatcher.start();
+    connection.pushClose(1006, 'already closed');
+    await nextTick();
+
+    const iterator = dispatcher.subscribe()[Symbol.asyncIterator]();
+
+    await expect(iterator.next()).rejects.toMatchObject({ code: 'NETWORK' });
+    expect(dispatcherStats(dispatcher).subscriberCount).toBe(0);
+  });
+
+  it('delivers a queued terminal event before reporting a following socket closure', async () => {
+    const connection = new FakeWebSocketConnection();
+    const dispatcher = createDispatcher(connection);
+    const iterator = dispatcher.subscribe({ event: 'chat.completed' })[Symbol.asyncIterator]();
+    await nextTick();
+
+    connection.pushMessage(eventFrame('chat.completed', {
+      runId: 'provider-1', sessionKey: 'session-1', text: 'done',
+    }));
+    connection.pushClose(1006, 'closed after terminal event');
+    await nextTick();
+
+    await expect(iterator.next()).resolves.toMatchObject({
+      done: false,
+      value: { type: 'event', event: 'chat.completed' },
+    });
+    await expect(iterator.next()).rejects.toMatchObject({ code: 'NETWORK' });
+    expect(dispatcherStats(dispatcher).subscriberCount).toBe(0);
   });
 
   it('removes subscriber resources when an iterator is cancelled', async () => {
@@ -706,6 +931,131 @@ describe('OpenClaw run event correlation', () => {
     harness.connection.pushClose(1006, 'lost');
 
     await expect(next).rejects.toMatchObject({ code: 'NETWORK' });
+  });
+
+  it('completes a run when its terminal event is queued immediately before socket closure', async () => {
+    const harness = createAdapterHarness();
+    const events = collectRunEvents(harness.adapter.streamRun(runInput('app-1', 'provider-1', 'session-1')));
+    await nextTick();
+
+    harness.connection.pushMessage(openClawEvent('chat.completed', {
+      runId: 'provider-1', sessionKey: 'session-1', sequence: 1, text: 'done',
+    }));
+    harness.connection.pushClose(1006, 'closed after terminal event');
+
+    await expect(events).resolves.toMatchObject([
+      { type: 'assistant.completed', text: 'done' },
+      { type: 'run.completed', output: 'done' },
+    ]);
+  });
+
+  it('honors the operation timeout for run wait and completion history reconciliation', async () => {
+    const harness = createAdapterHarness();
+    const requests: Array<{ method: string; timeoutMs?: number }> = [];
+    harness.dispatcher.request = (async (
+      request: { method: string },
+      options?: { timeoutMs?: number },
+    ) => {
+      requests.push({ method: request.method, timeoutMs: options?.timeoutMs });
+      if (request.method === 'agent.wait') {
+        return { runId: 'provider-1', status: 'ok' };
+      }
+      if (request.method === 'chat.history') {
+        return { messages: [
+            { id: 'new', role: 'assistant', runId: 'provider-1', content: 'done' },
+          ] };
+      }
+      throw new Error(`Unexpected request method ${request.method}`);
+    }) as typeof harness.dispatcher.request;
+
+    await expect(harness.adapter.getRun({
+      ...runInput('app-1', 'provider-1', 'session-1'),
+      providerState: { historyAssistantCount: 0, historyMessageIds: [] },
+    }, { timeoutMs: 91 })).resolves.toMatchObject({
+      status: 'completed',
+      output: 'done',
+      providerState: { completionEvidence: 'reconciled-session-history' },
+    });
+    await expect(harness.adapter.getHistory({
+      applicationSessionId: 'session-1',
+      externalSessionId: 'session-1',
+    }, { timeoutMs: 92 })).resolves.toMatchObject({
+      messages: [{ role: 'assistant', content: 'done' }],
+    });
+    expect(requests.map(({ method }) => method)).toEqual([
+      'agent.wait',
+      'chat.history',
+      'chat.history',
+    ]);
+    expect(requests[0]?.timeoutMs).toBeGreaterThan(0);
+    expect(requests[0]?.timeoutMs).toBeLessThanOrEqual(91);
+    expect(requests[1]?.timeoutMs).toBeGreaterThan(0);
+    expect(requests[1]?.timeoutMs).toBeLessThanOrEqual(requests[0]?.timeoutMs ?? 91);
+    expect(requests[2]?.timeoutMs).toBe(92);
+  });
+
+  it('propagates a run-wait deadline instead of converting it to unknown', async () => {
+    const harness = createAdapterHarness();
+
+    await expect(harness.adapter.getRun(
+      runInput('app-1', 'provider-1', 'session-1'),
+      { timeoutMs: 20 },
+    )).rejects.toMatchObject({ code: 'TIMEOUT' });
+  });
+
+  it('propagates a history-reconciliation deadline instead of converting it to unknown', async () => {
+    const harness = createAdapterHarness();
+    harness.connection.onSend = (data) => {
+      const request = JSON.parse(String(data)) as { id: string; method: string };
+      if (request.method === 'agent.wait') {
+        harness.connection.pushMessage(responseFrame(request.id, {
+          runId: 'provider-1',
+          status: 'timeout',
+        }));
+      }
+    };
+
+    await expect(harness.adapter.getRun(
+      runInput('app-1', 'provider-1', 'session-1'),
+      { timeoutMs: 25 },
+    )).rejects.toMatchObject({ code: 'TIMEOUT' });
+  });
+
+  it('propagates caller cancellation during history reconciliation', async () => {
+    const harness = createAdapterHarness();
+    let markHistorySent!: () => void;
+    const historySent = new Promise<void>((resolve) => {
+      markHistorySent = resolve;
+    });
+    harness.connection.onSend = (data) => {
+      const request = JSON.parse(String(data)) as { id: string; method: string };
+      if (request.method === 'agent.wait') {
+        harness.connection.pushMessage(responseFrame(request.id, {
+          runId: 'provider-1',
+          status: 'timeout',
+        }));
+      } else if (request.method === 'chat.history') {
+        markHistorySent();
+      }
+    };
+    const controller = new AbortController();
+    const status = harness.adapter.getRun(
+      runInput('app-1', 'provider-1', 'session-1'),
+      { signal: controller.signal },
+    );
+    await historySent;
+
+    controller.abort(new RuntimeError({
+      code: 'CANCELLED',
+      retryable: false,
+      adapterId: 'openclaw',
+      message: 'caller cancelled status reconciliation',
+    }));
+
+    await expect(status).rejects.toMatchObject({
+      code: 'CANCELLED',
+      message: 'caller cancelled status reconciliation',
+    });
   });
 
   it('rejects provider responses missing a run id and maps uncertain starts', async () => {
@@ -909,6 +1259,104 @@ describe.each([
     })).resolves.toMatchObject({ status: 'completed', output: 'done', providerState: { completionEvidence: 'reconciled-session-history' } });
   });
 
+  it('recovers an expired terminal-cache result only from a unique exact run id', async () => {
+    const harness = createAdapterHarness({ protocolVersion });
+    harness.connection.onSend = (data) => {
+      const request = JSON.parse(String(data)) as { id: string; method: string };
+      if (request.method === 'agent.wait') {
+        harness.connection.pushMessage(responseFrame(request.id, { runId: 'provider-1', status: 'timeout' }));
+      } else if (request.method === 'chat.history') {
+        harness.connection.pushMessage(responseFrame(request.id, {
+          messages: [
+            { id: 'old', role: 'assistant', content: 'old' },
+            { id: 'new', role: 'assistant', runId: 'provider-1', content: 'done after cache expiry' },
+          ],
+          sessionInfo: { hasActiveRun: false, activeRunIds: [] },
+        }));
+      }
+    };
+
+    await expect(harness.adapter.getRun({
+      ...runInput('app-1', 'provider-1', 'session-1'),
+      providerState: { historyAssistantCount: 1, historyMessageIds: ['old'] },
+    })).resolves.toMatchObject({
+      status: 'completed',
+      output: 'done after cache expiry',
+      providerState: { completionEvidence: 'reconciled-session-history' },
+    });
+  });
+
+  it('keeps history reconciliation active while the same provider run is in flight', async () => {
+    const harness = createAdapterHarness({ protocolVersion });
+    harness.connection.onSend = (data) => {
+      const request = JSON.parse(String(data)) as { id: string; method: string };
+      if (request.method === 'agent.wait') {
+        harness.connection.pushMessage(responseFrame(request.id, { runId: 'provider-1', status: 'timeout' }));
+      } else if (request.method === 'chat.history') {
+        harness.connection.pushMessage(responseFrame(request.id, {
+          messages: [
+            { id: 'old', role: 'assistant', content: 'old' },
+            { id: 'new', role: 'assistant', content: 'partial in-flight text' },
+          ],
+          sessionInfo: { hasActiveRun: true, activeRunIds: ['provider-1'] },
+          inFlightRun: { runId: 'provider-1', text: 'partial in-flight text' },
+        }));
+      }
+    };
+
+    await expect(harness.adapter.getRun({
+      ...runInput('app-1', 'provider-1', 'session-1'),
+      providerState: { historyAssistantCount: 1, historyMessageIds: ['old'] },
+    })).resolves.toMatchObject({ status: 'unknown', output: undefined });
+  });
+
+  it('does not attach another active run history message to the requested run', async () => {
+    const harness = createAdapterHarness({ protocolVersion });
+    harness.connection.onSend = (data) => {
+      const request = JSON.parse(String(data)) as { id: string; method: string };
+      if (request.method === 'agent.wait') {
+        harness.connection.pushMessage(responseFrame(request.id, { runId: 'provider-1', status: 'timeout' }));
+      } else if (request.method === 'chat.history') {
+        harness.connection.pushMessage(responseFrame(request.id, {
+          messages: [
+            { id: 'old', role: 'assistant', content: 'old' },
+            { id: 'other-new', role: 'assistant', runId: 'provider-2', content: 'another run reply' },
+          ],
+          sessionInfo: { hasActiveRun: true, activeRunIds: ['provider-2'] },
+          inFlightRun: { runId: 'provider-2', text: 'another run reply' },
+        }));
+      }
+    };
+
+    await expect(harness.adapter.getRun({
+      ...runInput('app-1', 'provider-1', 'session-1'),
+      providerState: { historyAssistantCount: 1, historyMessageIds: ['old'] },
+    })).resolves.toMatchObject({ status: 'unknown', output: undefined });
+  });
+
+  it('does not infer completion from an untagged history message even when the session is idle', async () => {
+    const harness = createAdapterHarness({ protocolVersion });
+    harness.connection.onSend = (data) => {
+      const request = JSON.parse(String(data)) as { id: string; method: string };
+      if (request.method === 'agent.wait') {
+        harness.connection.pushMessage(responseFrame(request.id, { runId: 'provider-1', status: 'timeout' }));
+      } else if (request.method === 'chat.history') {
+        harness.connection.pushMessage(responseFrame(request.id, {
+          messages: [
+            { id: 'old', role: 'assistant', content: 'old' },
+            { id: 'new', role: 'assistant', content: 'uncorrelated reply' },
+          ],
+          sessionInfo: { hasActiveRun: false, activeRunIds: [] },
+        }));
+      }
+    };
+
+    await expect(harness.adapter.getRun({
+      ...runInput('app-1', 'provider-1', 'session-1'),
+      providerState: { historyAssistantCount: 1, historyMessageIds: ['old'] },
+    })).resolves.toMatchObject({ status: 'unknown', output: undefined });
+  });
+
   it('prefers a correlated final event when status remains non-terminal', () => {
     expect(codec.parseRunWaitResponse(runInput('app-1', 'provider-1', 'session-1'), {
       runId: 'provider-1', status: 'pending',
@@ -929,6 +1377,29 @@ describe.each([
     await expect(harness.adapter.getRun({
       ...runInput('app-1', 'provider-1', 'session-1'), providerState: { historyAssistantCount: 0, historyMessageIds: [] },
     })).resolves.toMatchObject({ status: 'unknown', output: undefined, providerState: { completionEvidence: 'terminal-status-output-unresolved' } });
+  });
+
+  it('does not attach pre-existing history when the run baseline is unavailable', async () => {
+    const harness = createAdapterHarness({ protocolVersion });
+    harness.connection.onSend = (data) => {
+      const request = JSON.parse(String(data)) as { id: string; method: string };
+      if (request.method === 'agent.wait') {
+        harness.connection.pushMessage(responseFrame(request.id, { runId: 'provider-1', status: 'ok' }));
+      }
+      if (request.method === 'chat.history') {
+        harness.connection.pushMessage(responseFrame(request.id, { messages: [
+          { id: 'pre-existing', role: 'assistant', content: 'unrelated old reply' },
+        ] }));
+      }
+    };
+
+    await expect(harness.adapter.getRun(
+      runInput('app-1', 'provider-1', 'session-1'),
+    )).resolves.toMatchObject({
+      status: 'unknown',
+      output: undefined,
+      providerState: { completionEvidence: 'terminal-status-output-unresolved' },
+    });
   });
 
   it('ignores output from another concurrent run', () => {
@@ -1075,7 +1546,14 @@ function handshakeConnection(
   selectedProtocol: number,
   options: { error?: Record<string, unknown>; malformedHello?: boolean; deviceToken?: string } = {},
 ): FakeWebSocketConnection {
-  const connection = new FakeWebSocketConnection();
+  return configureHandshakeConnection(new FakeWebSocketConnection(), selectedProtocol, options);
+}
+
+function configureHandshakeConnection<T extends FakeWebSocketConnection>(
+  connection: T,
+  selectedProtocol: number,
+  options: { error?: Record<string, unknown>; malformedHello?: boolean; deviceToken?: string } = {},
+): T {
   connection.onSend = (data) => {
     const request = JSON.parse(String(data)) as { id: string; params?: { minProtocol?: number; maxProtocol?: number } };
     if (options.error) {
@@ -1108,6 +1586,10 @@ function handshakeConnection(
     connection.pushMessage(JSON.stringify({ type: 'res', id: request.id, payload }));
   };
   return connection;
+}
+
+function halfOpenHandshakeConnection(selectedProtocol: number): HalfOpenWebSocketConnection {
+  return configureHandshakeConnection(new HalfOpenWebSocketConnection(), selectedProtocol);
 }
 
 function connectionConfig() {
@@ -1202,6 +1684,10 @@ class FakeWebSocketConnection implements RuntimeWebSocketConnection {
     this.pushClose(code, reason);
   }
 
+  async terminate(reason?: string): Promise<void> {
+    this.pushClose(1006, reason ?? 'terminated');
+  }
+
   pushMessage(data: string | Uint8Array): void {
     this.push({ type: 'message', data });
   }
@@ -1215,5 +1701,24 @@ class FakeWebSocketConnection implements RuntimeWebSocketConnection {
   private push(event: RuntimeWebSocketEvent): void {
     this.queue.push(event);
     this.notify?.();
+  }
+}
+
+class HalfOpenWebSocketConnection extends FakeWebSocketConnection {
+  terminateCount = 0;
+  private terminated = false;
+  private readonly closeWaiters: Array<() => void> = [];
+
+  override async close(): Promise<void> {
+    if (this.terminated) return;
+    await new Promise<void>((resolve) => this.closeWaiters.push(resolve));
+  }
+
+  override async terminate(reason?: string): Promise<void> {
+    if (this.terminated) return;
+    this.terminated = true;
+    this.terminateCount += 1;
+    await super.terminate(reason);
+    for (const resolve of this.closeWaiters.splice(0)) resolve();
   }
 }

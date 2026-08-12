@@ -81,14 +81,13 @@ Completion evidence is evaluated in this order:
 
 1. a correlated explicit terminal event;
 2. a correlated terminal status with direct final output;
-3. a correlated terminal status plus exactly one unambiguous assistant message
-   added after the pre-run history baseline.
+3. exactly one assistant history message carrying the requested run ID.
 
-The history fallback requires a terminal `agent.wait` result for the exact run
-and either an exact history `runId` match or one unambiguous new assistant
-message. Multiple candidates, another run/session, partial output, `pending`,
-or `timeout` cannot prove completion and remain `unknown`. The SDK never invents
-a run ID or uses timing alone as completion evidence.
+The history fallback requires one unique exact history `runId` match. An
+untagged message, multiple exact candidates, another run/session, or partial
+output cannot prove completion and remains `unknown`. A unique exact match can
+recover completion after the provider's terminal-status cache expires. The SDK
+never invents a run ID or uses timing alone as completion evidence.
 
 When OpenClaw supplies sequence numbers, the adapter tracks them per SDK run
 stream. A missing sequence range emits a `transport.gap` event before continuing

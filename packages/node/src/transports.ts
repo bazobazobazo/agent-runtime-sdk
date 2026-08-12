@@ -10,6 +10,7 @@ import {
   type RuntimeHttpTransport,
 } from '@banzae/agent-runtime-core';
 const CREDENTIAL_QUERY_KEYS = new Set(['token', 'access_token', 'api_key', 'password', 'secret', 'authorization', 'device_token']);
+const WEBSOCKET_CLOSE_GRACE_MS = 1_000;
 
 /** Public alpha contract for fetch http transport. */
 export class FetchHttpTransport implements RuntimeHttpTransport {
@@ -81,6 +82,7 @@ export class WsWebSocketFactory implements RuntimeWebSocketFactory {
 
 class WsConnection implements RuntimeWebSocketConnection {
   private readonly queueLimit = resolveSecureLimit('maxEventSubscriberQueue');
+  private closePromise?: Promise<void>;
   constructor(private readonly ws: WebSocket, private readonly cleanupAbort: () => void) {}
 
   async send(data: string | Uint8Array): Promise<void> {
@@ -137,14 +139,41 @@ class WsConnection implements RuntimeWebSocketConnection {
   async close(code?: number, reason?: string): Promise<void> {
     this.cleanupAbort();
     if (this.ws.readyState === WebSocket.CLOSED) return;
-    if (this.ws.readyState === WebSocket.CLOSING) {
-      await new Promise<void>((resolve) => this.ws.once('close', () => resolve()));
-      return;
-    }
-    await new Promise<void>((resolve) => {
-      this.ws.once('close', () => resolve());
-      this.ws.close(code, reason);
+    if (this.closePromise) return this.closePromise;
+    this.closePromise = new Promise<void>((resolve) => {
+      let settled = false;
+      const finish = () => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(forceTimer);
+        this.ws.off('close', finish);
+        resolve();
+      };
+      const forceTimer = setTimeout(() => {
+        try {
+          if (this.ws.readyState !== WebSocket.CLOSED) this.ws.terminate();
+        } finally {
+          finish();
+        }
+      }, WEBSOCKET_CLOSE_GRACE_MS);
+      this.ws.once('close', finish);
+      if (this.ws.readyState === WebSocket.CLOSING) return;
+      try {
+        this.ws.close(code, reason);
+      } catch {
+        try {
+          this.ws.terminate();
+        } finally {
+          finish();
+        }
+      }
     });
+    await this.closePromise;
+  }
+
+  async terminate(): Promise<void> {
+    this.cleanupAbort();
+    if (this.ws.readyState !== WebSocket.CLOSED) this.ws.terminate();
   }
 }
 

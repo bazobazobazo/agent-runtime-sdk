@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.1.0-alpha.3
+
+- Recover accepted runs safely after socket loss without resubmitting them.
+- Serialize and bound reconnects, close suspect dispatchers after request
+  failures, and require strict completion-history correlation.
+- Preserve queued terminal events and report closed lifecycle/capabilities
+  accurately.
+- Preserve timeout and caller-cancellation errors through status/history
+  reconciliation, and close a dispatcher after in-flight cancellation so a
+  late response cannot satisfy a reused deterministic request ID.
+
 ## 0.1.0-alpha.2
 
 - Normalize OpenClaw `chat.abort` misses as cancellation failures instead of accepted cancellations.

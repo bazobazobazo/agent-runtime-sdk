@@ -407,6 +407,30 @@ describe('runtime auto-detection', () => {
     expect(ws.closed).toBe(true);
   });
 
+  it('force-terminates a half-open WebSocket after probe timeout without hanging cleanup', async () => {
+    const ws = new HalfOpenWebSocket([{ type: 'open' }]);
+    const detector = createRuntimeDetector({
+      dependencies: deps({ webSockets: { connect: async () => ws } }),
+      probes: [createOpenClawProbe()],
+    });
+    const startedAt = Date.now();
+
+    const result = await detector.detect({
+      target: { endpoint: 'wss://runtime.example.test' },
+      options: { allowManifest: false, probeTimeoutMs: 10 },
+    });
+    const cleanupCompleted = await Promise.race([
+      ws.terminated.then(() => true),
+      new Promise<false>((resolve) => setTimeout(() => resolve(false), 250)),
+    ]);
+
+    expect(result.status).toBe('failed');
+    expect(result.candidates[0]?.error?.code).toBe('TIMEOUT');
+    expect(cleanupCompleted).toBe(true);
+    expect(ws.terminateCount).toBe(1);
+    expect(Date.now() - startedAt).toBeLessThan(300);
+  });
+
   it('cancels detection from a caller AbortSignal and removes repeated listeners', async () => {
     const controller = new AbortController();
     const listenerCounts = trackAbortListeners(controller.signal);
@@ -582,5 +606,32 @@ class FakeWebSocket {
       });
       this.notify = undefined;
     }
+  }
+}
+
+class HalfOpenWebSocket extends FakeWebSocket {
+  terminateCount = 0;
+  readonly terminated: Promise<void>;
+  private markTerminated!: () => void;
+  private readonly closeWaiters: Array<() => void> = [];
+
+  constructor(events: RuntimeWebSocketEvent[]) {
+    super(events);
+    this.terminated = new Promise<void>((resolve) => {
+      this.markTerminated = resolve;
+    });
+  }
+
+  override async close(): Promise<void> {
+    if (this.terminateCount > 0) return;
+    await new Promise<void>((resolve) => this.closeWaiters.push(resolve));
+  }
+
+  async terminate(): Promise<void> {
+    if (this.terminateCount > 0) return;
+    this.terminateCount += 1;
+    await super.close();
+    for (const resolve of this.closeWaiters.splice(0)) resolve();
+    this.markTerminated();
   }
 }

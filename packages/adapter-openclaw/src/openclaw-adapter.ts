@@ -39,6 +39,7 @@ import {
 } from '@banzae/agent-runtime-core';
 import {
   assertStartRunInput,
+  canonicalJson,
   connectionFingerprint,
   normalizeEndpoint,
   runtimeEventBase,
@@ -91,6 +92,13 @@ type StoredOpenClawDeviceIdentity = {
   privateKeyDer: string;
 };
 
+type OperationDeadline = {
+  signal: AbortSignal;
+  remaining(): number;
+  run<T>(work: Promise<T>): Promise<T>;
+  dispose(): void;
+};
+
 /** Public alpha contract for open claw adapter. */
 export class OpenClawAdapter implements AgentRuntimeAdapter {
   readonly adapterId = 'openclaw';
@@ -98,12 +106,18 @@ export class OpenClawAdapter implements AgentRuntimeAdapter {
   private state: RuntimeAdapterLifecycleState = 'created';
 
   get lifecycleState(): RuntimeAdapterLifecycleState {
+    if (this.state === 'connected' && this.connected?.dispatcher.isClosed) return 'closed';
     return this.state;
   }
 
   private readonly registry = new OpenClawProtocolRegistry();
   private connected?: ConnectedState;
   private target?: RuntimeTarget;
+  private transitionTail: Promise<void> = Promise.resolve();
+  private connectedConfigFingerprint?: string;
+  private closePromise?: Promise<void>;
+  private closingDispatcher?: OpenClawRequestManager;
+  private closingConnection?: RuntimeWebSocketConnection;
 
   constructor(
     private readonly deps: RuntimeAdapterDependencies,
@@ -117,31 +131,35 @@ export class OpenClawAdapter implements AgentRuntimeAdapter {
   async probe(target: RuntimeTarget, options?: ProbeOptions): Promise<RuntimeProbeResult> {
     const started = this.deps.clock.now().getTime();
     const endpoint = toWebSocketEndpoint(target.endpoint);
+    const deadline = createOperationDeadline(
+      options?.timeoutMs ?? this.options.connectTimeoutMs ?? 5_000,
+      options?.signal,
+      'OpenClaw probe',
+    );
+    let connection: RuntimeWebSocketConnection | undefined;
     try {
-      const connection = await withDeadline(
-        this.deps.webSockets.connect({ url: endpoint, signal: options?.signal }),
-        options?.timeoutMs ?? this.options.connectTimeoutMs ?? 5_000,
-        options?.signal,
+      connection = await deadline.run(
+        this.deps.webSockets.connect({ url: endpoint, signal: deadline.signal }),
       );
-      try {
-        const challenge = await waitForChallenge(connection, this.registry.require(this.registry.preferredVersions()[0] ?? 4));
-        return {
-          matched: true,
-          confidence: options?.allowAuthentication ? 0.8 : 0.75,
-          adapterId: this.adapterId,
-          runtimeProduct: 'openclaw',
-          protocolName: 'openclaw-gateway',
-          endpointFingerprint: await connectionFingerprint(this.deps.crypto, {
+      const challenge = await deadline.run(
+        waitForChallenge(connection, this.registry.require(this.registry.preferredVersions()[0] ?? 4)),
+      );
+      return {
+        matched: true,
+        confidence: options?.allowAuthentication ? 0.8 : 0.75,
+        adapterId: this.adapterId,
+        runtimeProduct: 'openclaw',
+        protocolName: 'openclaw-gateway',
+        endpointFingerprint: await deadline.run(
+          connectionFingerprint(this.deps.crypto, {
             adapterId: this.adapterId,
             endpoint: normalizeEndpoint(endpoint),
           }),
-          evidence: challenge ? ['connect.challenge observed'] : ['websocket opened'],
-          warnings: options?.allowAuthentication ? ['probe did not submit user prompt'] : [],
-          durationMs: this.deps.clock.now().getTime() - started,
-        };
-      } finally {
-        await connection.close().catch(() => undefined);
-      }
+        ),
+        evidence: challenge ? ['connect.challenge observed'] : ['websocket opened'],
+        warnings: options?.allowAuthentication ? ['probe did not submit user prompt'] : [],
+        durationMs: this.deps.clock.now().getTime() - started,
+      };
     } catch (error) {
       return {
         matched: false,
@@ -151,12 +169,50 @@ export class OpenClawAdapter implements AgentRuntimeAdapter {
         warnings: [error instanceof RuntimeError ? `${error.code}: OpenClaw probe failed` : 'OpenClaw probe failed'],
         durationMs: this.deps.clock.now().getTime() - started,
       };
+    } finally {
+      await boundedSocketClose(connection, 'probe complete', {
+        signal: deadline.signal,
+        timeoutMs: deadline.remaining(),
+      }).catch(() => undefined);
+      deadline.dispose();
     }
   }
 
-  async connect(config: RuntimeConnectionConfig, options?: ConnectOptions): Promise<RuntimeConnectionInfo> {
+  connect(config: RuntimeConnectionConfig, options?: ConnectOptions): Promise<RuntimeConnectionInfo> {
+    const predecessor = this.transitionTail;
+    const operation = (async () => {
+      const deadline = createOperationDeadline(
+        options?.timeoutMs ?? this.options.connectTimeoutMs ?? 15_000,
+        options?.signal,
+        'OpenClaw connection',
+      );
+      try {
+        await deadline.run(predecessor);
+        const configFingerprint = await deadline.run(this.configurationFingerprint(config));
+        return await this.connectOnce(config, configFingerprint, options, deadline);
+      } finally {
+        deadline.dispose();
+      }
+    })();
+    const settledOperation = operation.then(() => undefined, () => undefined);
+    this.transitionTail = predecessor.then(
+      () => settledOperation,
+      () => settledOperation,
+    );
+    return operation;
+  }
+
+  private async connectOnce(
+    config: RuntimeConnectionConfig,
+    configFingerprint: string,
+    options?: ConnectOptions,
+    deadline?: OperationDeadline,
+  ): Promise<RuntimeConnectionInfo> {
+    const operationSignal = deadline?.signal ?? options?.signal;
+    throwIfConnectAborted(operationSignal);
     if (
       this.connected &&
+      this.connectedConfigFingerprint === configFingerprint &&
       !this.connected.dispatcher.isClosed &&
       !options?.forceReconnect
     ) {
@@ -168,12 +224,22 @@ export class OpenClawAdapter implements AgentRuntimeAdapter {
       };
     }
 
-    await this.close();
+    const closeTimeoutMs = deadline
+      ? Math.min(1_000, Math.max(1, Math.floor(deadline.remaining() / 2)))
+      : options?.timeoutMs;
+    await this.closeConnected({
+      ...options,
+      signal: operationSignal,
+      timeoutMs: closeTimeoutMs,
+    });
+    throwIfConnectAborted(operationSignal);
     this.state = 'connecting';
     this.target = config.target;
     let resolvedConfig: RuntimeConnectionConfig;
     try {
-      resolvedConfig = await resolveOpenClawConnectionConfig(this.deps, config);
+      resolvedConfig = deadline
+        ? await deadline.run(resolveOpenClawConnectionConfig(this.deps, config))
+        : await resolveOpenClawConnectionConfig(this.deps, config);
     } catch (error) {
       this.state = 'closed';
       throw error;
@@ -185,8 +251,13 @@ export class OpenClawAdapter implements AgentRuntimeAdapter {
     for (const version of versions) {
       const codec = this.registry.require(version);
       try {
-        const state = await this.connectWithCodec(endpoint, codec, resolvedConfig, options);
+        const state = await this.connectWithCodec(endpoint, codec, resolvedConfig, {
+          ...options,
+          signal: operationSignal,
+          timeoutMs: deadline?.remaining() ?? options?.timeoutMs,
+        }, deadline);
         this.connected = state;
+        this.connectedConfigFingerprint = configFingerprint;
         this.state = 'connected';
         return {
           descriptor: this.descriptor(state),
@@ -231,7 +302,9 @@ export class OpenClawAdapter implements AgentRuntimeAdapter {
   }
 
   async capabilities(): Promise<RuntimeCapabilities> {
-    return this.connected ? this.runtimeCapabilities(this.connected) : NO_CAPABILITIES;
+    return this.connected && !this.connected.dispatcher.isClosed
+      ? this.runtimeCapabilities(this.connected)
+      : NO_CAPABILITIES;
   }
 
   async ensureSession(input: EnsureSessionInput, options?: OperationOptions): Promise<RuntimeSession> {
@@ -271,7 +344,6 @@ export class OpenClawAdapter implements AgentRuntimeAdapter {
     await this.verifyAttachmentHashes(input.input.attachments);
     const state = this.requireConnected();
     const eventCursor = state.dispatcher.eventCursor();
-    const historyBaseline = await this.captureHistoryBaseline(state, input, options?.signal);
     this.deps.logger.debug('OpenClaw run start requested', {
       adapterId: this.adapterId,
       protocolVersion: state.codec.protocolVersion,
@@ -304,7 +376,6 @@ export class OpenClawAdapter implements AgentRuntimeAdapter {
         ...parsed.providerState,
         externalSessionId: input.session.externalSessionId,
         eventCursor,
-        ...historyBaseline,
       },
     };
   }
@@ -318,24 +389,31 @@ export class OpenClawAdapter implements AgentRuntimeAdapter {
   async getRun(input: GetRuntimeRunInput, options?: OperationOptions): Promise<RuntimeRunSnapshot> {
     const state = this.requireConnected();
     if (!state.codec.capabilities(state.hello).runs.status) throw unsupported('OpenClaw run status is unavailable');
-    const response = await state.dispatcher.request<Record<string, unknown>>(state.codec.buildRunWait(input), {
-      signal: options?.signal,
-    });
-    const parsed = state.codec.parseRunWaitResponse(input, response);
-    this.deps.logger.debug('OpenClaw run status reconciled', {
-      adapterId: this.adapterId,
-      protocolVersion: state.codec.protocolVersion,
-      requestedRunIdHash: await diagnosticHash(this.deps, input.externalRunId),
-      normalizedStatus: parsed.status,
-      rawStatus: parsed.providerState?.rawStatus,
-      terminal: parsed.status === 'completed' || parsed.status === 'failed' || parsed.status === 'cancelled',
-      containsOutput: parsed.output !== undefined,
-      outputLength: parsed.output?.length ?? 0,
-      outputHash: parsed.output ? await diagnosticHash(this.deps, parsed.output) : undefined,
-    });
-    const terminalWithoutOutput = parsed.providerState?.terminalStatus === 'completed' && parsed.output === undefined;
-    if (!terminalWithoutOutput) return parsed;
-    return this.reconcileCompletedRunFromHistory(state, input, parsed, options?.signal);
+    const deadline = options?.timeoutMs === undefined
+      ? undefined
+      : createOperationDeadline(options.timeoutMs, options.signal, 'OpenClaw run status');
+    try {
+      const response = await state.dispatcher.request<Record<string, unknown>>(state.codec.buildRunWait(input), {
+        signal: deadline?.signal ?? options?.signal,
+        timeoutMs: deadline?.remaining() ?? options?.timeoutMs,
+      });
+      const parsed = state.codec.parseRunWaitResponse(input, response);
+      this.deps.logger.debug('OpenClaw run status reconciled', {
+        adapterId: this.adapterId,
+        protocolVersion: state.codec.protocolVersion,
+        requestedRunIdHash: await diagnosticHash(this.deps, input.externalRunId),
+        normalizedStatus: parsed.status,
+        rawStatus: parsed.providerState?.rawStatus,
+        terminal: parsed.status === 'completed' || parsed.status === 'failed' || parsed.status === 'cancelled',
+        containsOutput: parsed.output !== undefined,
+        outputLength: parsed.output?.length ?? 0,
+        outputHash: parsed.output ? await diagnosticHash(this.deps, parsed.output) : undefined,
+      });
+      if (parsed.status !== 'unknown' || parsed.output !== undefined) return parsed;
+      return await this.reconcileCompletedRunFromHistory(state, input, parsed, options, deadline);
+    } finally {
+      deadline?.dispose();
+    }
   }
 
   async cancelRun(input: CancelRuntimeRunInput, options?: OperationOptions): Promise<void> {
@@ -357,7 +435,10 @@ export class OpenClawAdapter implements AgentRuntimeAdapter {
   async getHistory(input: GetRuntimeHistoryInput, options?: OperationOptions): Promise<RuntimeHistoryPage> {
     const state = this.requireConnected();
     if (!state.codec.capabilities(state.hello).sessions.history) throw unsupported('OpenClaw session history is unavailable');
-    const payload = await state.dispatcher.request(state.codec.buildHistory(input), { signal: options?.signal });
+    const payload = await state.dispatcher.request(state.codec.buildHistory(input), {
+      signal: options?.signal,
+      timeoutMs: options?.timeoutMs,
+    });
     return { messages: normalizeOpenClawHistory(payload) };
   }
 
@@ -436,50 +517,86 @@ export class OpenClawAdapter implements AgentRuntimeAdapter {
     return normalizeScheduleExecutionPage(payload, input.externalScheduleId);
   }
 
-  async close(): Promise<void> {
-    if (this.state === 'closing') return;
+  close(): Promise<void> {
+    const predecessor = this.transitionTail;
+    const operation = (async () => {
+      await predecessor;
+      await this.closeConnected();
+    })();
+    this.transitionTail = operation.then(() => undefined, () => undefined);
+    return operation;
+  }
+
+  private async closeConnected(options?: ConnectOptions): Promise<void> {
+    if (this.closePromise) {
+      if (!options) return this.closePromise;
+      await this.forceBoundedClose(options);
+      await settleWithin(this.closePromise, options.timeoutMs, options.signal);
+      return;
+    }
+    const operation = this.closeConnectedOnce(options);
+    this.closePromise = operation;
+    try {
+      await operation;
+    } finally {
+      if (this.closePromise === operation) this.closePromise = undefined;
+    }
+  }
+
+  private async closeConnectedOnce(options?: ConnectOptions): Promise<void> {
     this.state = 'closing';
     const dispatcher = this.connected?.dispatcher;
     const connection = this.connected?.connection;
     this.connected = undefined;
-    await dispatcher?.close().catch(() => undefined);
-    await connection?.close().catch(() => undefined);
-    this.state = 'closed';
+    this.connectedConfigFingerprint = undefined;
+    this.closingDispatcher = dispatcher;
+    this.closingConnection = connection;
+    try {
+      await dispatcher?.close({ signal: options?.signal, timeoutMs: options?.timeoutMs }).catch(() => undefined);
+      await boundedSocketClose(connection, 'adapter closed', {
+        signal: options?.signal,
+        timeoutMs: options?.timeoutMs,
+      });
+    } finally {
+      this.closingDispatcher = undefined;
+      this.closingConnection = undefined;
+      this.state = 'closed';
+    }
   }
 
-  private async captureHistoryBaseline(
-    state: ConnectedState,
-    input: StartRuntimeRunInput,
-    signal?: AbortSignal,
-  ): Promise<Readonly<Record<string, unknown>>> {
-    if (!state.codec.capabilities(state.hello).sessions.history) return {};
+  private async forceBoundedClose(options: ConnectOptions): Promise<void> {
+    await this.closingDispatcher?.close({
+      signal: options.signal,
+      timeoutMs: options.timeoutMs,
+    }).catch(() => undefined);
+    await boundedSocketClose(this.closingConnection, 'adapter closed', {
+      signal: options.signal,
+      timeoutMs: options.timeoutMs,
+    });
+  }
+
+  private async configurationFingerprint(config: RuntimeConnectionConfig): Promise<string> {
+    let serialized: string;
     try {
-      const request = state.codec.buildHistory({
-        applicationSessionId: input.session.applicationSessionId,
-        externalSessionId: input.session.externalSessionId,
-        limit: 100,
-      });
-      const payload = await state.dispatcher.request({ ...request, id: `history-baseline:${input.applicationRunId}` }, { signal });
-      const assistants = normalizeOpenClawHistory(payload).filter((message) => message.role === 'assistant');
-      return {
-        historyAssistantCount: assistants.length,
-        historyMessageIds: assistants.flatMap((message) => (message.id ? [message.id] : [])),
-      };
-    } catch (error) {
-      this.deps.logger.debug('OpenClaw history baseline unavailable', {
+      serialized = canonicalJson(config);
+    } catch (cause) {
+      throw new RuntimeError({
+        code: 'INVALID_CONFIGURATION',
+        retryable: false,
         adapterId: this.adapterId,
-        applicationRunIdHash: await diagnosticHash(this.deps, input.applicationRunId),
-        errorCode: error instanceof RuntimeError ? error.code : 'UNKNOWN',
+        message: 'OpenClaw connection configuration cannot be fingerprinted',
+        cause,
       });
-      return {};
     }
+    return hexEncode(await this.deps.crypto.sha256(serialized));
   }
 
   private async reconcileCompletedRunFromHistory(
     state: ConnectedState,
     input: GetRuntimeRunInput,
     parsed: RuntimeRunSnapshot,
-    signal?: AbortSignal,
+    options?: OperationOptions,
+    deadline?: OperationDeadline,
   ): Promise<RuntimeRunSnapshot> {
     const externalSessionId = input.externalSessionId
       ?? (typeof input.providerState?.externalSessionId === 'string' ? input.providerState.externalSessionId : undefined);
@@ -488,28 +605,16 @@ export class OpenClawAdapter implements AgentRuntimeAdapter {
     }
     try {
       const request = state.codec.buildHistory({ applicationSessionId: externalSessionId, externalSessionId, limit: 100 });
-      const payload = await state.dispatcher.request({ ...request, id: `history-reconcile:${input.applicationRunId}` }, { signal });
+      const payload = await state.dispatcher.request(
+        { ...request, id: `history-reconcile:${input.applicationRunId}` },
+        {
+          signal: deadline?.signal ?? options?.signal,
+          timeoutMs: deadline?.remaining() ?? options?.timeoutMs,
+        },
+      );
       const assistants = normalizeOpenClawHistory(payload).filter((message) => message.role === 'assistant');
       const exact = assistants.filter((message) => message.metadata?.runId === input.externalRunId);
-      const baselineIds = new Set(
-        Array.isArray(input.providerState?.historyMessageIds)
-          ? input.providerState.historyMessageIds.filter((value): value is string => typeof value === 'string')
-          : [],
-      );
-      const baselineCount = typeof input.providerState?.historyAssistantCount === 'number'
-        ? input.providerState.historyAssistantCount
-        : undefined;
-      const newById = assistants.filter((message) => message.id && !baselineIds.has(message.id));
-      const countCandidate = baselineCount !== undefined && assistants.length === baselineCount + 1
-        ? assistants.at(-1)
-        : undefined;
-      const candidate = exact.length === 1
-        ? exact[0]
-        : exact.length === 0 && newById.length === 1
-          ? newById[0]
-          : exact.length === 0 && newById.length === 0
-            ? countCandidate
-            : undefined;
+      const candidate = exact.length === 1 ? exact[0] : undefined;
       if (!candidate?.content) return unresolvedCompletedRun(parsed);
       this.deps.logger.debug('OpenClaw completed run reconciled from history', {
         adapterId: this.adapterId,
@@ -529,6 +634,9 @@ export class OpenClawAdapter implements AgentRuntimeAdapter {
         providerState: { ...parsed.providerState, completionEvidence: 'reconciled-session-history' },
       };
     } catch (error) {
+      if (error instanceof RuntimeError && (error.code === 'TIMEOUT' || error.code === 'CANCELLED')) {
+        throw error;
+      }
       this.deps.logger.debug('OpenClaw completed-run history reconciliation failed', {
         adapterId: this.adapterId,
         applicationRunIdHash: await diagnosticHash(this.deps, input.applicationRunId),
@@ -544,28 +652,38 @@ export class OpenClawAdapter implements AgentRuntimeAdapter {
     codec: OpenClawProtocolCodec,
     config: RuntimeConnectionConfig,
     options?: ConnectOptions,
+    deadline?: OperationDeadline,
   ): Promise<ConnectedState> {
-    const connection = await withDeadline(
-      this.deps.webSockets.connect({ url: endpoint, signal: options?.signal }),
-      options?.timeoutMs ?? this.options.connectTimeoutMs ?? 15_000,
-      options?.signal,
-    );
+    const connectWork = this.deps.webSockets.connect({ url: endpoint, signal: deadline?.signal ?? options?.signal });
+    const connection = deadline
+      ? await deadline.run(connectWork)
+      : await withDeadline(
+          connectWork,
+          options?.timeoutMs ?? this.options.connectTimeoutMs ?? 15_000,
+          options?.signal,
+        );
     try {
-      const challenge = await withDeadline(
-        waitForChallenge(connection, codec),
-        options?.timeoutMs ?? this.options.connectTimeoutMs ?? 15_000,
-        options?.signal,
-      );
+      const challengeWork = waitForChallenge(connection, codec);
+      const challenge = deadline
+        ? await deadline.run(challengeWork)
+        : await withDeadline(
+            challengeWork,
+            options?.timeoutMs ?? this.options.connectTimeoutMs ?? 15_000,
+            options?.signal,
+          );
       const scopes = this.options.scopes ?? ['operator.read', 'operator.write'];
       const identity = challenge && config.auth && config.auth.kind !== 'none'
-        ? await this.resolveDeviceIdentity(endpoint)
+        ? await runWithinDeadline(deadline, this.resolveDeviceIdentity(endpoint))
         : undefined;
       const deviceToken = identity
-        ? await this.getStoredDeviceToken(endpoint, identity.deviceId, this.options.role ?? 'operator')
+        ? await runWithinDeadline(
+            deadline,
+            this.getStoredDeviceToken(endpoint, identity.deviceId, this.options.role ?? 'operator'),
+          )
         : undefined;
       const device =
         challenge && config.auth && identity
-          ? await this.buildSignedDeviceProof(identity, config.auth, challenge, scopes)
+          ? await runWithinDeadline(deadline, this.buildSignedDeviceProof(identity, config.auth, challenge, scopes))
           : undefined;
       const params = codec.createConnectParams({
         requestId: 'connect-1',
@@ -590,10 +708,18 @@ export class OpenClawAdapter implements AgentRuntimeAdapter {
       });
       const helloPayload = await dispatcher.request<Record<string, unknown>>(
         { id: 'connect-1', method: 'connect', params },
-        { signal: options?.signal },
+        {
+          signal: deadline?.signal ?? options?.signal,
+          timeoutMs: deadline?.remaining() ?? options?.timeoutMs,
+        },
       );
       const hello = codec.parseHello(helloPayload);
-      if (identity) await this.saveReturnedDeviceToken(endpoint, identity.deviceId, this.options.role ?? 'operator', hello);
+      if (identity) {
+        await runWithinDeadline(
+          deadline,
+          this.saveReturnedDeviceToken(endpoint, identity.deviceId, this.options.role ?? 'operator', hello),
+        );
+      }
       const returnedDeviceToken = hello.raw && typeof hello.raw === 'object'
         && typeof (hello.raw as { auth?: { deviceToken?: unknown } }).auth?.deviceToken === 'string';
       if (hello.protocolVersion !== codec.protocolVersion) {
@@ -611,14 +737,20 @@ export class OpenClawAdapter implements AgentRuntimeAdapter {
         hello,
         dispatcher,
         devicePaired: Boolean(identity && (deviceToken || returnedDeviceToken)),
-        descriptorFingerprint: await connectionFingerprint(this.deps.crypto, {
-          adapterId: this.adapterId,
-          endpoint: normalizeEndpoint(endpoint),
-          protocol: codec.protocolVersion,
-        }),
+        descriptorFingerprint: await runWithinDeadline(
+          deadline,
+          connectionFingerprint(this.deps.crypto, {
+            adapterId: this.adapterId,
+            endpoint: normalizeEndpoint(endpoint),
+            protocol: codec.protocolVersion,
+          }),
+        ),
       };
     } catch (error) {
-      await connection.close().catch(() => undefined);
+      await boundedSocketClose(connection, 'connect failed', {
+        signal: deadline?.signal ?? options?.signal,
+        timeoutMs: deadline?.remaining() ?? options?.timeoutMs,
+      });
       throw error;
     }
   }
@@ -656,6 +788,14 @@ export class OpenClawAdapter implements AgentRuntimeAdapter {
         retryable: false,
         adapterId: this.adapterId,
         message: 'OpenClaw adapter is not connected',
+      });
+    }
+    if (this.connected.dispatcher.isClosed) {
+      throw new RuntimeError({
+        code: 'NETWORK',
+        retryable: true,
+        adapterId: this.adapterId,
+        message: 'OpenClaw connection is closed',
       });
     }
     return this.connected;
@@ -946,12 +1086,153 @@ class OpenClawRunEventStream implements AsyncIterableIterator<RuntimeEvent> {
 }
 
 function unresolvedCompletedRun(parsed: RuntimeRunSnapshot): RuntimeRunSnapshot {
+  const providerConfirmedTerminal = parsed.providerState?.terminalStatus === 'completed';
   return {
     ...parsed,
     status: 'unknown',
     output: undefined,
-    providerState: { ...parsed.providerState, completionEvidence: 'terminal-status-output-unresolved' },
+    providerState: {
+      ...parsed.providerState,
+      ...(providerConfirmedTerminal
+        ? { completionEvidence: 'terminal-status-output-unresolved' }
+        : {}),
+    },
   };
+}
+
+function throwIfConnectAborted(signal?: AbortSignal): void {
+  if (!signal?.aborted) return;
+  throw signal.reason instanceof RuntimeError
+    ? signal.reason
+    : new RuntimeError({
+        code: 'CANCELLED',
+        retryable: false,
+        adapterId: 'openclaw',
+        message: 'OpenClaw connection was cancelled',
+      });
+}
+
+function createOperationDeadline(
+  timeoutMs: number,
+  parentSignal: AbortSignal | undefined,
+  label: string,
+): OperationDeadline {
+  if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 300_000) {
+    throw new RuntimeError({
+      code: 'INVALID_CONFIGURATION',
+      retryable: false,
+      adapterId: 'openclaw',
+      message: `${label} timeout is invalid`,
+    });
+  }
+  const controller = new AbortController();
+  const expiresAt = Date.now() + timeoutMs;
+  const timeoutError = new RuntimeError({
+    code: 'TIMEOUT',
+    retryable: true,
+    adapterId: 'openclaw',
+    message: `${label} timed out after ${timeoutMs}ms`,
+  });
+  const timeout = setTimeout(() => controller.abort(timeoutError), timeoutMs);
+  const onParentAbort = () => controller.abort(parentSignal?.reason);
+  parentSignal?.addEventListener('abort', onParentAbort, { once: true });
+  if (parentSignal?.aborted) onParentAbort();
+  return {
+    signal: controller.signal,
+    remaining: () => Math.max(1, expiresAt - Date.now()),
+    run: async <T>(work: Promise<T>) => {
+      if (controller.signal.aborted) throw deadlineAbortError(controller.signal, timeoutError);
+      return new Promise<T>((resolve, reject) => {
+        const onAbort = () => reject(deadlineAbortError(controller.signal, timeoutError));
+        controller.signal.addEventListener('abort', onAbort, { once: true });
+        work.then(
+          (value) => {
+            controller.signal.removeEventListener('abort', onAbort);
+            resolve(value);
+          },
+          (error) => {
+            controller.signal.removeEventListener('abort', onAbort);
+            reject(error);
+          },
+        );
+      });
+    },
+    dispose: () => {
+      clearTimeout(timeout);
+      parentSignal?.removeEventListener('abort', onParentAbort);
+    },
+  };
+}
+
+function deadlineAbortError(signal: AbortSignal, fallback: RuntimeError): RuntimeError {
+  return signal.reason instanceof RuntimeError
+    ? signal.reason
+    : signal.reason
+      ? new RuntimeError({
+          code: 'CANCELLED',
+          retryable: false,
+          adapterId: 'openclaw',
+          message: 'OpenClaw operation was cancelled',
+          cause: signal.reason,
+        })
+      : fallback;
+}
+
+function runWithinDeadline<T>(deadline: OperationDeadline | undefined, work: Promise<T>): Promise<T> {
+  return deadline ? deadline.run(work) : work;
+}
+
+async function boundedSocketClose(
+  connection: RuntimeWebSocketConnection | undefined,
+  reason: string,
+  options?: { signal?: AbortSignal; timeoutMs?: number },
+): Promise<void> {
+  if (!connection) return;
+  const timeoutMs = Math.min(Math.max(1, options?.timeoutMs ?? 1_000), 1_000);
+  const completed = await new Promise<boolean>((resolve) => {
+    let settled = false;
+    const finish = (closed: boolean) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      options?.signal?.removeEventListener('abort', onAbort);
+      resolve(closed);
+    };
+    const onAbort = () => finish(false);
+    const timer = setTimeout(() => finish(false), timeoutMs);
+    options?.signal?.addEventListener('abort', onAbort, { once: true });
+    connection.close(1000, reason).then(() => finish(true), () => finish(false));
+    if (options?.signal?.aborted) onAbort();
+  });
+  if (!completed) {
+    if (!connection.terminate) {
+      throw new RuntimeError({
+        code: 'NETWORK',
+        retryable: true,
+        adapterId: 'openclaw',
+        message: 'OpenClaw transport could not be terminated after close timed out',
+      });
+    }
+    await connection.terminate(`${reason}: forced termination`);
+  }
+}
+
+async function settleWithin(work: Promise<unknown>, timeoutMs?: number, signal?: AbortSignal): Promise<void> {
+  const boundedMs = Math.min(Math.max(1, timeoutMs ?? 1_000), 1_000);
+  await new Promise<void>((resolve) => {
+    let settled = false;
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      signal?.removeEventListener('abort', finish);
+      resolve();
+    };
+    const timer = setTimeout(finish, boundedMs);
+    signal?.addEventListener('abort', finish, { once: true });
+    work.then(finish, finish);
+    if (signal?.aborted) finish();
+  });
 }
 
 async function diagnosticHash(deps: RuntimeAdapterDependencies, value: string): Promise<string> {
