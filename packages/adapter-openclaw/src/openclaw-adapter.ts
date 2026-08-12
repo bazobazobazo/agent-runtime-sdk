@@ -604,7 +604,7 @@ export class OpenClawAdapter implements AgentRuntimeAdapter {
       return unresolvedCompletedRun(parsed);
     }
     try {
-      const request = state.codec.buildHistory({ applicationSessionId: externalSessionId, externalSessionId, limit: 100 });
+      const request = state.codec.buildHistory({ applicationSessionId: externalSessionId, externalSessionId, limit: 1_000 });
       const payload = await state.dispatcher.request(
         { ...request, id: `history-reconcile:${input.applicationRunId}` },
         {
@@ -612,10 +612,11 @@ export class OpenClawAdapter implements AgentRuntimeAdapter {
           timeoutMs: deadline?.remaining() ?? options?.timeoutMs,
         },
       );
+      const historyActivity = normalizeHistoryActivity(payload, input.externalRunId);
       const assistants = normalizeOpenClawHistory(payload).filter((message) => message.role === 'assistant');
       const exact = assistants.filter((message) => message.metadata?.runId === input.externalRunId);
       const candidate = exact.length === 1 ? exact[0] : undefined;
-      if (!candidate?.content) return unresolvedCompletedRun(parsed);
+      if (!candidate?.content) return unresolvedCompletedRun(parsed, historyActivity);
       this.deps.logger.debug('OpenClaw completed run reconciled from history', {
         adapterId: this.adapterId,
         protocolVersion: state.codec.protocolVersion,
@@ -1085,7 +1086,10 @@ class OpenClawRunEventStream implements AsyncIterableIterator<RuntimeEvent> {
   }
 }
 
-function unresolvedCompletedRun(parsed: RuntimeRunSnapshot): RuntimeRunSnapshot {
+function unresolvedCompletedRun(
+  parsed: RuntimeRunSnapshot,
+  providerStatePatch: Readonly<Record<string, unknown>> = {},
+): RuntimeRunSnapshot {
   const providerConfirmedTerminal = parsed.providerState?.terminalStatus === 'completed';
   return {
     ...parsed,
@@ -1093,10 +1097,41 @@ function unresolvedCompletedRun(parsed: RuntimeRunSnapshot): RuntimeRunSnapshot 
     output: undefined,
     providerState: {
       ...parsed.providerState,
+      ...providerStatePatch,
       ...(providerConfirmedTerminal
         ? { completionEvidence: 'terminal-status-output-unresolved' }
         : {}),
     },
+  };
+}
+
+function normalizeHistoryActivity(
+  payload: unknown,
+  requestedRunId: string,
+): Readonly<Record<string, unknown>> {
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return {};
+  const value = payload as Record<string, unknown>;
+  const sessionInfo = value.sessionInfo && typeof value.sessionInfo === 'object' &&
+    !Array.isArray(value.sessionInfo)
+    ? value.sessionInfo as Record<string, unknown>
+    : undefined;
+  const inFlightRun = value.inFlightRun && typeof value.inFlightRun === 'object' &&
+    !Array.isArray(value.inFlightRun)
+    ? value.inFlightRun as Record<string, unknown>
+    : undefined;
+  const activeRunIds = Array.isArray(sessionInfo?.activeRunIds)
+    ? sessionInfo.activeRunIds.filter((candidate): candidate is string =>
+      typeof candidate === 'string' && candidate.length > 0 && candidate.length <= 256)
+    : [];
+  const inFlightRunId = safeProviderId(inFlightRun?.runId);
+  const sessionHasActiveRun = typeof sessionInfo?.hasActiveRun === 'boolean'
+    ? sessionInfo.hasActiveRun
+    : undefined;
+  return {
+    ...(sessionHasActiveRun === undefined ? {} : { sessionHasActiveRun }),
+    ...(activeRunIds.includes(requestedRunId) || inFlightRunId === requestedRunId
+      ? { requestedRunActive: true }
+      : {}),
   };
 }
 

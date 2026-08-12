@@ -49,6 +49,37 @@ describe('OpenClaw protocol scaffolding', () => {
     expect(request.params?.idempotencyKey).toBe('host-runtime-run:run-1');
   });
 
+  it('normalizes projected OpenClaw transcript metadata for recovery', () => {
+    expect(normalizeOpenClawHistory({
+      messages: [{
+        role: 'assistant',
+        content: [{ type: 'text', text: 'legacy completion' }],
+        timestamp: 1_786_550_400_000,
+        __openclaw: {
+          id: 'transcript-message-1',
+          idempotencyKey: 'provider-run-1',
+        },
+      }],
+    })).toEqual([expect.objectContaining({
+      id: 'transcript-message-1',
+      role: 'assistant',
+      content: 'legacy completion',
+      createdAt: '2026-08-12T16:00:00.000Z',
+      metadata: expect.objectContaining({ runId: 'provider-run-1' }),
+    })]);
+  });
+
+  it('rejects conflicting projected OpenClaw run identities', () => {
+    expect(normalizeOpenClawHistory({
+      messages: [{
+        role: 'assistant',
+        content: 'ambiguous completion',
+        idempotencyKey: 'provider-run-1',
+        __openclaw: { idempotencyKey: 'provider-run-2' },
+      }],
+    })[0]?.metadata?.runId).toBeUndefined();
+  });
+
   it('uses the wrapped v3 schedule create contract', () => {
     const request = openClawV3Codec().buildScheduleCreate({
       idempotencyKey: 'host-schedule-key',
@@ -1358,7 +1389,14 @@ describe.each([
     await expect(harness.adapter.getRun({
       ...runInput('app-1', 'provider-1', 'session-1'),
       providerState: { historyAssistantCount: 1, historyMessageIds: ['old'] },
-    })).resolves.toMatchObject({ status: 'unknown', output: undefined });
+    })).resolves.toMatchObject({
+      status: 'unknown',
+      output: undefined,
+      providerState: {
+        sessionHasActiveRun: true,
+        requestedRunActive: true,
+      },
+    });
   });
 
   it('does not attach another active run history message to the requested run', async () => {
@@ -1405,7 +1443,11 @@ describe.each([
     await expect(harness.adapter.getRun({
       ...runInput('app-1', 'provider-1', 'session-1'),
       providerState: { historyAssistantCount: 1, historyMessageIds: ['old'] },
-    })).resolves.toMatchObject({ status: 'unknown', output: undefined });
+    })).resolves.toMatchObject({
+      status: 'unknown',
+      output: undefined,
+      providerState: { sessionHasActiveRun: false },
+    });
   });
 
   it('prefers a correlated final event when status remains non-terminal', () => {

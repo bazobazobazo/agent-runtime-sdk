@@ -3,6 +3,18 @@
 All notable SDK changes are recorded here. The repository uses a synchronized
 fixed version for the six public packages during the initial alpha series.
 
+## 0.1.0-alpha.4 — release candidate, 2026-08-12
+
+### Fixed
+
+- OpenClaw history normalization now preserves the projected message ID,
+  idempotency key, and numeric timestamp used by current gateway transcripts.
+- Expired run reconciliation reports sanitized session activity and searches a
+  bounded 1,000-message history window, allowing hosts to recover legacy
+  untagged completions only after they apply their own acceptance correlation.
+
+No package, tag, or GitHub release has been published by this candidate.
+
 ## 0.1.0-alpha.3 — release candidate, 2026-08-12
 
 ### Fixed
