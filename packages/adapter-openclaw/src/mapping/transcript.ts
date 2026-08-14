@@ -6,8 +6,9 @@ export function normalizeOpenClawHistory(payload: unknown): RuntimeMessage[] {
     : Array.isArray(payload)
       ? payload
       : [];
+  const applicationRunIds = correlateFinalAssistantApplicationRuns(messages);
 
-  return messages.flatMap((message): RuntimeMessage[] => {
+  return messages.flatMap((message, index): RuntimeMessage[] => {
     if (!message || typeof message !== 'object') return [];
     const value = message as Record<string, unknown>;
     const role = normalizeRole(value.role);
@@ -15,9 +16,7 @@ export function normalizeOpenClawHistory(payload: unknown): RuntimeMessage[] {
     const attachments = normalizeAttachments(value);
     const openClaw = openClawMetadata(value);
     const runId = normalizeHistoryRunId(value, openClaw);
-    const applicationRunId = role === 'assistant'
-      ? normalizeAssistantApplicationRunId(value, openClaw)
-      : undefined;
+    const applicationRunId = role === 'assistant' ? applicationRunIds.get(index) : undefined;
     if (!role || (!content && attachments.length === 0)) return [];
     return [
       {
@@ -43,20 +42,71 @@ export function normalizeOpenClawHistory(payload: unknown): RuntimeMessage[] {
   });
 }
 
-function normalizeAssistantApplicationRunId(
+function correlateFinalAssistantApplicationRuns(messages: readonly unknown[]): Map<number, string> {
+  const correlated = new Map<number, string>();
+  let applicationRunId: string | undefined;
+  let finalAssistantIndexes: number[] = [];
+
+  const finishSegment = () => {
+    const [finalAssistantIndex] = finalAssistantIndexes;
+    if (
+      applicationRunId &&
+      finalAssistantIndexes.length === 1 &&
+      finalAssistantIndex !== undefined
+    ) {
+      correlated.set(finalAssistantIndex, applicationRunId);
+    }
+    applicationRunId = undefined;
+    finalAssistantIndexes = [];
+  };
+
+  messages.forEach((message, index) => {
+    if (!message || typeof message !== 'object') return;
+    const value = message as Record<string, unknown>;
+    const role = normalizeRole(value.role);
+    const openClaw = openClawMetadata(value);
+    if (role === 'user') {
+      finishSegment();
+      applicationRunId = normalizeUserApplicationRunId(value, openClaw);
+      return;
+    }
+    if (
+      role === 'assistant' &&
+      applicationRunId &&
+      hasUniqueFinalAssistantMarker(value, openClaw)
+    ) {
+      finalAssistantIndexes.push(index);
+    }
+  });
+  finishSegment();
+  return correlated;
+}
+
+function normalizeUserApplicationRunId(
   value: Record<string, unknown>,
   openClaw: Record<string, unknown> | undefined,
 ): string | undefined {
-  const candidates = [value.idempotencyKey, openClaw?.idempotencyKey]
-    .map(safeHistoryIdentifier)
-    .filter((candidate): candidate is string => candidate !== undefined)
-    .map((candidate) => {
-      const match = /^codex-app-server:[^:\u0000-\u001f\u007f]{1,256}:([A-Za-z0-9][A-Za-z0-9._-]{0,255}):assistant$/.exec(candidate);
-      return match?.[1];
-    })
-    .filter((candidate): candidate is string => candidate !== undefined);
-  const unique = [...new Set(candidates)];
-  return unique.length === 1 ? unique[0] : undefined;
+  const marker = uniqueHistoryIdentifier(
+    value.idempotencyKey,
+    openClaw?.idempotencyKey,
+  );
+  if (!marker?.endsWith(':user')) return undefined;
+  const applicationRunId = marker.slice(0, -':user'.length);
+  return /^[A-Za-z0-9][A-Za-z0-9._-]{0,255}$/.test(applicationRunId)
+    ? applicationRunId
+    : undefined;
+}
+
+function hasUniqueFinalAssistantMarker(
+  value: Record<string, unknown>,
+  openClaw: Record<string, unknown> | undefined,
+): boolean {
+  const marker = uniqueHistoryIdentifier(
+    value.idempotencyKey,
+    openClaw?.idempotencyKey,
+  );
+  return marker !== undefined &&
+    /^codex-app-server:[^:\u0000-\u001f\u007f]{1,256}:[A-Za-z0-9][A-Za-z0-9._-]{0,255}:assistant$/.test(marker);
 }
 
 function openClawMetadata(value: Record<string, unknown>): Record<string, unknown> | undefined {

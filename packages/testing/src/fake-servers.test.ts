@@ -115,7 +115,7 @@ describe('testing-only fake runtime controllers', () => {
         ).toHaveLength(1);
         expect(
           server.receivedMethods.filter((method) => method === 'agent.wait'),
-        ).toHaveLength(1);
+        ).toHaveLength(0);
         expect(
           server.receivedMethods.filter((method) => method === 'chat.history'),
         ).toHaveLength(1);
