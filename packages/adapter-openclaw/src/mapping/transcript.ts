@@ -15,6 +15,9 @@ export function normalizeOpenClawHistory(payload: unknown): RuntimeMessage[] {
     const attachments = normalizeAttachments(value);
     const openClaw = openClawMetadata(value);
     const runId = normalizeHistoryRunId(value, openClaw);
+    const applicationRunId = role === 'assistant'
+      ? normalizeAssistantApplicationRunId(value, openClaw)
+      : undefined;
     if (!role || (!content && attachments.length === 0)) return [];
     return [
       {
@@ -31,12 +34,29 @@ export function normalizeOpenClawHistory(payload: unknown): RuntimeMessage[] {
         metadata: {
           provider: 'openclaw',
           runId,
+          applicationRunId,
           sequence: value.sequence,
           ...(attachments.length > 0 ? { attachmentCount: attachments.length } : {}),
         },
       },
     ];
   });
+}
+
+function normalizeAssistantApplicationRunId(
+  value: Record<string, unknown>,
+  openClaw: Record<string, unknown> | undefined,
+): string | undefined {
+  const candidates = [value.idempotencyKey, openClaw?.idempotencyKey]
+    .map(safeHistoryIdentifier)
+    .filter((candidate): candidate is string => candidate !== undefined)
+    .map((candidate) => {
+      const match = /^codex-app-server:[^:\u0000-\u001f\u007f]{1,256}:([A-Za-z0-9][A-Za-z0-9._-]{0,255}):assistant$/.exec(candidate);
+      return match?.[1];
+    })
+    .filter((candidate): candidate is string => candidate !== undefined);
+  const unique = [...new Set(candidates)];
+  return unique.length === 1 ? unique[0] : undefined;
 }
 
 function openClawMetadata(value: Record<string, unknown>): Record<string, unknown> | undefined {

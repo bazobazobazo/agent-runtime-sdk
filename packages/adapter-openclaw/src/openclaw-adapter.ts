@@ -623,7 +623,10 @@ export class OpenClawAdapter implements AgentRuntimeAdapter {
       );
       const historyActivity = normalizeHistoryActivity(payload, input.externalRunId);
       const assistants = normalizeOpenClawHistory(payload).filter((message) => message.role === 'assistant');
-      const exact = assistants.filter((message) => message.metadata?.runId === input.externalRunId);
+      const exact = assistants.filter((message) =>
+        message.metadata?.runId === input.externalRunId ||
+        message.metadata?.applicationRunId === input.applicationRunId,
+      );
       const candidate = exact.length === 1 ? exact[0] : undefined;
       if (!candidate?.content) {
         return parsed.status === 'unknown'

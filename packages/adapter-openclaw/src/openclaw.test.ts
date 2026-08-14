@@ -80,6 +80,31 @@ describe('OpenClaw protocol scaffolding', () => {
     })[0]?.metadata?.runId).toBeUndefined();
   });
 
+  it('normalizes the final assistant application-run marker', () => {
+    expect(normalizeOpenClawHistory({
+      messages: [{
+        role: 'assistant',
+        content: [{ type: 'text', text: 'completed reply' }],
+        idempotencyKey: 'codex-app-server:thread-1:app-1:assistant',
+      }],
+    })[0]?.metadata).toMatchObject({
+      applicationRunId: 'app-1',
+    });
+  });
+
+  it('rejects conflicting final assistant application-run markers', () => {
+    expect(normalizeOpenClawHistory({
+      messages: [{
+        role: 'assistant',
+        content: 'ambiguous completion',
+        idempotencyKey: 'codex-app-server:thread-1:app-1:assistant',
+        __openclaw: {
+          idempotencyKey: 'codex-app-server:thread-1:app-2:assistant',
+        },
+      }],
+    })[0]?.metadata?.applicationRunId).toBeUndefined();
+  });
+
   it('uses the wrapped v3 schedule create contract', () => {
     const request = openClawV3Codec().buildScheduleCreate({
       idempotencyKey: 'host-schedule-key',
@@ -1380,6 +1405,73 @@ describe.each([
       ...runInput('app-1', 'provider-1', 'session-1'),
       providerState: { historyAssistantCount: 1, historyMessageIds: ['old'] },
     })).resolves.toMatchObject({ status: 'completed', output: 'done', providerState: { completionEvidence: 'reconciled-session-history' } });
+  });
+
+  it('reconciles a final assistant by application run after later history exists', async () => {
+    const harness = createAdapterHarness({ protocolVersion });
+    harness.connection.onSend = (data) => {
+      const request = JSON.parse(String(data)) as { id: string; method: string };
+      if (request.method === 'agent.wait') {
+        harness.connection.pushMessage(responseFrame(request.id, { runId: 'provider-1', status: 'ok' }));
+      } else if (request.method === 'chat.history') {
+        harness.connection.pushMessage(responseFrame(request.id, { messages: [
+          { id: 'old', role: 'assistant', content: 'old' },
+          {
+            id: 'target',
+            role: 'assistant',
+            idempotencyKey: 'codex-app-server:thread-1:app-1:assistant',
+            content: 'target completion',
+          },
+          {
+            id: 'later',
+            role: 'assistant',
+            idempotencyKey: 'codex-app-server:thread-1:app-2:assistant',
+            content: 'later reply',
+          },
+        ] }));
+      }
+    };
+
+    await expect(harness.adapter.getRun({
+      ...runInput('app-1', 'provider-1', 'session-1'),
+      providerState: { historyAssistantCount: 1, historyMessageIds: ['old'] },
+    })).resolves.toMatchObject({
+      status: 'completed',
+      output: 'target completion',
+      providerState: { completionEvidence: 'reconciled-session-history' },
+    });
+  });
+
+  it('rejects duplicate final assistants for the same application run', async () => {
+    const harness = createAdapterHarness({ protocolVersion });
+    harness.connection.onSend = (data) => {
+      const request = JSON.parse(String(data)) as { id: string; method: string };
+      if (request.method === 'agent.wait') {
+        harness.connection.pushMessage(responseFrame(request.id, { runId: 'provider-1', status: 'ok' }));
+      } else if (request.method === 'chat.history') {
+        harness.connection.pushMessage(responseFrame(request.id, { messages: [
+          {
+            id: 'duplicate-1',
+            role: 'assistant',
+            idempotencyKey: 'codex-app-server:thread-1:app-1:assistant',
+            content: 'first candidate',
+          },
+          {
+            id: 'duplicate-2',
+            role: 'assistant',
+            idempotencyKey: 'codex-app-server:thread-1:app-1:assistant',
+            content: 'second candidate',
+          },
+        ] }));
+      }
+    };
+
+    await expect(harness.adapter.getRun(
+      runInput('app-1', 'provider-1', 'session-1'),
+    )).resolves.toMatchObject({
+      status: 'unknown',
+      output: undefined,
+    });
   });
 
   it('recovers an expired terminal-cache result only from a unique exact run id', async () => {
