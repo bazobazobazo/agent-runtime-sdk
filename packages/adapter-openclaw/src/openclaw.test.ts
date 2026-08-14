@@ -80,29 +80,79 @@ describe('OpenClaw protocol scaffolding', () => {
     })[0]?.metadata?.runId).toBeUndefined();
   });
 
-  it('normalizes the final assistant application-run marker', () => {
-    expect(normalizeOpenClawHistory({
-      messages: [{
-        role: 'assistant',
-        content: [{ type: 'text', text: 'completed reply' }],
-        idempotencyKey: 'codex-app-server:thread-1:app-1:assistant',
-      }],
-    })[0]?.metadata).toMatchObject({
-      applicationRunId: 'app-1',
+  it('correlates final assistants with preceding application user markers', () => {
+    const history = normalizeOpenClawHistory({
+      messages: [
+        {
+          role: 'user',
+          content: 'first request',
+          idempotencyKey: 'app-1:user',
+        },
+        {
+          role: 'assistant',
+          content: [{ type: 'toolCall', name: 'exec' }],
+          idempotencyKey: 'codex-app-server:thread-1:turn-1:tool:exec-1:call',
+        },
+        {
+          role: 'assistant',
+          content: [{ type: 'text', text: 'completed reply' }],
+          idempotencyKey: 'codex-app-server:thread-1:turn-1:assistant',
+        },
+        {
+          role: 'user',
+          content: 'later request',
+          idempotencyKey: 'app-2:user',
+        },
+        {
+          role: 'assistant',
+          content: 'later reply',
+          idempotencyKey: 'codex-app-server:thread-1:turn-2:assistant',
+        },
+      ],
     });
+
+    expect(history.filter((message) => message.role === 'assistant')).toMatchObject([
+      { metadata: { applicationRunId: 'app-1' } },
+      { metadata: { applicationRunId: 'app-2' } },
+    ]);
   });
 
-  it('rejects conflicting final assistant application-run markers', () => {
+  it('rejects conflicting user application-run markers', () => {
     expect(normalizeOpenClawHistory({
-      messages: [{
-        role: 'assistant',
-        content: 'ambiguous completion',
-        idempotencyKey: 'codex-app-server:thread-1:app-1:assistant',
-        __openclaw: {
-          idempotencyKey: 'codex-app-server:thread-1:app-2:assistant',
+      messages: [
+        {
+          role: 'user',
+          content: 'ambiguous request',
+          idempotencyKey: 'app-1:user',
+          __openclaw: { idempotencyKey: 'app-2:user' },
         },
-      }],
-    })[0]?.metadata?.applicationRunId).toBeUndefined();
+        {
+          role: 'assistant',
+          content: 'ambiguous completion',
+          idempotencyKey: 'codex-app-server:thread-1:turn-1:assistant',
+        },
+      ],
+    }).find((message) => message.role === 'assistant')?.metadata?.applicationRunId).toBeUndefined();
+  });
+
+  it('rejects conflicting final assistant turn markers', () => {
+    expect(normalizeOpenClawHistory({
+      messages: [
+        {
+          role: 'user',
+          content: 'request',
+          idempotencyKey: 'app-1:user',
+        },
+        {
+          role: 'assistant',
+          content: 'ambiguous completion',
+          idempotencyKey: 'codex-app-server:thread-1:turn-1:assistant',
+          __openclaw: {
+            idempotencyKey: 'codex-app-server:thread-1:turn-2:assistant',
+          },
+        },
+      ],
+    }).find((message) => message.role === 'assistant')?.metadata?.applicationRunId).toBeUndefined();
   });
 
   it('uses the wrapped v3 schedule create contract', () => {
@@ -1056,7 +1106,7 @@ describe('OpenClaw run event correlation', () => {
     ]);
   });
 
-  it('honors the operation timeout for run wait and completion history reconciliation', async () => {
+  it('honors the operation timeout for completion and explicit history reads', async () => {
     const harness = createAdapterHarness();
     const requests: Array<{ method: string; timeoutMs?: number }> = [];
     harness.dispatcher.request = (async (
@@ -1090,15 +1140,12 @@ describe('OpenClaw run event correlation', () => {
       messages: [{ role: 'assistant', content: 'done' }],
     });
     expect(requests.map(({ method }) => method)).toEqual([
-      'agent.wait',
       'chat.history',
       'chat.history',
     ]);
     expect(requests[0]?.timeoutMs).toBeGreaterThan(0);
     expect(requests[0]?.timeoutMs).toBeLessThanOrEqual(91);
-    expect(requests[1]?.timeoutMs).toBeGreaterThan(0);
-    expect(requests[1]?.timeoutMs).toBeLessThanOrEqual(requests[0]?.timeoutMs ?? 91);
-    expect(requests[2]?.timeoutMs).toBe(92);
+    expect(requests[1]?.timeoutMs).toBe(92);
   });
 
   it('allows validated unadvertised history without changing the fail-closed default', async () => {
@@ -1139,23 +1186,38 @@ describe('OpenClaw run event correlation', () => {
     await expect(compatible.adapter.getRun(
       runInput('app-1', 'provider-1', 'session-1'),
     )).resolves.toMatchObject({ status: 'completed', output: 'recovered' });
-    expect(requests).toEqual(['agent.wait', 'chat.history']);
+    expect(requests).toEqual(['chat.history']);
   });
 
   it('propagates a run-wait deadline instead of converting it to unknown', async () => {
     const harness = createAdapterHarness();
+    const requests: string[] = [];
+    harness.connection.onSend = (data) => {
+      const request = JSON.parse(String(data)) as { id: string; method: string };
+      requests.push(request.method);
+      if (request.method === 'chat.history') {
+        harness.connection.pushMessage(responseFrame(request.id, { messages: [] }));
+      }
+    };
 
     await expect(harness.adapter.getRun(
       runInput('app-1', 'provider-1', 'session-1'),
       { timeoutMs: 20 },
     )).rejects.toMatchObject({ code: 'TIMEOUT' });
+    expect(requests).toEqual(['chat.history', 'agent.wait']);
   });
 
   it('propagates a history-reconciliation deadline instead of converting it to unknown', async () => {
     const harness = createAdapterHarness();
+    let historyRequests = 0;
     harness.connection.onSend = (data) => {
       const request = JSON.parse(String(data)) as { id: string; method: string };
-      if (request.method === 'agent.wait') {
+      if (request.method === 'chat.history') {
+        historyRequests += 1;
+        if (historyRequests === 1) {
+          harness.connection.pushMessage(responseFrame(request.id, { messages: [] }));
+        }
+      } else if (request.method === 'agent.wait') {
         harness.connection.pushMessage(responseFrame(request.id, {
           runId: 'provider-1',
           status: 'timeout',
@@ -1409,23 +1471,37 @@ describe.each([
 
   it('reconciles a final assistant by application run after later history exists', async () => {
     const harness = createAdapterHarness({ protocolVersion });
+    const requestedMethods: string[] = [];
     harness.connection.onSend = (data) => {
       const request = JSON.parse(String(data)) as { id: string; method: string };
+      requestedMethods.push(request.method);
       if (request.method === 'agent.wait') {
         harness.connection.pushMessage(responseFrame(request.id, { runId: 'provider-1', status: 'ok' }));
       } else if (request.method === 'chat.history') {
         harness.connection.pushMessage(responseFrame(request.id, { messages: [
           { id: 'old', role: 'assistant', content: 'old' },
           {
+            id: 'target-user',
+            role: 'user',
+            idempotencyKey: 'app-1:user',
+            content: 'target request',
+          },
+          {
             id: 'target',
             role: 'assistant',
-            idempotencyKey: 'codex-app-server:thread-1:app-1:assistant',
+            idempotencyKey: 'codex-app-server:thread-1:turn-1:assistant',
             content: 'target completion',
+          },
+          {
+            id: 'later-user',
+            role: 'user',
+            idempotencyKey: 'app-2:user',
+            content: 'later request',
           },
           {
             id: 'later',
             role: 'assistant',
-            idempotencyKey: 'codex-app-server:thread-1:app-2:assistant',
+            idempotencyKey: 'codex-app-server:thread-1:turn-2:assistant',
             content: 'later reply',
           },
         ] }));
@@ -1440,6 +1516,7 @@ describe.each([
       output: 'target completion',
       providerState: { completionEvidence: 'reconciled-session-history' },
     });
+    expect(requestedMethods).toEqual(['chat.history']);
   });
 
   it('rejects duplicate final assistants for the same application run', async () => {
@@ -1451,15 +1528,21 @@ describe.each([
       } else if (request.method === 'chat.history') {
         harness.connection.pushMessage(responseFrame(request.id, { messages: [
           {
+            id: 'duplicate-user',
+            role: 'user',
+            idempotencyKey: 'app-1:user',
+            content: 'request',
+          },
+          {
             id: 'duplicate-1',
             role: 'assistant',
-            idempotencyKey: 'codex-app-server:thread-1:app-1:assistant',
+            idempotencyKey: 'codex-app-server:thread-1:turn-1:assistant',
             content: 'first candidate',
           },
           {
             id: 'duplicate-2',
             role: 'assistant',
-            idempotencyKey: 'codex-app-server:thread-1:app-1:assistant',
+            idempotencyKey: 'codex-app-server:thread-1:turn-2:assistant',
             content: 'second candidate',
           },
         ] }));

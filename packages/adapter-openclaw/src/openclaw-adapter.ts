@@ -399,6 +399,20 @@ export class OpenClawAdapter implements AgentRuntimeAdapter {
       ? undefined
       : createOperationDeadline(options.timeoutMs, options.signal, 'OpenClaw run status');
     try {
+      const historySnapshot = await this.reconcileCompletedRunFromHistory(
+        state,
+        input,
+        {
+          applicationRunId: input.applicationRunId,
+          externalRunId: input.externalRunId,
+          status: 'unknown',
+          providerState: input.providerState,
+        },
+        options,
+        deadline,
+      );
+      if (historySnapshot.status === 'completed') return historySnapshot;
+
       const response = await state.dispatcher.request<Record<string, unknown>>(state.codec.buildRunWait(input), {
         signal: deadline?.signal ?? options?.signal,
         timeoutMs: deadline?.remaining() ?? options?.timeoutMs,
