@@ -76,14 +76,22 @@ export class WsWebSocketFactory implements RuntimeWebSocketFactory {
       ws.terminate();
       throw error;
     }
-    return new WsConnection(ws, () => input.signal?.removeEventListener('abort', onAbort));
+    return new WsConnection(
+      ws,
+      maxPayload,
+      () => input.signal?.removeEventListener('abort', onAbort),
+    );
   }
 }
 
 class WsConnection implements RuntimeWebSocketConnection {
   private readonly queueLimit = resolveSecureLimit('maxEventSubscriberQueue');
   private closePromise?: Promise<void>;
-  constructor(private readonly ws: WebSocket, private readonly cleanupAbort: () => void) {}
+  constructor(
+    private readonly ws: WebSocket,
+    private readonly maxPayloadBytes: number,
+    private readonly cleanupAbort: () => void,
+  ) {}
 
   async send(data: string | Uint8Array): Promise<void> {
     await new Promise<void>((resolve, reject) => {
@@ -109,7 +117,10 @@ class WsConnection implements RuntimeWebSocketConnection {
     };
     const onMessage = (data: WebSocket.RawData) =>
       push({ type: 'message', data: typeof data === 'string' ? data : new Uint8Array(data as Buffer) });
-    const onError = (error: Error) => push({ type: 'error', error });
+    const onError = (error: Error) => push({
+      type: 'error',
+      error: normalizeWebSocketError(error, this.maxPayloadBytes),
+    });
     const onClose = (code: number) => push({ type: 'close', code });
 
     this.ws.on('message', onMessage);
@@ -175,6 +186,19 @@ class WsConnection implements RuntimeWebSocketConnection {
     this.cleanupAbort();
     if (this.ws.readyState !== WebSocket.CLOSED) this.ws.terminate();
   }
+}
+
+function normalizeWebSocketError(error: Error, maxPayloadBytes: number): Error {
+  if ((error as Error & { code?: unknown }).code !== 'WS_ERR_UNSUPPORTED_MESSAGE_LENGTH') {
+    return error;
+  }
+  return new RuntimeError({
+    code: 'INVALID_RESPONSE',
+    retryable: false,
+    operation: 'websocket.receive',
+    message: 'WebSocket frame exceeded the configured maximum',
+    details: { maxFrameBytes: maxPayloadBytes },
+  });
 }
 
 function validateTransportUrl(input: string, allowedSchemes: ReadonlySet<string>): URL {
