@@ -485,7 +485,11 @@ export abstract class MappedOpenClawCodec implements OpenClawProtocolCodec {
     return {
       id: `history:${input.externalSessionId}`,
       method: this.mappings.historyMethod,
-      params: { sessionKey: input.externalSessionId, limit: input.limit, cursor: input.cursor },
+      params: compactObject({
+        sessionKey: input.externalSessionId,
+        limit: input.limit,
+        offset: openClawHistoryOffset(input.cursor),
+      }),
     };
   }
 
@@ -588,6 +592,28 @@ function authPayload(auth: OpenClawConnectInput['auth'], deviceToken?: string): 
 
 function compactObject(value: Record<string, unknown>): Record<string, unknown> {
   return Object.fromEntries(Object.entries(value).filter(([, nested]) => nested !== undefined));
+}
+
+function openClawHistoryOffset(cursor: string | undefined): number | undefined {
+  if (cursor === undefined) return undefined;
+  if (!/^(0|[1-9]\d*)$/.test(cursor)) {
+    throw new RuntimeError({
+      code: 'INVALID_REQUEST',
+      retryable: false,
+      adapterId: 'openclaw',
+      message: 'OpenClaw history cursor is invalid',
+    });
+  }
+  const offset = Number(cursor);
+  if (!Number.isSafeInteger(offset)) {
+    throw new RuntimeError({
+      code: 'INVALID_REQUEST',
+      retryable: false,
+      adapterId: 'openclaw',
+      message: 'OpenClaw history cursor is invalid',
+    });
+  }
+  return offset;
 }
 
 function eventMatchesRun(mappings: OpenClawProtocolMappings, metadata: OpenClawProviderEventMetadata, context: OpenClawRunContext): boolean {

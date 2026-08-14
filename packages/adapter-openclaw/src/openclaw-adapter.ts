@@ -105,6 +105,9 @@ type OperationDeadline = {
   dispose(): void;
 };
 
+const HISTORY_RECONCILIATION_PAGE_SIZE = 50;
+const HISTORY_RECONCILIATION_MAX_MESSAGES = 1_000;
+
 /** Public alpha contract for open claw adapter. */
 export class OpenClawAdapter implements AgentRuntimeAdapter {
   readonly adapterId = 'openclaw';
@@ -145,7 +148,11 @@ export class OpenClawAdapter implements AgentRuntimeAdapter {
     let connection: RuntimeWebSocketConnection | undefined;
     try {
       connection = await deadline.run(
-        this.deps.webSockets.connect({ url: endpoint, signal: deadline.signal }),
+        this.deps.webSockets.connect({
+          url: endpoint,
+          signal: deadline.signal,
+          maxPayloadBytes: this.options.maxFrameBytes,
+        }),
       );
       const challenge = await deadline.run(
         waitForChallenge(connection, this.registry.require(this.registry.preferredVersions()[0] ?? 4)),
@@ -462,7 +469,10 @@ export class OpenClawAdapter implements AgentRuntimeAdapter {
       signal: options?.signal,
       timeoutMs: options?.timeoutMs,
     });
-    return { messages: normalizeOpenClawHistory(payload) };
+    return {
+      messages: normalizeOpenClawHistory(payload),
+      nextCursor: openClawHistoryNextCursor(payload),
+    };
   }
 
   async createSchedule(input: CreateRuntimeScheduleInput, options?: OperationOptions): Promise<RuntimeSchedule> {
@@ -627,16 +637,52 @@ export class OpenClawAdapter implements AgentRuntimeAdapter {
       return unresolvedCompletedRun(parsed);
     }
     try {
-      const request = state.codec.buildHistory({ applicationSessionId: externalSessionId, externalSessionId, limit: 1_000 });
-      const payload = await state.dispatcher.request(
-        { ...request, id: `history-reconcile:${input.applicationRunId}` },
-        {
-          signal: deadline?.signal ?? options?.signal,
-          timeoutMs: deadline?.remaining() ?? options?.timeoutMs,
-        },
-      );
-      const historyActivity = normalizeHistoryActivity(payload, input.externalRunId);
-      const assistants = normalizeOpenClawHistory(payload).filter((message) => message.role === 'assistant');
+      const messages: unknown[] = [];
+      const seenCursors = new Set<string>();
+      let cursor: string | undefined;
+      let historyActivity: Readonly<Record<string, unknown>> = {};
+      let loadedMessages = 0;
+      do {
+        const pageLimit = Math.min(
+          HISTORY_RECONCILIATION_PAGE_SIZE,
+          HISTORY_RECONCILIATION_MAX_MESSAGES - loadedMessages,
+        );
+        const request = state.codec.buildHistory({
+          applicationSessionId: externalSessionId,
+          externalSessionId,
+          limit: pageLimit,
+          cursor,
+        });
+        const payload = await state.dispatcher.request(
+          {
+            ...request,
+            id: `history-reconcile:${input.applicationRunId}:${cursor ?? '0'}`,
+          },
+          {
+            signal: deadline?.signal ?? options?.signal,
+            timeoutMs: deadline?.remaining() ?? options?.timeoutMs,
+          },
+        );
+        if (loadedMessages === 0) {
+          historyActivity = normalizeHistoryActivity(payload, input.externalRunId);
+        }
+        const pageMessages = openClawHistoryMessages(payload).slice(-pageLimit);
+        messages.unshift(...pageMessages);
+        loadedMessages += pageMessages.length;
+        const nextCursor = openClawHistoryNextCursor(payload);
+        if (
+          !nextCursor ||
+          pageMessages.length === 0 ||
+          loadedMessages >= HISTORY_RECONCILIATION_MAX_MESSAGES ||
+          seenCursors.has(nextCursor)
+        ) {
+          cursor = undefined;
+          break;
+        }
+        seenCursors.add(nextCursor);
+        cursor = nextCursor;
+      } while (cursor);
+      const assistants = normalizeOpenClawHistory(messages).filter((message) => message.role === 'assistant');
       const exact = assistants.filter((message) =>
         message.metadata?.runId === input.externalRunId ||
         message.metadata?.applicationRunId === input.applicationRunId,
@@ -688,7 +734,11 @@ export class OpenClawAdapter implements AgentRuntimeAdapter {
     options?: ConnectOptions,
     deadline?: OperationDeadline,
   ): Promise<ConnectedState> {
-    const connectWork = this.deps.webSockets.connect({ url: endpoint, signal: deadline?.signal ?? options?.signal });
+    const connectWork = this.deps.webSockets.connect({
+      url: endpoint,
+      signal: deadline?.signal ?? options?.signal,
+      maxPayloadBytes: this.options.maxFrameBytes,
+    });
     const connection = deadline
       ? await deadline.run(connectWork)
       : await withDeadline(
@@ -1178,6 +1228,23 @@ function normalizeHistoryActivity(
       ? { requestedRunActive: true }
       : {}),
   };
+}
+
+function openClawHistoryMessages(payload: unknown): unknown[] {
+  if (Array.isArray(payload)) return payload;
+  if (!payload || typeof payload !== 'object') return [];
+  const messages = (payload as { messages?: unknown }).messages;
+  return Array.isArray(messages) ? messages : [];
+}
+
+function openClawHistoryNextCursor(payload: unknown): string | undefined {
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return undefined;
+  const value = payload as Record<string, unknown>;
+  if (value.hasMore === false) return undefined;
+  const nextOffset = value.nextOffset;
+  return typeof nextOffset === 'number' && Number.isSafeInteger(nextOffset) && nextOffset >= 0
+    ? String(nextOffset)
+    : undefined;
 }
 
 function throwIfConnectAborted(signal?: AbortSignal): void {

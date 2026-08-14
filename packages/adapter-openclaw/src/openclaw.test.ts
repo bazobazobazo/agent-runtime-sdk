@@ -49,6 +49,27 @@ describe('OpenClaw protocol scaffolding', () => {
     expect(request.params?.idempotencyKey).toBe('host-runtime-run:run-1');
   });
 
+  it.each([
+    ['v3', openClawV3Codec()],
+    ['v4', openClawV4Codec()],
+  ])('maps opaque history cursors to OpenClaw numeric offsets for %s', (_label, codec) => {
+    expect(codec.buildHistory({
+      applicationSessionId: 'session-1',
+      externalSessionId: 'session-1',
+      limit: 50,
+      cursor: '150',
+    }).params).toEqual({
+      sessionKey: 'session-1',
+      limit: 50,
+      offset: 150,
+    });
+    expect(() => codec.buildHistory({
+      applicationSessionId: 'session-1',
+      externalSessionId: 'session-1',
+      cursor: 'not-an-offset',
+    })).toThrowError(expect.objectContaining({ code: 'INVALID_REQUEST' }));
+  });
+
   it('normalizes projected OpenClaw transcript metadata for recovery', () => {
     expect(normalizeOpenClawHistory({
       messages: [{
@@ -315,6 +336,33 @@ describe('OpenClaw protocol scaffolding', () => {
     expect(info.descriptor.protocolVersion).toBe('4');
     expect(info.descriptor.capabilities.extensions['openclaw.device.paired']).toBe(false);
     expect(connection.sent).toHaveLength(1);
+  });
+
+  it('forwards the configured frame bound to probe and connected transports', async () => {
+    const connections = [handshakeConnection(4), handshakeConnection(4)];
+    const connectInputs: Array<{ maxPayloadBytes?: number }> = [];
+    const deps = createTestDependencies({
+      webSockets: {
+        async connect(input) {
+          connectInputs.push(input);
+          const connection = connections.shift();
+          if (!connection) throw new Error('No fake socket left');
+          connection.pushMessage(eventFrame('connect.challenge', { nonce: 'fixture-nonce' }));
+          return connection;
+        },
+      },
+    });
+    const adapter = new OpenClawAdapter(deps, {
+      maxFrameBytes: 10 * 1024 * 1024,
+      connectTimeoutMs: 100,
+      requestTimeoutMs: 100,
+    });
+
+    await adapter.probe(connectionConfig().target);
+    await adapter.connect(connectionConfig());
+
+    expect(connectInputs).toHaveLength(2);
+    expect(connectInputs.every((input) => input.maxPayloadBytes === 10 * 1024 * 1024)).toBe(true);
   });
 
   it('reconnects instead of reusing a socket closed during inactivity', async () => {
@@ -1517,6 +1565,72 @@ describe.each([
       providerState: { completionEvidence: 'reconciled-session-history' },
     });
     expect(requestedMethods).toEqual(['chat.history']);
+  });
+
+  it('reconciles an application run across bounded history pages', async () => {
+    const harness = createAdapterHarness({ protocolVersion });
+    const historyRequests: Array<Record<string, unknown>> = [];
+    harness.connection.onSend = (data) => {
+      const request = JSON.parse(String(data)) as {
+        id: string;
+        method: string;
+        params?: Record<string, unknown>;
+      };
+      if (request.method !== 'chat.history') return;
+      historyRequests.push(request.params ?? {});
+      if (request.params?.offset === 50) {
+        harness.connection.pushMessage(responseFrame(request.id, {
+          messages: [
+            { id: 'older', role: 'assistant', content: 'older reply' },
+            {
+              id: 'target-user',
+              role: 'user',
+              idempotencyKey: 'app-1:user',
+              content: 'target request',
+            },
+          ],
+          hasMore: false,
+          nextOffset: 52,
+        }));
+        return;
+      }
+      harness.connection.pushMessage(responseFrame(request.id, {
+        messages: [
+          {
+            id: 'target',
+            role: 'assistant',
+            idempotencyKey: 'codex-app-server:thread-1:turn-1:assistant',
+            content: 'target completion',
+          },
+          {
+            id: 'later-user',
+            role: 'user',
+            idempotencyKey: 'app-2:user',
+            content: 'later request',
+          },
+          {
+            id: 'later',
+            role: 'assistant',
+            idempotencyKey: 'codex-app-server:thread-1:turn-2:assistant',
+            content: 'later reply',
+          },
+        ],
+        hasMore: true,
+        nextOffset: 50,
+      }));
+    };
+
+    await expect(harness.adapter.getRun(
+      runInput('app-1', 'provider-1', 'session-1'),
+    )).resolves.toMatchObject({
+      status: 'completed',
+      output: 'target completion',
+      providerState: { completionEvidence: 'reconciled-session-history' },
+    });
+    expect(historyRequests).toEqual([
+      { sessionKey: 'session-1', limit: 50 },
+      { sessionKey: 'session-1', limit: 50, offset: 50 },
+    ]);
   });
 
   it('rejects duplicate final assistants for the same application run', async () => {

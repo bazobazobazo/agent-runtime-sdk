@@ -52,4 +52,42 @@ describe('node facade', () => {
     peer?.terminate();
     await new Promise<void>((resolve) => server.close(() => resolve()));
   });
+
+  it('reports a configured oversized WebSocket frame without exposing its payload', async () => {
+    const server = new WebSocketServer({ port: 0 });
+    await new Promise<void>((resolve) => server.once('listening', resolve));
+    const address = server.address();
+    if (!address || typeof address === 'string') throw new Error('Test WebSocket server did not bind a TCP port');
+    let peer: WebSocket | undefined;
+    const accepted = new Promise<void>((resolve) => {
+      server.once('connection', (socket) => {
+        peer = socket;
+        resolve();
+      });
+    });
+    const connection = await new WsWebSocketFactory().connect({
+      url: `ws://127.0.0.1:${address.port}`,
+      maxPayloadBytes: 128,
+    });
+    await accepted;
+    const events = connection.events()[Symbol.asyncIterator]();
+
+    await expect(events.next()).resolves.toMatchObject({ value: { type: 'open' } });
+    peer?.send('private-frame-content'.repeat(20));
+    const failure = await events.next();
+
+    expect(failure).toMatchObject({
+      value: {
+        type: 'error',
+        error: {
+          code: 'INVALID_RESPONSE',
+          details: { maxFrameBytes: 128 },
+        },
+      },
+    });
+    expect(JSON.stringify(failure)).not.toContain('private-frame-content');
+    await connection.terminate?.();
+    peer?.terminate();
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  });
 });
