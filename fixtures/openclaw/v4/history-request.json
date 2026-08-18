@@ -12,6 +12,6 @@
     "type": "req",
     "id": "history:session-1",
     "method": "chat.history",
-    "params": { "sessionKey": "session-1", "limit": 25 }
+    "params": { "sessionKey": "session-1", "limit": 25, "offset": 0 }
   }
 }

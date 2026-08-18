@@ -44,6 +44,7 @@ export type OpenClawProtocolMappings = {
   connectEvent: string;
   connectMethod: string;
   sessionCreateMethod: string;
+  sessionPatchMethod: string;
   runStartMethod: string;
   runWaitMethod: string;
   historyMethod: string;
@@ -444,6 +445,14 @@ export abstract class MappedOpenClawCodec implements OpenClawProtocolCodec {
     return { id: `session-create:${input.applicationSessionId}`, method: this.mappings.sessionCreateMethod, params: { key: input.applicationSessionId } };
   }
 
+  buildSessionPatch(externalSessionId: string, title: string): OpenClawRpcRequest {
+    return {
+      id: `session-patch:${externalSessionId}`,
+      method: this.mappings.sessionPatchMethod,
+      params: { key: externalSessionId, label: title },
+    };
+  }
+
   buildRunStart(input: StartRuntimeRunInput): OpenClawRpcRequest {
     return {
       id: `run-start:${input.applicationRunId}`,
@@ -594,8 +603,8 @@ function compactObject(value: Record<string, unknown>): Record<string, unknown> 
   return Object.fromEntries(Object.entries(value).filter(([, nested]) => nested !== undefined));
 }
 
-function openClawHistoryOffset(cursor: string | undefined): number | undefined {
-  if (cursor === undefined) return undefined;
+function openClawHistoryOffset(cursor: string | undefined): number {
+  if (cursor === undefined) return 0;
   if (!/^(0|[1-9]\d*)$/.test(cursor)) {
     throw new RuntimeError({
       code: 'INVALID_REQUEST',

@@ -132,6 +132,7 @@ export interface OpenClawProtocolCodec {
   supportsMethod(method: string, hello: OpenClawHello): boolean;
   capabilities(hello?: OpenClawHello): RuntimeCapabilities;
   buildSessionCreate(input: EnsureSessionInput): OpenClawRpcRequest;
+  buildSessionPatch(externalSessionId: string, title: string): OpenClawRpcRequest;
   buildRunStart(input: StartRuntimeRunInput): OpenClawRpcRequest;
   buildRunWait(input: GetRuntimeRunInput): OpenClawRpcRequest;
   buildHistory(input: GetRuntimeHistoryInput): OpenClawRpcRequest;
