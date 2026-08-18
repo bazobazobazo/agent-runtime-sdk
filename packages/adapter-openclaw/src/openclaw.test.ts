@@ -50,9 +50,54 @@ describe('OpenClaw protocol scaffolding', () => {
   });
 
   it.each([
+    ['v3', 3 as const],
+    ['v4', 4 as const],
+  ])('applies the requested session title to OpenClaw for %s', async (_label, protocolVersion) => {
+    const harness = createAdapterHarness({
+      protocolVersion,
+      methods: ['sessions.create', 'sessions.patch'],
+    });
+    const requests: Array<{ method: string; params?: Record<string, unknown> }> = [];
+    harness.connection.onSend = (data) => {
+      const request = JSON.parse(String(data)) as {
+        id: string;
+        method: string;
+        params?: Record<string, unknown>;
+      };
+      requests.push(request);
+      harness.connection.pushMessage(responseFrame(request.id, { ok: true }));
+    };
+
+    await harness.adapter.ensureSession({
+      applicationSessionId: 'session-1',
+      title: 'Quarterly BOM',
+    });
+
+    expect(requests).toMatchObject([
+      {
+        method: 'sessions.create',
+        params: { key: 'session-1' },
+      },
+      {
+        method: 'sessions.patch',
+        params: { key: 'session-1', label: 'Quarterly BOM' },
+      },
+    ]);
+  });
+
+  it.each([
     ['v3', openClawV3Codec()],
     ['v4', openClawV4Codec()],
   ])('maps opaque history cursors to OpenClaw numeric offsets for %s', (_label, codec) => {
+    expect(codec.buildHistory({
+      applicationSessionId: 'session-1',
+      externalSessionId: 'session-1',
+      limit: 50,
+    }).params).toEqual({
+      sessionKey: 'session-1',
+      limit: 50,
+      offset: 0,
+    });
     expect(codec.buildHistory({
       applicationSessionId: 'session-1',
       externalSessionId: 'session-1',
@@ -136,6 +181,33 @@ describe('OpenClaw protocol scaffolding', () => {
       { metadata: { applicationRunId: 'app-1' } },
       { metadata: { applicationRunId: 'app-2' } },
     ]);
+  });
+
+  it('keeps restart-recovery prompts inside the accepted application run segment', () => {
+    const history = normalizeOpenClawHistory({
+      messages: [
+        {
+          role: 'user',
+          content: 'build the workbook',
+          idempotencyKey: 'app-1:user',
+        },
+        {
+          role: 'user',
+          content: 'Continue the interrupted turn after the gateway restart.',
+          idempotencyKey: 'codex-app-server:thread-1:turn-1:prompt',
+        },
+        {
+          role: 'assistant',
+          content: 'The workbook is ready.',
+          idempotencyKey: 'codex-app-server:thread-1:turn-1:assistant',
+        },
+      ],
+    });
+
+    expect(
+      history.find((message) => message.role === 'assistant')?.metadata
+        ?.applicationRunId,
+    ).toBe('app-1');
   });
 
   it('rejects conflicting user application-run markers', () => {
@@ -1628,7 +1700,7 @@ describe.each([
       providerState: { completionEvidence: 'reconciled-session-history' },
     });
     expect(historyRequests).toEqual([
-      { sessionKey: 'session-1', limit: 50 },
+      { sessionKey: 'session-1', limit: 50, offset: 0 },
       { sessionKey: 'session-1', limit: 50, offset: 50 },
     ]);
   });

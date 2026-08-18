@@ -4,6 +4,7 @@ export const openClawV3Mappings: OpenClawProtocolMappings = {
   connectEvent: 'connect.challenge',
   connectMethod: 'connect',
   sessionCreateMethod: 'sessions.create',
+  sessionPatchMethod: 'sessions.patch',
   runStartMethod: 'chat.send',
   runWaitMethod: 'agent.wait',
   historyMethod: 'chat.history',

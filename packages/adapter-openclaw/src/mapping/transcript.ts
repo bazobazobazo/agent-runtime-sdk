@@ -66,6 +66,7 @@ function correlateFinalAssistantApplicationRuns(messages: readonly unknown[]): M
     const role = normalizeRole(value.role);
     const openClaw = openClawMetadata(value);
     if (role === 'user') {
+      if (applicationRunId && isRestartRecoveryPrompt(value, openClaw)) return;
       finishSegment();
       applicationRunId = normalizeUserApplicationRunId(value, openClaw);
       return;
@@ -80,6 +81,18 @@ function correlateFinalAssistantApplicationRuns(messages: readonly unknown[]): M
   });
   finishSegment();
   return correlated;
+}
+
+function isRestartRecoveryPrompt(
+  value: Record<string, unknown>,
+  openClaw: Record<string, unknown> | undefined,
+): boolean {
+  const marker = uniqueHistoryIdentifier(
+    value.idempotencyKey,
+    openClaw?.idempotencyKey,
+  );
+  return marker !== undefined &&
+    /^codex-app-server:[^:\u0000-\u001f\u007f]{1,256}:[A-Za-z0-9][A-Za-z0-9._-]{0,255}:prompt$/.test(marker);
 }
 
 function normalizeUserApplicationRunId(

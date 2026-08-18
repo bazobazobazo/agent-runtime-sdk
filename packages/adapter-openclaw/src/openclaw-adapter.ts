@@ -334,6 +334,15 @@ export class OpenClawAdapter implements AgentRuntimeAdapter {
         signal: options?.signal,
       });
     }
+    if (
+      input.title &&
+      state.codec.supportsMethod('sessions.patch', state.hello)
+    ) {
+      await state.dispatcher.request(
+        state.codec.buildSessionPatch(externalSessionId, input.title),
+        { signal: options?.signal },
+      );
+    }
     return {
       applicationSessionId: input.applicationSessionId,
       externalSessionId,
