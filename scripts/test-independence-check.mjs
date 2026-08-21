@@ -55,7 +55,7 @@ assert.deepEqual(releaseConfig.publicPackages, expectedPackages);
 assert.deepEqual((await publicPackages()).map((pkg) => pkg.name), expectedPackages);
 
 for (const [path, expected] of Object.entries({
-  'etc/api/public-api-inventory.json': 'e6a8b5daff26cfc1555a22d1a04618913866d2a27b4ca3fc5e9cc058f522175b',
+  'etc/api/public-api-inventory.json': 'd609ff0102f2480acaf407f4e315f38cfa3fb7ed263676dd8bcffb297d55a006',
   'docs/compatibility.md': '125e638af513ed40308b647f3f1923728df202e7b1d64d2042a83ee3eb2ca4c8',
   'docs/adapter-conformance.md': 'bd055c8a132efe9eda5f4b2ae5bc5b59bf02e0c4cb016057656dfcca7fc93dd1',
   'docs/live-compatibility.md': '4c1999983596b0ded7cade07df530a958c9f9df869892bf77dc7e326c370da0d',
