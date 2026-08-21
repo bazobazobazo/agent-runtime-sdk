@@ -215,7 +215,6 @@ export abstract class MappedOpenClawCodec implements OpenClawProtocolCodec {
     if (!eventMatchesRun(this.mappings, metadata, context)) return [];
 
     const payload = optionalRecord(event.payload);
-    const text = eventText(payload);
     const state = stringValue(payload.state ?? payload.status)?.toLowerCase();
     const occurredAt = metadata.occurredAt ? new Date(metadata.occurredAt) : context.clock.now();
     const provider = {
@@ -224,6 +223,16 @@ export abstract class MappedOpenClawCodec implements OpenClawProtocolCodec {
       ...(context.includeRawProviderPayload ? { sanitizedRawPayload: sanitizeOpenClawPayload(event.payload) } : {}),
     };
 
+    const progress = openClawPublicProgress(event.event, payload);
+    if (progress) {
+      return [{
+        ...eventBase('assistant.progress', context, metadata, occurredAt, provider),
+        type: 'assistant.progress',
+        ...progress,
+      }];
+    }
+
+    const text = eventText(payload);
     const isStateful = this.mappings.statefulEvents.includes(event.event);
     if ((this.mappings.deltaEvents.includes(event.event) || (isStateful && state === 'delta')) && text) {
       return [{ ...eventBase('assistant.delta', context, metadata, occurredAt, provider), type: 'assistant.delta', delta: text }];
@@ -742,6 +751,40 @@ function eventText(payload: Record<string, unknown>): string | undefined {
   if (direct) return direct;
   const message = optionalRecord(payload.message);
   return normalizedText(message.content ?? message.text);
+}
+
+function openClawPublicProgress(
+  eventName: string,
+  payload: Record<string, unknown>,
+): { content: string; mode: 'append' | 'replace'; itemId?: string } | undefined {
+  if (eventName !== 'agent' || stringValue(payload.stream) !== 'assistant') return undefined;
+  const data = optionalRecord(payload.data);
+  if (stringValue(data.phase)?.toLowerCase() !== 'commentary') return undefined;
+
+  const delta = boundedProgressText(data.delta);
+  const text = boundedProgressText(data.text);
+  const replace = booleanValue(data.replace) === true;
+  const content = replace ? (text ?? delta) : (delta ?? text);
+  if (!content) return undefined;
+
+  const itemId = boundedEventIdentifier(data.itemId);
+  return {
+    content,
+    mode: replace || !delta ? 'replace' : 'append',
+    ...(itemId ? { itemId } : {}),
+  };
+}
+
+function boundedProgressText(value: unknown): string | undefined {
+  const text = stringValue(value);
+  if (!text) return undefined;
+  return text.slice(0, 32_000);
+}
+
+function boundedEventIdentifier(value: unknown): string | undefined {
+  const identifier = stringValue(value);
+  if (!identifier || identifier.length > 256 || /[\u0000-\u001F\u007F]/.test(identifier)) return undefined;
+  return identifier;
 }
 
 function normalizedText(value: unknown): string | undefined {

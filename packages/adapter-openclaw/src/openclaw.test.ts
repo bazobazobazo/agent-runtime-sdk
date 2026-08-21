@@ -366,6 +366,58 @@ describe('OpenClaw protocol scaffolding', () => {
     );
   });
 
+  it.each([
+    ['v3', openClawV3Codec()],
+    ['v4', openClawV4Codec()],
+  ])('maps public %s commentary without exposing reasoning', (_label, codec) => {
+    const context = eventContext();
+    const append = codec.mapProviderEvent(codec.parseFrame(openClawEvent('agent', {
+      runId: 'provider-run-1',
+      sessionKey: 'session-1',
+      seq: 7,
+      stream: 'assistant',
+      data: {
+        phase: 'commentary',
+        itemId: 'commentary-1',
+        delta: 'I found the matching Workflow. ',
+      },
+    })) as never, context);
+    const replace = codec.mapProviderEvent(codec.parseFrame(openClawEvent('agent', {
+      runId: 'provider-run-1',
+      sessionKey: 'session-1',
+      seq: 8,
+      stream: 'assistant',
+      data: {
+        phase: 'commentary',
+        itemId: 'commentary-1',
+        text: 'I found the matching Workflow and I am checking its inputs.',
+        replace: true,
+      },
+    })) as never, context);
+
+    expect(append).toMatchObject([{
+      type: 'assistant.progress',
+      content: 'I found the matching Workflow. ',
+      mode: 'append',
+      itemId: 'commentary-1',
+    }]);
+    expect(replace).toMatchObject([{
+      type: 'assistant.progress',
+      content: 'I found the matching Workflow and I am checking its inputs.',
+      mode: 'replace',
+      itemId: 'commentary-1',
+    }]);
+
+    const reasoning = codec.mapProviderEvent(codec.parseFrame(openClawEvent('agent', {
+      runId: 'provider-run-1',
+      sessionKey: 'session-1',
+      seq: 9,
+      stream: 'reasoning',
+      data: { delta: 'private chain of thought' },
+    })) as never, context);
+    expect(reasoning).toEqual([]);
+  });
+
   it('classifies negotiation failures without downgrading auth or malformed frames', () => {
     expect(
       classifyNegotiationFailure(

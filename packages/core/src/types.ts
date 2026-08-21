@@ -467,6 +467,7 @@ export type RuntimeEventName =
   | 'run.started'
   | 'assistant.delta'
   | 'assistant.completed'
+  | 'assistant.progress'
   | 'reasoning.delta'
   | 'tool.started'
   | 'tool.updated'
@@ -512,6 +513,14 @@ export type AssistantDeltaEvent = RuntimeEventBase & {
 export type AssistantCompletedEvent = RuntimeEventBase & {
   type: 'assistant.completed';
   text: string;
+};
+/** Public alpha contract for user-visible assistant progress. */
+export type AssistantProgressEvent = RuntimeEventBase & {
+  type: 'assistant.progress';
+  /** Public progress text intended for display to the user. Never private reasoning. */
+  content: string;
+  mode: 'append' | 'replace';
+  itemId?: string;
 };
 /** Public alpha contract for reasoning delta event. */
 export type ReasoningDeltaEvent = RuntimeEventBase & {
@@ -619,6 +628,7 @@ export type RuntimeEvent =
   | RuntimeStartedEvent
   | AssistantDeltaEvent
   | AssistantCompletedEvent
+  | AssistantProgressEvent
   | ReasoningDeltaEvent
   | ToolStartedEvent
   | ToolUpdatedEvent
