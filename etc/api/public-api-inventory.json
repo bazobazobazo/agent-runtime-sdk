@@ -60,6 +60,14 @@
     {
       "package": "@banzae/agent-runtime-core",
       "entrypoint": ".",
+      "name": "AssistantProgressEvent",
+      "kind": "TypeAliasDeclaration",
+      "classification": "stable-for-alpha",
+      "signature": "AssistantProgressEvent"
+    },
+    {
+      "package": "@banzae/agent-runtime-core",
+      "entrypoint": ".",
       "name": "CancelRuntimeRunInput",
       "kind": "TypeAliasDeclaration",
       "classification": "stable-for-alpha",

@@ -16,6 +16,8 @@
   - `AssistantCompletedEvent`
 - **AssistantDeltaEvent** — stable-for-alpha — `TypeAliasDeclaration`
   - `AssistantDeltaEvent`
+- **AssistantProgressEvent** — stable-for-alpha — `TypeAliasDeclaration`
+  - `AssistantProgressEvent`
 - **CancelRuntimeRunInput** — stable-for-alpha — `TypeAliasDeclaration`
   - `GetRuntimeRunInput`
 - **ConnectOptions** — stable-for-alpha — `TypeAliasDeclaration`
