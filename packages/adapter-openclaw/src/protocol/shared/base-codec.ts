@@ -377,6 +377,15 @@ export abstract class MappedOpenClawCodec implements OpenClawProtocolCodec {
     if (lower.includes('protocol') || providerDetails.expectedProtocol !== undefined || detailCode === 'PROTOCOL_MISMATCH') {
       return new RuntimeError({ code: 'PROTOCOL_MISMATCH', retryable: false, message: 'OpenClaw protocol negotiation failed', adapterId: 'openclaw', details: providerDetails });
     }
+    if (lower.includes('binding generation was retired')) {
+      return new RuntimeError({
+        code: 'CONFLICT',
+        retryable: false,
+        message: 'OpenClaw application session was retired',
+        adapterId: 'openclaw',
+        details: { reason: 'APPLICATION_SESSION_RETIRED' },
+      });
+    }
     if (providerCode === 'INVALID_REQUEST') {
       return new RuntimeError({ code: 'INVALID_REQUEST', retryable: false, message: 'OpenClaw rejected the request', adapterId: 'openclaw', details: providerDetails });
     }
