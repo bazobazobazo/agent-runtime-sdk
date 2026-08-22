@@ -736,6 +736,25 @@ describe('OpenClaw protocol scaffolding', () => {
     expect(mapped.details?.expectedProtocol).toBe(3);
   });
 
+  it('classifies a retired application session without retaining its private key', () => {
+    const mapped = openClawV4Codec().mapError({
+      code: 'INVALID_REQUEST',
+      message:
+        'Codex binding generation was retired: session-key:main:private-session-key',
+      details: {
+        sessionKey: 'session-key:main:private-session-key',
+      },
+    });
+
+    expect(mapped).toMatchObject({
+      code: 'CONFLICT',
+      retryable: false,
+      message: 'OpenClaw application session was retired',
+      details: { reason: 'APPLICATION_SESSION_RETIRED' },
+    });
+    expect(JSON.stringify(mapped.details)).not.toContain('private-session-key');
+  });
+
   it('maps pairing-required provider errors', () => {
     const mapped = openClawV3Codec().mapError({
       code: 'NOT_PAIRED',
