@@ -1511,6 +1511,10 @@ function normalizeSchedule(payload: unknown, fallback?: Partial<CreateRuntimeSch
       text: safeText(providerPayload.message ?? providerPayload.text, 64_000) ?? fallback?.payload?.text ?? '',
       kind: safeText(providerPayload.kind, 32) === 'systemEvent' ? 'system-event' : 'agent-turn',
       sessionTarget: safeText(nested.sessionTarget, 256) ?? fallback?.payload?.sessionTarget,
+      deliveryMode: normalizeScheduleDeliveryMode(
+        record(nested.delivery).mode,
+        fallback?.payload?.deliveryMode,
+      ),
       deliveryChannel: safeText(record(nested.delivery).channel, 256) ?? fallback?.payload?.deliveryChannel,
     },
     status: scheduleStatus(nested, value),
@@ -1518,6 +1522,14 @@ function normalizeSchedule(payload: unknown, fallback?: Partial<CreateRuntimeSch
     previousExecutionAt: safeDate(nested.lastRunAt ?? value.lastRunAt ?? nested.previousExecutionAt),
     idempotencyKey: safeText(nested.declarationKey ?? value.declarationKey ?? metadata.idempotencyKey ?? value.idempotencyKey, 256) ?? fallback?.idempotencyKey,
   };
+}
+
+function normalizeScheduleDeliveryMode(
+  value: unknown,
+  fallback?: RuntimeSchedule['payload']['deliveryMode'],
+): RuntimeSchedule['payload']['deliveryMode'] {
+  const mode = safeText(value, 32);
+  return mode === 'announce' || mode === 'none' ? mode : fallback;
 }
 
 function normalizeSchedulePage(payload: unknown): RuntimeSchedulePage {

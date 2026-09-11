@@ -583,7 +583,7 @@ function scheduleJob(input: CreateRuntimeScheduleInput, requireV4Defaults = fals
       : { kind: 'agentTurn', message: input.payload.text },
     sessionTarget: input.payload.sessionTarget ?? (requireV4Defaults ? input.payload.kind === 'system-event' ? 'main' : 'isolated' : undefined),
     wakeMode: requireV4Defaults ? 'now' : undefined,
-    delivery: input.payload.deliveryChannel ? { mode: 'announce', channel: input.payload.deliveryChannel } : undefined,
+    delivery: scheduleDelivery(input.payload),
     enabled: input.enabled,
   });
 }
@@ -598,9 +598,22 @@ function schedulePatch(input: UpdateRuntimeScheduleInput): Record<string, unknow
         : { kind: 'agentTurn', message: input.payload.text }
       : undefined,
     sessionTarget: input.payload?.sessionTarget,
-    delivery: input.payload?.deliveryChannel ? { mode: 'announce', channel: input.payload.deliveryChannel } : undefined,
+    delivery: input.payload ? scheduleDelivery(input.payload) : undefined,
     enabled: input.enabled,
   });
+}
+
+function scheduleDelivery(
+  payload: CreateRuntimeScheduleInput['payload'],
+): Record<string, unknown> | undefined {
+  if (payload.deliveryMode === 'none') return { mode: 'none' };
+  if (payload.deliveryMode === 'announce' || payload.deliveryChannel) {
+    return compactObject({
+      mode: 'announce',
+      channel: payload.deliveryChannel,
+    });
+  }
+  return undefined;
 }
 
 function scheduleTiming(input: CreateRuntimeScheduleInput['timing']): Record<string, unknown> {

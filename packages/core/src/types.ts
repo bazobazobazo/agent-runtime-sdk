@@ -145,11 +145,15 @@ export type RuntimeScheduleTiming =
   | { kind: 'interval'; everyMs: number; startsAt?: string }
   | { kind: 'cron'; expression: string; timezone?: string };
 
+/** Provider-neutral schedule result delivery behavior. */
+export type RuntimeScheduleDeliveryMode = 'announce' | 'none';
+
 /** Provider-neutral schedule payload. */
 export type RuntimeSchedulePayload = {
   text: string;
   kind?: 'agent-turn' | 'system-event';
   sessionTarget?: string;
+  deliveryMode?: RuntimeScheduleDeliveryMode;
   deliveryChannel?: string;
 };
 

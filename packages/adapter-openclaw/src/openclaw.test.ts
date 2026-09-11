@@ -280,6 +280,27 @@ describe('OpenClaw protocol scaffolding', () => {
   });
 
   it.each([
+    ['v3', openClawV3Codec()],
+    ['v4', openClawV4Codec()],
+  ])('disables schedule delivery explicitly for %s', (_label, codec) => {
+    const request = codec.buildScheduleCreate({
+      idempotencyKey: 'host-schedule-key',
+      timing: { kind: 'once', at: '2030-01-02T03:04:00.000Z' },
+      payload: {
+        text: 'marker',
+        kind: 'agent-turn',
+        deliveryMode: 'none',
+      },
+    });
+    const job =
+      request.params?.job && typeof request.params.job === 'object'
+        ? request.params.job
+        : request.params;
+
+    expect(job).toMatchObject({ delivery: { mode: 'none' } });
+  });
+
+  it.each([
     ['v3', openClawV3Codec(), '../../../fixtures/openclaw/v3'],
     ['v4', openClawV4Codec(), '../../../fixtures/openclaw/v4'],
   ])('validates %s fixture contract', async (_label, codec, basePath) => {

@@ -180,6 +180,8 @@
   - `RuntimeRunStatus`
 - **RuntimeSchedule** — stable-for-alpha — `TypeAliasDeclaration`
   - `RuntimeSchedule`
+- **RuntimeScheduleDeliveryMode** — stable-for-alpha — `TypeAliasDeclaration`
+  - `RuntimeScheduleDeliveryMode`
 - **RuntimeScheduleExecution** — stable-for-alpha — `TypeAliasDeclaration`
   - `RuntimeScheduleExecution`
 - **RuntimeScheduleExecutionPage** — stable-for-alpha — `TypeAliasDeclaration`
