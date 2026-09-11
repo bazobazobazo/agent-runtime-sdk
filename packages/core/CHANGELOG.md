@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.0-alpha.7
+
+- Expose public assistant progress events through the provider-neutral runtime API.
+- Allow schedule consumers to disable result delivery when no announcement channel is configured.
+
 ## 0.1.0-alpha.6
 
 - Synchronized fixed-version release for opt-in OpenClaw history compatibility.

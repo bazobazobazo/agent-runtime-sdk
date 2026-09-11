@@ -1,6 +1,6 @@
 {
   "name": "@banzae/agent-runtime-core",
-  "version": "0.1.0-alpha.6",
+  "version": "0.1.0-alpha.7",
   "description": "Provider-neutral contracts for Banzae agent runtime adapters.",
   "license": "Apache-2.0",
   "author": "Banzae",

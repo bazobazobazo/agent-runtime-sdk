@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.0-alpha.7
+
+- Recover accepted runs across paginated history after gateway restarts.
+- Preserve restart-recovery prompts and requested OpenClaw session titles.
+- Map explicitly public assistant commentary into provider-neutral progress events.
+- Allow schedule result delivery to be disabled for channel-free isolated runs.
+- Classify retired application sessions as a safe conflict so hosts can rotate them.
+
 ## 0.1.0-alpha.6
 
 - Add an opt-in compatibility switch for validated gateways that implement
