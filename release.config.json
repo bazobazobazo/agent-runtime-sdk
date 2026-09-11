@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
-  "sdkVersion": "0.1.0-alpha.6",
-  "sourceVersion": "0.1.0-alpha.6",
+  "sdkVersion": "0.1.0-alpha.7",
+  "sourceVersion": "0.1.0-alpha.7",
   "distTags": {
     "prerelease": "next",
     "stable": "latest"

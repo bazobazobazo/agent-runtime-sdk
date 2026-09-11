@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.0-alpha.7
+
+- Synchronized fixed-version release for runtime progress and schedule delivery controls.
+
 ## 0.1.0-alpha.6
 
 - Synchronized fixed-version release for opt-in OpenClaw history compatibility.

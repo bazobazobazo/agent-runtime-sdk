@@ -66,6 +66,10 @@ for (const [path, expected] of Object.entries({
 
 const directory = await mkdtemp(join(tmpdir(), 'agent-runtime-independence-'));
 try {
+  const binary = join(directory, 'binary-artifact.bin');
+  await writeFile(binary, Buffer.from([0xff, 0xfe, 0xfd, 0xfc]));
+  await exec(process.execPath, ['./scripts/check-independence.mjs', binary], { cwd: root });
+
   for (const [index, term] of [
     previousLibraryName,
     ['@', previousLibraryName, '-dev/openclaw-gateway-client'].join(''),

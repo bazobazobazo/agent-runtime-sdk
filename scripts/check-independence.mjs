@@ -57,8 +57,8 @@ for (const path of [...files].sort()) {
   const bytes = await readFile(path).catch(() => undefined);
   if (!bytes) continue;
   check(relative(root, path), relative(root, path));
-  if (bytes.includes(0)) continue;
-  const text = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+  const text = decodeText(bytes);
+  if (text === undefined) continue;
   check(relative(root, path), text);
 }
 
@@ -71,8 +71,8 @@ for (const archive of archives) {
       encoding: 'buffer',
       maxBuffer: 20 * 1024 * 1024,
     });
-    if (content.includes(0)) continue;
-    const text = new TextDecoder('utf-8', { fatal: true }).decode(content);
+    const text = decodeText(content);
+    if (text === undefined) continue;
     check(`${relative(root, archive)}:${entry}`, text);
   }
 }
@@ -87,6 +87,15 @@ function check(label, value) {
   const lower = value.toLowerCase();
   for (const term of disallowed) {
     if (lower.includes(term)) findings.push(`${label}: disallowed product-specific term`);
+  }
+}
+
+function decodeText(bytes) {
+  if (bytes.includes(0)) return undefined;
+  try {
+    return new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+  } catch {
+    return undefined;
   }
 }
 
