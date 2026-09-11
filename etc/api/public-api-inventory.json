@@ -716,6 +716,14 @@
     {
       "package": "@banzae/agent-runtime-core",
       "entrypoint": ".",
+      "name": "RuntimeScheduleDeliveryMode",
+      "kind": "TypeAliasDeclaration",
+      "classification": "stable-for-alpha",
+      "signature": "RuntimeScheduleDeliveryMode"
+    },
+    {
+      "package": "@banzae/agent-runtime-core",
+      "entrypoint": ".",
       "name": "RuntimeScheduleExecution",
       "kind": "TypeAliasDeclaration",
       "classification": "stable-for-alpha",
