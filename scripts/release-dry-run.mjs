@@ -6,7 +6,7 @@ import { artifactRoot, distTagForVersion, readJson, root } from './lib/release-c
 
 const exec = promisify(execFile);
 const commands = [
-  ['pnpm', ['version:check']],
+  [process.execPath, ['./scripts/version-check.mjs', '--allow-pending-changesets']],
   ['pnpm', ['clean']],
   ['pnpm', ['build']],
   ['pnpm', ['api:extract']],

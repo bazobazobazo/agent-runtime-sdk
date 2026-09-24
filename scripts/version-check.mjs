@@ -63,6 +63,8 @@ if (fixed.length !== 6 || fixed.some((name) => !publicPackageNames.has(name))) {
 }
 if ((changesets.ignore ?? []).some((name) => publicPackageNames.has(name))) throw new Error('A public package is ignored by Changesets.');
 const pending = (await readdir(join(root, '.changeset'))).filter((name) => name.endsWith('.md') && name !== 'README.md');
-if (pending.length) throw new Error(`Release changesets were not consumed: ${pending.join(', ')}`);
+if (pending.length && !process.argv.includes('--allow-pending-changesets')) {
+  throw new Error(`Release changesets were not consumed: ${pending.join(', ')}`);
+}
 
 console.log(`Version policy valid: ${packages.length} public packages are synchronized at ${releaseConfig.sdkVersion}; private packages are excluded.`);

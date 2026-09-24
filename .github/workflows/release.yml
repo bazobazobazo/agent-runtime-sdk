@@ -51,6 +51,8 @@ jobs:
           test -z "$(git status --porcelain)"
       - name: Install frozen dependencies
         run: pnpm install --frozen-lockfile
+      - name: Verify release Changesets are consumed
+        run: pnpm version:check
       - name: Run complete release gate
         run: pnpm release:gate
       - name: Upload release preparation artifacts

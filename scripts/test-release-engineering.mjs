@@ -36,6 +36,7 @@ assert.doesNotMatch(dryRun, /npm\s+publish|pnpm\s+publish|npm\s+dist-tag|git\s+t
 assert.match(dryRun, /with dist-tag \$\{manifest\.distTag\}/);
 const workflow = await readFile(join(root, '.github', 'workflows', 'release.yml'), 'utf8');
 assert.match(workflow, /workflow_dispatch:/);
+assert.match(workflow, /run: pnpm version:check/);
 assert.doesNotMatch(workflow, /NODE_AUTH_TOKEN|NPM_TOKEN/);
 assert.equal((workflow.match(/id-token:\s*write/g) ?? []).length, 1);
 const publishLines = workflow.split(/\r?\n/).filter((line) => /\bnpm\s+publish\b/.test(line));

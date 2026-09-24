@@ -32,6 +32,9 @@ run clears stale staging, builds, extracts/checks API reports, packs all six
 packages, installs them into an external clean consumer, executes fake flows,
 generates SPDX/checksums/manifest/release-note preview, verifies product
 independence across sources and tarballs, and scans the result.
+Feature PRs may retain pending Changesets during this dry run. The manual
+release workflow runs the strict `pnpm version:check` first and refuses to
+prepare or publish a release until every Changeset is consumed.
 
 `pnpm release:gate` adds repository tests, bounded fuzzing, resilience,
 documentation/examples, dependency/license/security checks, and two-build
