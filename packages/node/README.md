@@ -31,7 +31,21 @@ try {
 The registry constructs OpenClaw/Hermes adapters; construction does not connect.
 Capabilities remain disabled until connection. Close every adapter in `finally`.
 `NodeFileStateStore` writes durable state with restrictive modes; applications
-must choose an appropriate protected directory.
+must choose an appropriate protected directory. It writes a temporary file,
+syncs its contents, then atomically replaces the committed JSON file. Mutations
+for the same file are serialized within one Node.js process. Directory sync is
+best-effort on platforms that do not support it.
+
+Existing namespace/key identifiers containing only ASCII letters, digits,
+underscores, dots, and hyphens (except `.` and `..`) keep their original file
+paths. Other identifiers now use unambiguous encoded paths; identifiers must be
+nonempty valid UTF-8 strings of at most 180 bytes. **Do not automatically read
+the old sanitized path for an encoded identifier:** older identifiers such as
+`a/b` and `a_b` could have shared a file, so its owner cannot be inferred.
+Consumers with noncanonical legacy identifiers must back up their state and
+explicitly map each old file to its original identifier before migrating or
+re-pairing. Existing OpenClaw connection fingerprints use canonical identifiers
+and need no path migration.
 
 ## Errors and security
 
